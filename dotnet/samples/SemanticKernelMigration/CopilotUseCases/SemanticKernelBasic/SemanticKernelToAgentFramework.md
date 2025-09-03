@@ -815,56 +815,49 @@ AgentThread thread = new AzureAIAgentThread(agent);
 **After (Agent Framework):**
 ```csharp
 using Microsoft.Extensions.AI.Agents;
-using Azure.AI.Inference;
+using Azure.AI.Agents.Persistent;
 using Azure.Identity;
 
-AIAgent agent = new ChatCompletionsClient(
-    new Uri(endpoint),
-    new AzureCliCredential())
-    .CreateAIAgent(instructions: "You are a helpful assistant");
+var client = new PersistentAgentsClient(endpoint, new AzureCliCredential());
+
+// Create an AIAgent using Agent Framework - pass model ID as required by the API
+AIAgent agent = client.CreateAIAgent(
+    model: deploymentName,
+    instructions: "You are a helpful assistant",
+    tools: [/* tool definitions */]);
 
 AgentThread thread = agent.GetNewThread();
 ```
 
-### 5. A2A (Azure AI Agents) Migration
+### 5. A2A Migration
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" />
-<PackageReference Include="Azure.AI.Projects" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.A2A" />
 ```
 
 **Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
-<PackageReference Include="Azure.AI.Projects" />
+<PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
 ```
 
 **Before (Semantic Kernel):**
 ```csharp
-using Microsoft.SemanticKernel.Agents;
-using Azure.AI.Projects;
-
-AIProjectClient projectClient = new(connectionString);
-Agent azureAgent = await projectClient.GetAgentsClient().CreateAgentAsync(
-    model: modelId,
-    instructions: "You are a helpful assistant");
-
-// Custom agent wrapper needed
+// Create an A2A agent instance
+using var httpClient = CreateHttpClient();
+var client = new A2AClient(url, httpClient);
+var cardResolver = new A2ACardResolver(url, httpClient);
+var agentCard = await cardResolver.GetAgentCardAsync();
+var agent = new A2AAgent(client, agentCard);
 ```
 
 **After (Agent Framework):**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
-using Azure.AI.Projects;
+// Initialize an A2ACardResolver to get an A2A agent card.
+A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
 
-AIAgent agent = new AIProjectClient(connectionString)
-    .GetAgentsClient()
-    .CreateAIAgent(
-        model: modelId,
-        instructions: "You are a helpful assistant");
-
-AgentThread thread = agent.GetNewThread();
+// Create an instance of the AIAgent for an existing A2A agent specified by the agent card.
+AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 ```
 
 ### 6. OpenAI Responses Migration
@@ -880,32 +873,57 @@ AgentThread thread = agent.GetNewThread();
 ```
 
 **Before (Semantic Kernel):**
-```csharp
-using Microsoft.SemanticKernel.Agents;
-using OpenAI.Chat;
 
-// Custom implementation required for responses
-ChatClient chatClient = new(apiKey);
-// Manual response handling
+The thread management is done manually with OpenAI Responses in Semantic Kernel, where the thread 
+needs to be passed to the `InvokeAsync` method and updated with the `item.Thread` from the response.
+
+```csharp
+using Microsoft.SemanticKernel.Agents.OpenAI;
+
+// Define the agent
+OpenAIResponseAgent agent = new(new OpenAIClient(apiKey))
+{
+    Name = "ResponseAgent",
+    Instructions = "Answer all queries in English and French.",
+};
+
+// Initial thread can be null as it will be automatically created
+AgentThread? agentThread = null;
+
+var responseItems = agent.InvokeAsync(new ChatMessageContent(AuthorRole.User, "Input message."), agentThread);
+await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseItems)
+{
+    // Update the thread to maintain the conversation for future interaction
+    agentThread = responseItem.Thread;
+
+    WriteAgentChatMessage(responseItem.Message);
+}
 ```
 
 **After (Agent Framework):**
+
+Agent Framework automatically manages the thread, so there's no need to manually update it.
+
 ```csharp
-using Microsoft.Extensions.AI.Agents;
-using OpenAI;
+using Microsoft.Extensions.AI.Agents.OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
-    .GetChatClient(modelId)
+    .GetOpenAIResponseClient(modelId)
     .CreateAIAgent(
-        instructions: "You are a helpful assistant",
-        responseFormat: ChatResponseFormat.CreateJsonSchemaFormat(
-            jsonSchemaFormatName: "response_format",
-            jsonSchema: BinaryData.FromString(schema)));
+        name: "ResponseAgent",
+        instructions: "Answer all queries in English and French.",
+        tools: [/* AITools */]);
 
 AgentThread thread = agent.GetNewThread();
+
+var result = await agent.RunAsync(userInput, thread);
+
+// The thread will be automatically updated with the new response id from this point
 ```
 
 ### 7. Azure OpenAI Responses Migration
+
+Azure OpenAI Responses samples is almost similar to OpenAI Responses, with the single difference that the `OpenAIResponseAgent` is created with a  `AzureOpenAIClient` instead of `OpenAIClient`.
 
 **Semantic Kernel Packages:**
 ```xml
@@ -918,32 +936,55 @@ AgentThread thread = agent.GetNewThread();
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 ```
+The thread management is done manually with OpenAI Responses in Semantic Kernel, where the thread 
+needs to be passed to the `InvokeAsync` method and updated with the `item.Thread` from the response.
 
-**Before (Semantic Kernel):**
 ```csharp
-using Microsoft.SemanticKernel.Agents;
+using Microsoft.SemanticKernel.Agents.OpenAI;
 using Azure.AI.OpenAI;
 
-// Custom implementation required for responses
-AzureOpenAIClient azureClient = new(endpoint, credential);
-// Manual response handling
+// Define the agent
+OpenAIResponseAgent agent = new(new AzureOpenAIClient(endpoint, new AzureCliCredential()))
+{
+    Name = "ResponseAgent",
+    Instructions = "Answer all queries in English and French.",
+};
+
+// Initial thread can be null as it will be automatically created
+AgentThread? agentThread = null;
+
+var responseItems = agent.InvokeAsync(new ChatMessageContent(AuthorRole.User, "Input message."), agentThread);
+await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseItems)
+{
+    // Update the thread to maintain the conversation for future interaction
+    agentThread = responseItem.Thread;
+
+    WriteAgentChatMessage(responseItem.Message);
+}
 ```
 
 **After (Agent Framework):**
+
+Agent Framework automatically manages the thread, so there's no need to manually update it.
+
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Extensions.AI.Agents.OpenAI;
 using Azure.AI.OpenAI;
 
-AIAgent agent = new AzureOpenAIClient(endpoint, credential)
-    .GetChatClient(deploymentName)
+AIAgent agent = new AzureOpenAIClient(endpoint, new AzureCliCredential())
+    .GetOpenAIResponseClient(modelId)
     .CreateAIAgent(
-        instructions: "You are a helpful assistant",
-        responseFormat: ChatResponseFormat.CreateJsonSchemaFormat(
-            jsonSchemaFormatName: "response_format",
-            jsonSchema: BinaryData.FromString(schema)));
+        name: "ResponseAgent",
+        instructions: "Answer all queries in English and French.",
+        tools: [/* AITools */]);
 
 AgentThread thread = agent.GetNewThread();
+
+var result = await agent.RunAsync(userInput, thread);
+
+// The thread will be automatically updated with the new response id from this point
 ```
+
 ### 8. A2A Migration
 
 **Semantic Kernel Packages:**
@@ -995,9 +1036,10 @@ AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 
 #### BedrockAgent Migration
 **Status**: Not directly supported in Agent Framework
-**Workaround**: Implement custom IChatClient for Amazon Bedrock
+**Workaround**: Implement using the ChatClientAgent with the existing IChatClient from AWS Amazon Bedrock SDK
 
 **Semantic Kernel (Before):**
+
 ```csharp
 using Microsoft.SemanticKernel.Agents.Bedrock;
 
@@ -1010,14 +1052,15 @@ BedrockAgent agent = new(
 };
 ```
 
-**Custom Providers with available IChatClient implementations**
+**Agent Framework (After):**
 
 For providers that alredy have an `IChatClient` implementation available in Agent Framework, you can use the `ChatClientAgent` directly providing the `IChatClient` instance without the need to create a custom `AIAgent` wrapper.
 
 ```csharp
 using Microsoft.Extensions.AI.Agents;
 
-var serviceProvider = serviceCollection.BuildServiceProvider();
+services.TryAddAWSService<IAmazonBedrockRuntime>();
+var serviceProvider = services.BuildServiceProvider();
 IAmazonBedrockRuntime runtime = serviceProvider.GetRequiredService<IAmazonBedrockRuntime>();
 
 using var bedrockChatClient = runtime.AsIChatClient();
@@ -1030,20 +1073,24 @@ When migrating projects, update package references according to the provider bei
 
 #### Remove Semantic Kernel Packages:
 - `Microsoft.SemanticKernel`
+- `Microsoft.SemanticKernel.Agents.Abstractions`
 - `Microsoft.SemanticKernel.Agents.Core`
 - `Microsoft.SemanticKernel.Agents.OpenAI`
 - `Microsoft.SemanticKernel.Agents.AzureAI`
+- `Microsoft.SemanticKernel.Agents.A2A`
 
-#### Add Agent Framework Packages (based on provider):
-- **Core**: `Microsoft.Extensions.AI.Agents.Abstractions`
-- **OpenAI**: `Microsoft.Extensions.AI.Agents.OpenAI`
-- **Azure AI**: `Microsoft.Extensions.AI.Agents.AzureAI`
+#### Add Agent Framework Packages
+- `Microsoft.Extensions.AI.Agents.Abstractions`
+- `Microsoft.Extensions.AI.Agents`
+- `Microsoft.Extensions.AI.Agents.OpenAI`
+- `Microsoft.Extensions.AI.Agents.AzureAI`
+- `Microsoft.Extensions.AI.Agents.A2A`
 
 ### Provider-Specific Configuration Patterns
 
 Each provider may have specific configuration requirements:
 
-#### OpenAI Providers
+#### OpenAI Provider
 ```csharp
 // API Key configuration
 AIAgent agent = new OpenAIClient(apiKey).GetChatClient(modelId).CreateAIAgent(instructions);
@@ -1052,15 +1099,16 @@ AIAgent agent = new OpenAIClient(apiKey).GetChatClient(modelId).CreateAIAgent(in
 ChatClientAgentRunOptions options = new(new ChatOptions
 {
     MaxOutputTokens = 1000,
-    Temperature = 0.7f
+    Temperature = 0.7f,
+    Tools = [/* AITools */]
 });
 ```
 
-#### Azure Providers
+#### Azure OpenAI Provider
 
 ```csharp
-// Default Identity
-AIAgent agent = new AzureOpenAIClient(endpoint, new DefaultAzureCredential())
+// Azure Cli Credential
+AIAgent agent = new AzureOpenAIClient(endpoint, new AzureCliCredential())
     .GetChatClient(deploymentName)
     .CreateAIAgent(instructions);
 
@@ -1070,7 +1118,7 @@ AIAgent agent = new AzureOpenAIClient(endpoint, new AzureKeyCredential(apiKey))
     .CreateAIAgent(instructions);
 ```
 
-#### A2A Providers
+#### A2A Provider
 
 ```csharp
 var a2aAgentHost = Environment.GetEnvironmentVariable("A2A_AGENT_HOST")!;
@@ -1086,10 +1134,16 @@ This migration guide provides the foundation for successfully transitioning from
 
 ### Unsupported Features and Workarounds
 
-Some Semantic Kernel Agents features don't have direct equivalents in Agent Framework:
+The following Semantic Kernel Agents features currently don't have direct equivalents in Agent Framework:
 
 #### Plugins
 
 **Problem**: Semantic Kernel plugins allowed multiple functions to be registered under a type
 
 **Workaround**: Functions need to be provided directly as a flat list of tools to the agent.
+
+#### Prompt Template
+
+**Problem**: Agent prompt templating is not yet supported in Agent Framework
+
+**Workaround**: Use the existing `SemanticKernel` template engine to render the prompt before calling the agents.
