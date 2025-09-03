@@ -98,7 +98,7 @@ Most of this article is about how to use the AIAgent API, but it also includes g
 
 ### Table of differences
 
-The following table lists Semantic Kernel Agents features and Agent Framework equivalents. The equivalents fall into the following categories:
+The following table lists Semantic Kernel Agents features and Agent Framework equivalents. The equivalents fall into the following categories and should be used as guidance for migration:
 
 | Semantic Kernel Agents feature                              | Agent Framework equivalent                                   |
 |--------------------------------------------------------------|--------------------------------------------------------------|
@@ -217,29 +217,41 @@ AIAgent agent = chatClient.CreateAIAgent(
 
 ### Invocation Method Changes
 
-**Semantic Kernel Agents** used `InvokeAsync` and `InvokeStreamingAsync`:
+**Semantic Kernel Agents** 
+
+Non-streaming invocation: `InvokeAsync` uses a streaming IAsyncEnumerable pattern for returning multiple agent messages.
 
 ```csharp
 // Non-streaming
-await foreach (var result in agent.InvokeAsync(userInput, thread, options))
+await foreach (AgentResponseItem<ChatMessageContent> item in agent.InvokeAsync(userInput, thread, options))
 {
-    Console.WriteLine(result.Message);
+    Console.WriteLine(item.Message);
 }
+```
 
+Streaming invocation  `InvokeStreamingAsync` instead of full messages return updates as they are produced in the streaming IAsyncEnumerable pattern. 
+
+```csharp
 // Streaming
-await foreach (var update in agent.InvokeStreamingAsync(userInput, thread, options))
+await foreach (StreamingChatMessageContent update in agent.InvokeStreamingAsync(userInput, thread, options))
 {
     Console.Write(update.Message);
 }
 ```
 
-**Agent Framework** uses `RunAsync` and `RunStreamingAsync`:
+**Agent Framework** 
+
+Non-streaming invocation: `RunAsync` returns a single `AgentRunResponse` with the agent response that can contain multiple messages.
 
 ```csharp
 // Non-streaming
 AgentRunResponse result = await agent.RunAsync(userInput, thread, options);
 Console.WriteLine(result);
+```
 
+Streaming invocation: `RunStreamingAsync` returns an `IAsyncEnumerable<AgentRunResponseUpdate>` with the agent updates as they are produced.
+
+```csharp
 // Streaming
 await foreach (var update in agent.RunStreamingAsync(userInput, thread, options))
 {
@@ -515,13 +527,15 @@ foreach (object? updateRawRepresentation in chatResponse?.RawRepresentation as I
 }
 ```
 
-#### CodeInterpreter Tool Migration
+#### CodeInterpreter Tool Migration 
+
+Non-Streaming Semantic Kernel example of accessing CodeInterpreter tool output:
 
 **Before (Semantic Kernel):**
 ```csharp
 await foreach (var content in agent.InvokeAsync(userInput, thread))
 {
-    bool isCode = content.Message.Metadata?.ContainsKey(OpenAIAssistantAgent.CodeInterpreterMetadataKey) ?? false;
+    bool isCode = content.Message.Metadata?.ContainsKey(AzureAIAgent.CodeInterpreterMetadataKey) ?? false;
     Console.WriteLine($"# {content.Message.Role}{(isCode ? "\n# Generated Code:\n" : ":")}{content.Message.Content}");
 
     foreach (var item in content.Message.Items)
@@ -542,9 +556,9 @@ await foreach (var content in agent.InvokeAsync(userInput, thread))
 
 The changes compared to the Semantic Kernel are significant and may vary depending on the provider. 
 
-In the Azure AI Foundry case the raw representation `object?` from the `AgentRunResponse` can be casted to a list of the `RunStepDetailsUpdate` type which can be checked for the `CodeInterpreterInput` property to capture the generated code.
+In the Azure AI Foundry non-streaming case the raw representation `object?` from the `AgentRunResponse` can be casted to a list of the `RunStepDetailsUpdate` type which can be checked for the `CodeInterpreterInput` property to capture the generated code.
 
-Detailed Azure AI Foundry code interpreter implementation example is available in: `dotnet\samples\SemanticKernelMigration\AzureAIFoundry\Step04_CodeInterpreter\Program.cs`.
+Detailed Non-Streaming Azure AI Foundry code interpreter implementation example is available in: `dotnet\samples\SemanticKernelMigration\AzureAIFoundry\Step04_CodeInterpreter\Program.cs`.
 
 #### ChatOptions Custom Model Settings
 
