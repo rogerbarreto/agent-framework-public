@@ -14,6 +14,7 @@ that reference `Microsoft.SemanticKernel.Agents` or related Semantic Kernel agen
 - Tool registration patterns are significantly simplified in Agent Framework
 - Thread management is handled differently between the two frameworks
 - Dependency injection patterns have been streamlined in Agent Framework
+- Text-based heuristics should be avoided in favor of proper content type inspection when available.
 
 ## Planning
 
@@ -556,9 +557,11 @@ await foreach (var content in agent.InvokeAsync(userInput, thread))
 
 The changes compared to the Semantic Kernel are significant and may vary depending on the provider. 
 
-In the Azure AI Foundry non-streaming case the raw representation `object?` from the `AgentRunResponse` can be casted to a list of the `RunStepDetailsUpdate` type which can be checked for the `CodeInterpreterInput` property to capture the generated code.
-
-Detailed Non-Streaming Azure AI Foundry code interpreter implementation example is available in: `dotnet\samples\SemanticKernelMigration\AzureAIFoundry\Step04_CodeInterpreter\Program.cs`.
+1.	Code interpreter output is its own separate thing, not a property or characteristic of a TextContent
+2.	We need to directly access and handle the code output from the raw representation
+3.	The TextContent and CodeInterpreter output are separate things to process independently
+4. In the Azure AI Foundry non-streaming case the raw representation `object?` from the `AgentRunResponse` can be casted to a list of the `RunStepDetailsUpdate` type which can be checked for the `CodeInterpreterInput` property to capture the generated code.
+5. For a detailed Non-Streaming Agent Framework Azure AI Foundry example see: `dotnet\samples\SemanticKernelMigration\AzureAIFoundry\Step04_CodeInterpreter\Program.cs`.
 
 #### ChatOptions Custom Model Settings
 
