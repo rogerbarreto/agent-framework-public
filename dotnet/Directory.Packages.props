@@ -52,6 +52,10 @@
     <PackageVersion Include="Microsoft.Extensions.AI" Version="9.8.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="9.8.0-preview.1.25412.6" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="9.8.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Agents" Version="0.0.1-nightly-250903.1-alpha" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Agents.Abstractions" Version="0.0.1-nightly-250903.1-alpha" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Agents.AzureAI" Version="0.0.1-nightly-250903.1-alpha" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Agents.OpenAI" Version="0.0.1-nightly-250903.1-alpha" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.8" />

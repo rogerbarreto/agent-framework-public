@@ -766,7 +766,7 @@ await assistantClient.DeleteThreadAsync(thread.ConversationId);
 **Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAIInference" />
+<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 
@@ -811,7 +811,7 @@ AgentThread thread = agent.GetNewThread();
 **Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAIInference" />
+<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
 <PackageReference Include="Azure.AI.Projects" />
 ```
 
