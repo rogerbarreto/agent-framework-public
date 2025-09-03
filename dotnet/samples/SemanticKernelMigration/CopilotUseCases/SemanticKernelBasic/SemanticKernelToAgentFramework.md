@@ -40,7 +40,6 @@ below in wrong order or skip any of them):
 - Remove the Semantic Kernel agent package references from the project file:
   - `Microsoft.SemanticKernel.Agents.Core`
   - `Microsoft.SemanticKernel.Agents.OpenAI`
-  - `Microsoft.SemanticKernel.Agents.AzureOpenAI`
   - `Microsoft.SemanticKernel.Agents.AzureAI`
   - `Microsoft.SemanticKernel` (if only used for agents)
 - Add the appropriate Agent Framework package references based on the provider being used:
@@ -123,7 +122,8 @@ The following table lists Semantic Kernel Agents features and Agent Framework eq
 | Plugin-based tool registration                              | Direct function registration                                |
 | AgentThread.DeleteAsync() for cleanup                       | Provider-client-specific cleanup                            |
 | `InnerContent` property for breaking glass                  | `RawRepresentation` property for breaking glass             |
-| Metadata-based content identification                       | Type-based content processing with RawRepresentation        |
+| Non-streaming has no abstraction for Usage metadata         | Non-streaming supports Usage via `response.Usage`                                |
+| Streaming has no abstraction for Usage metadata             | Streaming supports Usage via `update.Contents.OfType<UsageContent>()?.FirstOrDefault()?.Details` |
 
 This is not an exhaustive list of Semantic Kernel Agents features. The list includes many of the scenarios that are commonly used in agent applications.
 
@@ -410,21 +410,60 @@ var chatResponse = result.RawRepresentation as ChatResponse;
 // Access underlying SDK objects via chatResponse?.RawRepresentation
 ```
 
-### Unsupported Features and Workarounds
+### Usage Metadata
 
-Some Semantic Kernel Agents features don't have direct equivalents in Agent Framework:
+#### Semantc Kernel Pattern
 
-#### Complex Plugin Hierarchies
-**Problem**: Semantic Kernel supported complex plugin organization with namespaces
-**Workaround**: Use flat function registration with descriptive names
+Semantic Kernel Agents don't provide an abstraction for usage metadata to get the token usage details you need to use the metadata dictionary combined with a breaking glass casting to a provider-specific Usage type.
 
-#### Custom Kernel Services
-**Problem**: Semantic Kernel allowed custom service registration in Kernel
-**Workaround**: Use dependency injection at the application level
+Non-Streaming:
+```csharp
+await foreach (var result in agent.InvokeAsync(input, thread, options))
+{
+    if (result.Message.Metadata?.TryGetValue("Usage", out object? usage) ?? false)
+    {
+        if (usage is ChatTokenUsage openAIUsage)
+        {
+            Console.WriteLine($"Tokens: {openAIUsage.TotalTokenCount}");
+        }
+    }
+}
+```
 
-#### Advanced Execution Settings
-**Problem**: Some advanced Kernel execution settings may not be available
-**Workaround**: Use provider-specific options or configure at the client level
+Streaming:
+```csharp
+ await foreach (StreamingChatMessageContent response in agent.InvokeStreamingAsync(message, agentThread))
+ {
+    if (response.Metadata?.TryGetValue("Usage", out object? usage) ?? false)
+    {
+        if (usage is ChatTokenUsage openAIUsage)
+        {
+            Console.WriteLine($"Tokens: {openAIUsage.TotalTokenCount}");
+        }
+    }
+ }
+```
+
+#### Agent Framework Pattern
+
+Agent Framework provides a unified `UsageDetails` type for accessing usage metadata.
+
+Non-Streaming:
+```csharp
+AgentRunResponse result = await agent.RunAsync(input, thread, options);
+Console.WriteLine($"Tokens: {result.Usage.TotalTokens}");
+```
+
+Streaming:
+```csharp
+await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(input, thread, options))
+{
+    if (update.Contents.OfType<UsageContent>().FirstOrDefault() is { } usageContent)
+    {
+        Console.WriteLine($"Tokens: {usageContent.Details.TotalTokens}");
+    }
+}
+```
 
 ### Breaking Glass Strategy for Accessing Underlying Content
 
@@ -623,13 +662,11 @@ The following sections provide detailed migration patterns for each supported pr
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel" />
-<PackageReference Include="Microsoft.SemanticKernel.Agents.Core" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 ```
 
 **Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 ```
 
@@ -669,14 +706,13 @@ If the authentication is not using `AzureCliCredential` you can use `ApiKeyCrede
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel" />
-<PackageReference Include="Microsoft.SemanticKernel.Agents.Core" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
+<PackageReference Include="Azure.AI.OpenAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 
 **Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 <PackageReference Include="Azure.Identity" />
@@ -765,8 +801,7 @@ await assistantClient.DeleteThreadAsync(thread.ConversationId);
 
 **Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAIInference" />
+<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 
@@ -804,14 +839,13 @@ AgentThread thread = agent.GetNewThread();
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel.Agents.Core" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" />
 <PackageReference Include="Azure.AI.Projects" />
 ```
 
 **Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAIInference" />
+<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
 <PackageReference Include="Azure.AI.Projects" />
 ```
 
@@ -846,7 +880,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel.Agents.Core" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 ```
 
 **Agent Framework Packages:**
@@ -884,7 +918,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Semantic Kernel Packages:**
 ```xml
-<PackageReference Include="Microsoft.SemanticKernel.Agents.Core" />
+<PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 ```
 
@@ -930,7 +964,6 @@ AgentThread thread = agent.GetNewThread();
 **Agent Framework Packages:**
 
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.Abstractions" />
 <PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
 ```
 
@@ -1008,7 +1041,6 @@ When migrating projects, update package references according to the provider bei
 - `Microsoft.SemanticKernel`
 - `Microsoft.SemanticKernel.Agents.Core`
 - `Microsoft.SemanticKernel.Agents.OpenAI`
-- `Microsoft.SemanticKernel.Agents.AzureOpenAI`
 - `Microsoft.SemanticKernel.Agents.AzureAI`
 
 #### Add Agent Framework Packages (based on provider):
@@ -1060,3 +1092,13 @@ AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 ```
 
 This migration guide provides the foundation for successfully transitioning from Semantic Kernel Agents to Agent Framework while maintaining functionality and improving code quality.
+
+### Unsupported Features and Workarounds
+
+Some Semantic Kernel Agents features don't have direct equivalents in Agent Framework:
+
+#### Plugins
+
+**Problem**: Semantic Kernel plugins allowed multiple functions to be registered under a type
+
+**Workaround**: Functions need to be provided directly as a flat list of tools to the agent.
