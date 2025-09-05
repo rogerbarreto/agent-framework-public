@@ -815,6 +815,10 @@ await assistantClient.DeleteThreadAsync(thread.ConversationId);
 ```
 
 **Before (Semantic Kernel):**
+
+There are two common ways to create an `AzureAIAgent` in Semantic Kernel:
+
+1. Using the `AzureAIAgent` class directly
 ```csharp
 using Microsoft.SemanticKernel.Agents.AzureAI;
 using Azure.Identity;
@@ -830,7 +834,26 @@ AzureAIAgent agent = new(
 AgentThread thread = new AzureAIAgentThread(agent);
 ```
 
+2. Using a `PersistentAgent` definition to create the `AzureAIAgent`
+
+```csharp
+// Define the agent
+PersistentAgent definition = await client.Administration.CreateAgentAsync(
+    deploymentName,
+    tools: [new CodeInterpreterToolDefinition()]);
+
+AzureAIAgent agent = new(definition, client);
+
+// Create a thread for the agent conversation.
+AgentThread thread = new AzureAIAgentThread(client);
+```
+
 **After (Agent Framework):**
+
+There are multiple ways to create an `AIAgent` in Agent Framework for Azure AI Foundry and ideally the 
+simplest approach is using the `PersistentAgentsClient` extension methods like `CreateAIAgent` which will 
+return the created `AIAgent` instance with the agent id as the `agent.Id` property.
+
 ```csharp
 using Microsoft.Extensions.AI.Agents;
 using Azure.AI.Agents.Persistent;
@@ -842,7 +865,7 @@ var client = new PersistentAgentsClient(endpoint, new AzureCliCredential());
 AIAgent agent = client.CreateAIAgent(
     model: deploymentName,
     instructions: "You are a helpful assistant",
-    tools: [/* tool definitions */]);
+    tools: [/* List of specialized Azure.AI.Agents.Persistent.ToolDefinition types */]);
 
 AgentThread thread = agent.GetNewThread();
 ```
@@ -1040,8 +1063,6 @@ using System;
 using A2A;
 using Microsoft.Extensions.AI.Agents;
 using Microsoft.Extensions.AI.Agents.A2A;
-
-var a2aAgentHost = Environment.GetEnvironmentVariable("A2A_AGENT_HOST") ?? throw new InvalidOperationException("A2A_AGENT_HOST is not set.");
 
 // Initialize an A2ACardResolver to get an A2A agent card.
 A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));

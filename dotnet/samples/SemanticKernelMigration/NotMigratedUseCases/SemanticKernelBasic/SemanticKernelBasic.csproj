@@ -8,10 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include=".github\SemanticKernelToAgentFrameworkReport.md" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Azure.AI.Agents.Persistent" />
     <PackageReference Include="Azure.Identity" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
