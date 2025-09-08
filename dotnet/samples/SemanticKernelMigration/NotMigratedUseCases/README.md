@@ -1,13 +1,12 @@
-# Not Migrated Use Cases
+# Semantic Kernel Migration Playground
 
-This folder contains **separate console application projects** demonstrating use cases that are not yet migrated to the new **Agent Framework (AF)** 
-for as playground for AI Agents to migrate to the new Agent Framework.
-
-## Successful Migrations 
-
-Successful migrations should not be this folder, only triggering prompts if needed.
+This is a playground folder with Semantic Kernel code examples that can be used to test migration to the new **Agent Framework (AF)**.
 
 ## Prompting
 
-### Semantic Kernel Basic
+Ideally simple prompts can be used to migrate any code, here's an example:
+
+> Migrate my current project to use the new Agent Framework (AF) APIs using the guide in the #SemanticKernelToAgentFramework migration guide.
+> 
+> Look for other files and external references if needed.
 
