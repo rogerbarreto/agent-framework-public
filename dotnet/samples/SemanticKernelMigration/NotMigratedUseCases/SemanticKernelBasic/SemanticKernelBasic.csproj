@@ -16,4 +16,8 @@
     <PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" VersionOverride="1.*-*" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="../../../../../.github/upgrades/prompts/*" />
+  </ItemGroup>
+
 </Project>
