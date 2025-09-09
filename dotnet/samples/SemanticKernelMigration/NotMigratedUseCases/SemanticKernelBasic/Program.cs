@@ -22,7 +22,7 @@ AgentThread thread = new AzureAIAgentThread(client);
 
 try
 {
-    await InvokeAgentAsync("Use code to determine the values in the Fibonacci sequence that that are less then the value of 101?");
+    await InvokeAgentAsync("Use code interpreter tool to create a python code file where it determines the values in the Fibonacci sequence that that are less then the value of 101?");
 }
 finally
 {
