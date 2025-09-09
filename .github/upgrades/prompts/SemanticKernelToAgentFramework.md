@@ -11,18 +11,27 @@ that reference `Microsoft.SemanticKernel.Agents` or related Semantic Kernel agen
 - NuGet package names, assembly names, projects names or other dependencies names are case insensitive(!). You ***must take it into account*** when doing something
   with project dependencies, like searching for dependencies or when removing them from projects etc.
 - Agent Framework uses different namespace patterns and API structures compared to Semantic Kernel Agents
-- Tool registration patterns are significantly simplified in Agent Framework
-- Thread management is handled differently between the two frameworks
-- Dependency injection patterns have been streamlined in Agent Framework
 - Text-based heuristics should be avoided in favor of proper content type inspection when available.
 
 ## Planning
 
 For each project that needs to be migrated, you need to do the following:
 
+<agent_type_identification>
 - Find projects depending on `Microsoft.SemanticKernel.Agents` or related Semantic Kernel agent packages (when searching for projects, if some projects are not part of the
   solution or you could not find the project, notify user and continue with other projects).
-- Identify the specific Semantic Kernel agent types being used (ChatCompletionAgent, OpenAIAssistantAgent, AzureAIAgent, etc.)
+- Identify the specific Semantic Kernel agent types being used:
+  - `ChatCompletionAgent` → `ChatClientAgent`
+  - `OpenAIAssistantAgent` → `AIAgent` (via OpenAI Assistants client extension)
+  - `AzureAIAgent` → `AIAgent` (via Azure AI Foundry client extension)
+  - `OpenAIResponseAgent` → `AIAgent` (via OpenAI Responses client extension)
+  - `A2AAgent` → `AIAgent` (via A2A card resolver)
+  - `BedrockAgent` → Custom implementation required (not supported)
+- Determine if agents are being created new or retrieved from hosted services:
+  - **New agents**: Use `CreateAIAgent()` methods
+  - **Existing hosted agents**: Use `GetAIAgent(agentId)` methods for OpenAI Assistants and Azure AI Foundry
+</agent_type_identification>
+
 - Determine the AI provider being used (OpenAI, Azure OpenAI, Azure AI Foundry, etc.)
 - Analyze tool/function registration patterns
 - Review thread management and invocation patterns
@@ -73,7 +82,7 @@ below in wrong order or skip any of them):
    on them again and if still see any Semantic Kernel agent presence go back to step 2. Steps 2 and 3 should be repeated until you see no Semantic Kernel agent references.
 
 4. Build all modified projects to ensure that they compile without errors. If there are any build errors, you must fix them all yourself one by one and
-   don't stop until all errors are fixed.
+   don't stop until all errors are fixed without breaking any of the migration guidance.
 
 5. Generate the report file under `<solution root>\.github folder`, the file name should be `SemanticKernelToAgentFrameworkReport.md`, it is highly important that
    you generate report when migration complete. Report should contain:
@@ -89,72 +98,124 @@ below in wrong order or skip any of them):
 
 ## Detailed information about differences in Semantic Kernel Agents and Agent Framework
 
-The Agent Framework provides functionality for creating and managing AI agents with simplified APIs and better performance. The Agent Framework is included in the Microsoft.Extensions.AI package ecosystem and provides a unified interface across different AI providers.
+<api_changes>
+Agent Framework provides functionality for creating and managing AI agents through the Microsoft.Extensions.AI package ecosystem. The framework uses different APIs and patterns compared to Semantic Kernel Agents.
 
-Agent Framework focuses primarily on simplicity, performance, and developer experience. It has some key differences in default behavior and doesn't aim to have complete feature parity with Semantic Kernel Agents. For some scenarios, Agent Framework currently has different patterns, but there are recommended migration paths. For other scenarios, the migration provides significant improvements in code clarity and maintainability.
+Key API differences:
+- Agent creation: Remove Kernel dependency, use direct client-based creation
+- Method names: `InvokeAsync` → `RunAsync`, `InvokeStreamingAsync` → `RunStreamingAsync`
+- Return types: `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>` → `AgentRunResponse`
+- Thread creation: Provider-specific constructors → `agent.GetNewThread()`
+- Tool registration: `KernelPlugin` system → Direct `AIFunction` registration
+- Options: `AgentInvokeOptions` → Provider-specific run options (e.g., `ChatClientAgentRunOptions`)
+</api_changes>
 
-The Agent Framework team is investing in adding the features that are most often requested. If your application depends on a missing feature, consider filing an issue in the dotnet/extensions GitHub repository to find out if support for your scenario can be added.
+<configuration_changes>
+Configuration patterns have changed from Kernel-based to direct client configuration:
+- Remove `Kernel.CreateBuilder()` patterns
+- Replace with provider-specific client creation
+- Update namespace imports from `Microsoft.SemanticKernel.Agents` to `Microsoft.Extensions.AI.Agents`
+- Change tool registration from attribute-based to factory-based
+</configuration_changes>
 
-Most of this article is about how to use the AIAgent API, but it also includes guidance on how to use the AgentThread, AIFunction, and other related types.
+### Exact API Mappings
 
-### Table of differences
+<agent_type_identification>
+Replace these Semantic Kernel agent classes with their Agent Framework equivalents:
 
-The following table lists Semantic Kernel Agents features and Agent Framework equivalents. The equivalents fall into the following categories and should be used as guidance for migration:
+| Semantic Kernel Class | Agent Framework Replacement | Constructor Changes |
+|----------------------|----------------------------|-------------------|
+| `ChatCompletionAgent` | `ChatClientAgent` | Remove `Kernel` parameter, add `IChatClient` parameter |
+| `OpenAIAssistantAgent` | `AIAgent` (via extension) | **New**: `OpenAIClient.GetAssistantClient().CreateAIAgent()` <br> **Existing**: `OpenAIClient.GetAssistantClient().GetAIAgent(assistantId)` |
+| `AzureAIAgent` | `AIAgent` (via extension) | **New**: `PersistentAgentsClient.CreateAIAgent()` <br> **Existing**: `PersistentAgentsClient.GetAIAgent(agentId)` |
+| `OpenAIResponseAgent` | `AIAgent` (via extension) | Replace with `OpenAIClient.GetOpenAIResponseClient().CreateAIAgent()` |
+| `A2AAgent` | `AIAgent` (via extension) | Replace with `A2ACardResolver.GetAIAgentAsync()` |
+| `BedrockAgent` | Not supported | Custom implementation required |
 
-| Semantic Kernel Agents feature                              | Agent Framework equivalent                                   |
-|--------------------------------------------------------------|--------------------------------------------------------------|
-| Microsoft.SemanticKernel.Agents namespace                   | Microsoft.Extensions.AI.Agents namespace                    |
-| ChatCompletionAgent class                                   | ChatClientAgent class                                        |
-| OpenAIAssistantAgent class                                  | Extension to get a ChatClientAgent from the OpenAI Assistants client |
-| AzureAIAgent class                                          | Extension to get a ChatClientAgent from the Azure AI Foundry client  |
-| OpenAI Response agents                                      | Extension to get a ChatClientAgent from the OpenAI Responses client  |
-| A2A agents                                                  | A2ACardResolver.GetAIAgent() with A2A provider              |
-| AIAgent interface (abstract)                                | AIAgent abstract class (for retrieval/agnostic code only)   |
-| Kernel-based agent creation                                 | Direct agent creation                                       |     
-| KernelFunction and KernelPlugin for function tools          | AIFunction for function tools                               |
-| Manual thread creation with specific types                  | agent.GetNewThread() for thread creation                    |
-| InvokeAsync method                                          | RunAsync method                                             |
-| InvokeStreamingAsync method                                 | RunStreamingAsync method                                    |
-| AgentInvokeOptions for configuration                        | Provider-specific run options (e.g., ChatClientAgentRunOptions) |
-| IAsyncEnumerable<AgentResponseItem<ChatMessageContent>> for non-streaming     | AgentRunResponse for non-streaming        |
-| IAsyncEnumerable<StreamingChatMessageContent> for streaming | IAsyncEnumerable<AgentRunResponseUpdate> for streaming      |
-| KernelArguments for execution settings                      | Direct run options configuration                            |
-| [KernelFunction] attribute required for function tools      |                                                             |
-| Plugin-based tool registration                              | Direct function registration                                |
-| AgentThread.DeleteAsync() for cleanup                       | Provider-client-specific thread cleanup                     |
-| `InnerContent` property for breaking glass                  | `RawRepresentation` property for breaking glass             |
-| Non-streaming has no abstraction for Usage metadata         | Non-streaming supports Usage via `response.Usage`                                |
-| Streaming has no abstraction for Usage metadata             | Streaming supports Usage via `update.Contents.OfType<UsageContent>()?.FirstOrDefault()?.Details` |
+**Important distinction:**
+- **CreateAIAgent()**: Use when creating new agents in the hosted service
+- **GetAIAgent(agentId)**: Use when retrieving existing agents from the hosted service
+</agent_type_identification>
 
-This is not an exhaustive list of Semantic Kernel Agents features. The list includes many of the scenarios that are commonly used in agent applications.
+<api_changes>
+Replace these method calls:
 
-### Differences in default behavior
+| Semantic Kernel Method | Agent Framework Method | Parameter Changes |
+|----------------------|----------------------|------------------|
+| `agent.InvokeAsync(message, thread, options)` | `agent.RunAsync(message, thread, options)` | Same parameters, different return type |
+| `agent.InvokeStreamingAsync(message, thread, options)` | `agent.RunStreamingAsync(message, thread, options)` | Same parameters, different return type |
+| `new ChatHistoryAgentThread()` | `agent.GetNewThread()` | No parameters needed |
+| `new OpenAIAssistantAgentThread(client)` | `agent.GetNewThread()` | No parameters needed |
+| `new AzureAIAgentThread(client)` | `agent.GetNewThread()` | No parameters needed |
+| `thread.DeleteAsync()` | Provider-specific cleanup | Use provider client directly |
 
-Agent Framework is designed for simplicity and performance by default, emphasizing clear and intuitive APIs. The framework is intentionally designed this way for better developer experience and reduced complexity. Semantic Kernel Agents provided more flexibility but with increased complexity. This fundamental difference in design is behind many of the following specific differences in default behavior.
+Return type changes:
+- `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>` → `AgentRunResponse`
+- `IAsyncEnumerable<StreamingChatMessageContent>` → `IAsyncEnumerable<AgentRunResponseUpdate>`
+</api_changes>
+
+<configuration_changes>
+Replace these configuration patterns:
+
+| Semantic Kernel Pattern | Agent Framework Pattern |
+|------------------------|------------------------|
+| `AgentInvokeOptions` | `AgentRunOptions` <br> **ChatClientAgent**: `ChatClientAgentRunOptions` |
+| `KernelArguments` | If no arguments are provided, do nothing. If arguments are provided, template is not supported and the prompt must be rendered before calling agent |
+| `[KernelFunction]` attribute | Remove attribute, use `AIFunctionFactory.Create()` |
+| `KernelPlugin` registration | Direct function list in agent creation |
+| `InnerContent` property | `RawRepresentation` property |
+| `content.Metadata` property | `AdditionalProperties` property |
+</configuration_changes>
+
+<behavioral_changes>
+### Functional Differences
+
+Agent Framework changes these behaviors compared to Semantic Kernel Agents:
+
+1. **Thread Management**: Agent Framework automatically manages thread state. Semantic Kernel required manual thread updates in some scenarios (e.g., OpenAI Responses).
+
+2. **Return Types**:
+   - Non-streaming: Returns single `AgentRunResponse` instead of `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>`
+   - Streaming: Returns `IAsyncEnumerable<AgentRunResponseUpdate>` instead of `IAsyncEnumerable<StreamingChatMessageContent>`
+
+3. **Tool Registration**: Agent Framework uses direct function registration without requiring `[KernelFunction]` attributes.
+
+4. **Usage Metadata**: Agent Framework provides unified `UsageDetails` access via `response.Usage` and `update.Contents.OfType<UsageContent>()`.
+
+5. **Breaking Glass**: Access underlying SDK objects via `RawRepresentation` instead of `InnerContent`.
+</behavioral_changes>
 
 ### Namespace Updates
 
-During migration, Semantic Kernel Agents namespaces need to be updated to Agent Framework namespaces. The Agent Framework uses `Microsoft.Extensions.AI` as the root namespace for all AI-related abstraction types.
+<configuration_changes>
+Replace these exact namespace imports:
 
-**Semantic Kernel Agents namespaces:**
+**Remove these Semantic Kernel namespaces:**
 ```csharp
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
+using Microsoft.SemanticKernel.Agents.OpenAI;
+using Microsoft.SemanticKernel.Agents.AzureAI;
+using Microsoft.SemanticKernel.Agents.A2A;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 ```
 
-**Agent Framework namespaces:**
+**Add these Agent Framework namespaces:**
 ```csharp
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Agents;
+// Provider-specific namespaces (add only if needed):
+using OpenAI; // For OpenAI provider
+using Azure.AI.OpenAI; // For Azure OpenAI provider
+using Azure.AI.Agents.Persistent; // For Azure AI Foundry provider
+using Azure.Identity; // For Azure authentication
 ```
+</configuration_changes>
 
-### Agent Creation Simplification
+### Agent Creation Transformation
 
-**Semantic Kernel Agents** 
-
-`ChatCompletionAgents` requires an instance of the `Kernel` to be provided during creation:
-
+<configuration_changes>
+**Replace this Semantic Kernel pattern:**
 ```csharp
 Kernel kernel = Kernel.CreateBuilder()
     .AddOpenAIChatClient(modelId, apiKey)
@@ -167,55 +228,55 @@ ChatCompletionAgent agent = new()
 };
 ```
 
-**Agent Framework ChatClientAgent** 
-
-`ChatClientAgents` only requires the `IChatClient` to be provided during creation.
-
+**With this Agent Framework pattern:**
 ```csharp
-// ChatClientAgent direct constructor creation
-using var chatClient = new OpenAIClient(apiKey).GetChatClient(modelId).AsIChatClient();
+// Method 1: Direct constructor
+IChatClient chatClient = new OpenAIClient(apiKey).GetChatClient(modelId);
 AIAgent agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant");
 
-// OR 
-
-// Simplified experience via extension for the selected provider.
+// Method 2: Extension method (recommended)
 AIAgent agent = new OpenAIClient(apiKey)
     .GetChatClient(modelId)
     .CreateAIAgent(instructions: "You are a helpful assistant");
 ```
 
-### Thread Management Changes
+**Required changes:**
+1. Remove `Kernel.CreateBuilder()` and `.Build()` calls
+2. Replace `ChatCompletionAgent` with `ChatClientAgent` or use extension methods
+3. Remove `Kernel` property assignment
+4. Pass `IChatClient` directly to constructor or use extension methods
+</configuration_changes>
 
-**Semantic Kernel Agents** 
+### Thread Management Transformation
 
-Requires the caller to know what is the thread type to create it manually.
-
+<api_changes>
+**Replace these Semantic Kernel thread creation patterns:**
 ```csharp
-// Different thread types for different scenarios
+// Remove these provider-specific thread constructors:
 AgentThread thread = new ChatHistoryAgentThread();
 AgentThread thread = new OpenAIAssistantAgentThread(assistantClient);
 AgentThread thread = new AzureAIAgentThread(azureClient);
 ```
 
-**Agent Framework** 
-
-Provides unified thread creation through the agent:
-
+**With this unified Agent Framework pattern:**
 ```csharp
-// Unified GetNewThread() on all agents
-AgentThread thread = chatClientAgent.GetNewThread();
-AgentThread thread = assistantAgent.GetNewThread();
-AgentThread thread = azureAIAgent.GetNewThread();
+// Use this single pattern for all agent types:
+AgentThread thread = agent.GetNewThread();
 ```
 
-### Tool Registration Differences
+**Required changes:**
+1. Remove all `new [Provider]AgentThread()` constructor calls
+2. Replace with `agent.GetNewThread()` method call
+3. Remove provider client parameters from thread creation
+4. Use the same pattern regardless of agent provider type
+</api_changes>
 
-**Semantic Kernel Agents** 
+### Tool Registration Transformation
 
-Requires a `KernelPlugin` setup where you normally need to provide a `class` or an `instance` where it must have at least one method decorated with `[KernelFunction]` attributes.
-
+<configuration_changes>
+**Replace this Semantic Kernel tool registration pattern:**
 ```csharp
-[KernelFunction]
+[KernelFunction] // Remove this attribute
 [Description("Get the weather for a location")]
 static string GetWeather(string location) => $"Weather in {location}";
 
@@ -226,81 +287,95 @@ kernel.Plugins.Add(kernelPlugin);
 ChatCompletionAgent agent = new() { Kernel = kernel };
 ```
 
-**Agent Framework** 
-
-Allows direct function method registration without need for decorators
-
+**With this Agent Framework pattern:**
 ```csharp
-[Description("Get the weather for a location")]
+[Description("Get the weather for a location")] // Keep Description attribute
 static string GetWeather(string location) => $"Weather in {location}";
 
 AIAgent agent = chatClient.CreateAIAgent(
+    instructions: "You are a helpful assistant",
     tools: [AIFunctionFactory.Create(GetWeather)]);
 ```
 
-### Invocation Method Changes
+**Required changes:**
+1. Remove `[KernelFunction]` attributes from methods
+2. Keep `[Description]` attributes for function descriptions
+3. Remove `KernelFunctionFactory.CreateFromMethod()` calls
+4. Remove `KernelPluginFactory.CreateFromFunctions()` calls
+5. Remove `kernel.Plugins.Add()` calls
+6. Replace with `AIFunctionFactory.Create()` in tools parameter
+7. Pass tools directly to agent creation method
+</configuration_changes>
 
-**Semantic Kernel Agents** 
+### Invocation Method Transformation
 
-Non-streaming invocation: `InvokeAsync` uses a streaming IAsyncEnumerable pattern for returning multiple agent messages.
-
+<api_changes>
+**Replace this Semantic Kernel non-streaming pattern:**
 ```csharp
-// Non-streaming
 await foreach (AgentResponseItem<ChatMessageContent> item in agent.InvokeAsync(userInput, thread, options))
 {
     Console.WriteLine(item.Message);
 }
 ```
 
-Streaming invocation  `InvokeStreamingAsync` instead of full messages return updates as they are produced in the streaming IAsyncEnumerable pattern. 
-
+**With this Agent Framework non-streaming pattern:**
 ```csharp
-// Streaming
+AgentRunResponse result = await agent.RunAsync(userInput, thread, options);
+Console.WriteLine(result);
+```
+
+**Replace this Semantic Kernel streaming pattern:**
+```csharp
 await foreach (StreamingChatMessageContent update in agent.InvokeStreamingAsync(userInput, thread, options))
 {
     Console.Write(update.Message);
 }
 ```
 
-**Agent Framework** 
-
-Non-streaming invocation: `RunAsync` returns a single `AgentRunResponse` with the agent response that can contain multiple messages.
-
+**With this Agent Framework streaming pattern:**
 ```csharp
-// Non-streaming
-AgentRunResponse result = await agent.RunAsync(userInput, thread, options);
-Console.WriteLine(result);
-```
-
-Streaming invocation: `RunStreamingAsync` returns an `IAsyncEnumerable<AgentRunResponseUpdate>` with the agent updates as they are produced.
-
-```csharp
-// Streaming
-await foreach (var update in agent.RunStreamingAsync(userInput, thread, options))
+await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(userInput, thread, options))
 {
     Console.Write(update);
 }
 ```
 
-### Options and Configuration Changes
+**Required changes:**
+1. Replace `agent.InvokeAsync()` with `agent.RunAsync()`
+2. Replace `agent.InvokeStreamingAsync()` with `agent.RunStreamingAsync()`
+3. Change return type handling from `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>` to `AgentRunResponse`
+4. Change streaming type from `StreamingChatMessageContent` to `AgentRunResponseUpdate`
+5. Remove `await foreach` for non-streaming calls
+6. Access message content directly from result object instead of iterating
+</api_changes>
 
-**Semantic Kernel Agents** used complex nested options:
+### Options and Configuration Transformation
 
+<configuration_changes>
+**Replace this Semantic Kernel options pattern:**
 ```csharp
 OpenAIPromptExecutionSettings settings = new() { MaxTokens = 1000 };
 AgentInvokeOptions options = new() { KernelArguments = new(settings) };
 ```
 
-**Agent Framework** uses simplified provider-specific options:
-
+**With this Agent Framework options pattern:**
 ```csharp
-ChatClientAgentRunOptions options = new(new() { MaxOutputTokens = 1000 });
+ChatClientAgentRunOptions options = new(new ChatOptions { MaxOutputTokens = 1000 });
 ```
 
-### Dependency Injection Simplification
+**Required changes:**
+1. Remove `OpenAIPromptExecutionSettings` (or other provider-specific settings)
+2. Remove `AgentInvokeOptions` wrapper
+3. Remove `KernelArguments` wrapper
+4. Replace with `ChatClientAgentRunOptions` containing `ChatOptions`
+5. Update property names: `MaxTokens` → `MaxOutputTokens`
+6. Pass options directly to `RunAsync()` or `RunStreamingAsync()` methods
+</configuration_changes>
 
-**Semantic Kernel Agents** required Kernel registration:
+### Dependency Injection Transformation
 
+<configuration_changes>
+**Replace this Semantic Kernel DI pattern:**
 ```csharp
 services.AddKernel().AddOpenAIChatClient(modelId, apiKey);
 services.AddTransient<ChatCompletionAgent>(sp => new()
@@ -310,8 +385,7 @@ services.AddTransient<ChatCompletionAgent>(sp => new()
 });
 ```
 
-**Agent Framework** allows direct agent registration:
-
+**With this Agent Framework DI pattern:**
 ```csharp
 services.AddTransient<AIAgent>(sp =>
     new OpenAIClient(apiKey)
@@ -319,24 +393,51 @@ services.AddTransient<AIAgent>(sp =>
         .CreateAIAgent(instructions: "You are helpful"));
 ```
 
-### Thread Cleanup Changes
+**Required changes:**
+1. Remove `services.AddKernel()` registration
+2. Remove provider-specific kernel extensions (e.g., `.AddOpenAIChatClient()`)
+3. Replace `ChatCompletionAgent` with `AIAgent` in service registration
+4. Remove `Kernel` dependency from constructor
+5. Use direct client creation and extension methods
+6. Remove `sp.GetRequiredService<Kernel>()` calls
+</configuration_changes>
 
-**Semantic Kernel Agents** provided thread deletion methods:
+### Thread Cleanup Transformation
 
+<api_changes>
+**Replace this Semantic Kernel cleanup pattern:**
 ```csharp
 await thread.DeleteAsync(); // For hosted threads
 ```
 
-**Agent Framework** delegates cleanup to the provider when needed:
-
+**With these Agent Framework cleanup patterns:**
 ```csharp
-// For providers that require cleanup (like OpenAI Assistants)
+// For OpenAI Assistants (when cleanup is needed):
+var assistantClient = new OpenAIClient(apiKey).GetAssistantClient();
 await assistantClient.DeleteThreadAsync(thread.ConversationId);
+
+// For Azure AI Foundry (when cleanup is needed):
+var persistentClient = new PersistentAgentsClient(endpoint, credential);
+await persistentClient.Threads.DeleteThreadAsync(thread.ConversationId);
+
+// No thread and agent cleanup is needed for non-hosted agent providers like 
+// - Azure OpenAI Chat Completion
+// - OpenAI Chat Completion
+// - Azure OpenAI Responses
+// - OpenAI Responses
 ```
 
-### Provider-Specific Implementations
+**Required changes:**
+1. Remove `thread.DeleteAsync()` calls
+2. Use provider-specific client for cleanup when required
+3. Access thread ID via `thread.ConversationId` property
+4. Only implement cleanup for providers that require it (Assistants, Azure AI Foundry)
+</api_changes>
 
-Agent Framework provides different implementations for different AI providers:
+### Provider-Specific Creation Patterns
+
+<configuration_changes>
+Use these exact patterns for each provider:
 
 **OpenAI Chat Completion:**
 ```csharp
@@ -345,11 +446,18 @@ AIAgent agent = new OpenAIClient(apiKey)
     .CreateAIAgent(instructions: instructions);
 ```
 
-**OpenAI Assistants:**
+**OpenAI Assistants (New):**
 ```csharp
 AIAgent agent = new OpenAIClient(apiKey)
     .GetAssistantClient()
-    .CreateAIAgent(instructions: instructions);
+    .CreateAIAgent(modelId, instructions: instructions);
+```
+
+**OpenAI Assistants (Existing):**
+```csharp
+AIAgent agent = new OpenAIClient(apiKey)
+    .GetAssistantClient()
+    .GetAIAgent(assistantId);
 ```
 
 **Azure OpenAI:**
@@ -359,16 +467,30 @@ AIAgent agent = new AzureOpenAIClient(endpoint, credential)
     .CreateAIAgent(instructions: instructions);
 ```
 
-**Azure AI Foundry:**
+**Azure AI Foundry (New):**
 ```csharp
 AIAgent agent = new PersistentAgentsClient(endpoint, credential)
-    .CreateAIAgent(instructions: instructions);
+    .CreateAIAgent(model: deploymentName, instructions: instructions);
 ```
 
-### Migration Scenarios
+**Azure AI Foundry (Existing):**
+```csharp
+AIAgent agent = await new PersistentAgentsClient(endpoint, credential)
+    .GetAIAgentAsync(agentId);
+```
 
-#### Basic Agent Creation
-**Before (Semantic Kernel):**
+**A2A:**
+```csharp
+A2ACardResolver resolver = new(new Uri(agentHost));
+AIAgent agent = await resolver.GetAIAgentAsync();
+```
+</configuration_changes>
+
+### Complete Migration Examples
+
+#### Basic Agent Creation Transformation
+<configuration_changes>
+**Replace this complete Semantic Kernel pattern:**
 ```csharp
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
@@ -386,7 +508,7 @@ ChatCompletionAgent agent = new()
 AgentThread thread = new ChatHistoryAgentThread();
 ```
 
-**After (Agent Framework):**
+**With this complete Agent Framework pattern:**
 ```csharp
 using Microsoft.Extensions.AI.Agents;
 using OpenAI;
@@ -397,11 +519,13 @@ AIAgent agent = new OpenAIClient(apiKey)
 
 AgentThread thread = agent.GetNewThread();
 ```
+</configuration_changes>
 
-#### Tool Registration
-**Before (Semantic Kernel):**
+#### Tool Registration Transformation
+<configuration_changes>
+**Replace this complete Semantic Kernel tool pattern:**
 ```csharp
-[KernelFunction]
+[KernelFunction] // Remove this attribute
 [Description("Get weather information")]
 static string GetWeather([Description("Location")] string location)
     => $"Weather in {location}";
@@ -411,18 +535,21 @@ KernelPlugin plugin = KernelPluginFactory.CreateFromFunctions("Weather", [functi
 kernel.Plugins.Add(plugin);
 ```
 
-**After (Agent Framework):**
+**With this complete Agent Framework tool pattern:**
 ```csharp
-[Description("Get weather information")]
+[Description("Get weather information")] // Keep this attribute
 static string GetWeather([Description("Location")] string location)
     => $"Weather in {location}";
 
 AIAgent agent = chatClient.CreateAIAgent(
+    instructions: "You are a helpful assistant",
     tools: [AIFunctionFactory.Create(GetWeather)]);
 ```
+</configuration_changes>
 
-#### Agent Invocation
-**Before (Semantic Kernel):**
+#### Agent Invocation Transformation
+<api_changes>
+**Replace this complete Semantic Kernel invocation pattern:**
 ```csharp
 OpenAIPromptExecutionSettings settings = new() { MaxTokens = 1000 };
 AgentInvokeOptions options = new() { KernelArguments = new(settings) };
@@ -433,25 +560,23 @@ await foreach (var result in agent.InvokeAsync(input, thread, options))
 }
 ```
 
-**After (Agent Framework):**
+**With this complete Agent Framework invocation pattern:**
 ```csharp
-ChatClientAgentRunOptions options = new(new() { MaxOutputTokens = 1000 });
+ChatClientAgentRunOptions options = new(new ChatOptions { MaxOutputTokens = 1000 });
 
 AgentRunResponse result = await agent.RunAsync(input, thread, options);
 Console.WriteLine(result);
 
-// Breaking glass to access underlying content if needed
+// Access underlying content when needed:
 var chatResponse = result.RawRepresentation as ChatResponse;
 // Access underlying SDK objects via chatResponse?.RawRepresentation
 ```
+</api_changes>
 
-### Usage Metadata
+### Usage Metadata Transformation
 
-#### Semantc Kernel Pattern
-
-Semantic Kernel Agents don't provide an abstraction for usage metadata to get the token usage details you need to use the metadata dictionary combined with a breaking glass casting to a provider-specific Usage type.
-
-Non-Streaming:
+<api_changes>
+**Replace this Semantic Kernel non-streaming usage pattern:**
 ```csharp
 await foreach (var result in agent.InvokeAsync(input, thread, options))
 {
@@ -465,10 +590,16 @@ await foreach (var result in agent.InvokeAsync(input, thread, options))
 }
 ```
 
-Streaming:
+**With this Agent Framework non-streaming usage pattern:**
 ```csharp
- await foreach (StreamingChatMessageContent response in agent.InvokeStreamingAsync(message, agentThread))
- {
+AgentRunResponse result = await agent.RunAsync(input, thread, options);
+Console.WriteLine($"Tokens: {result.Usage.TotalTokenCount}");
+```
+
+**Replace this Semantic Kernel streaming usage pattern:**
+```csharp
+await foreach (StreamingChatMessageContent response in agent.InvokeStreamingAsync(message, agentThread))
+{
     if (response.Metadata?.TryGetValue("Usage", out object? usage) ?? false)
     {
         if (usage is ChatTokenUsage openAIUsage)
@@ -476,20 +607,10 @@ Streaming:
             Console.WriteLine($"Tokens: {openAIUsage.TotalTokenCount}");
         }
     }
- }
+}
 ```
 
-#### Agent Framework Pattern
-
-Agent Framework provides a unified `UsageDetails` type for accessing usage metadata.
-
-Non-Streaming:
-```csharp
-AgentRunResponse result = await agent.RunAsync(input, thread, options);
-Console.WriteLine($"Tokens: {result.Usage.TotalTokenCount}");
-```
-
-Streaming:
+**With this Agent Framework streaming usage pattern:**
 ```csharp
 await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(input, thread, options))
 {
@@ -499,57 +620,53 @@ await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(input, t
     }
 }
 ```
+</api_changes>
 
-### Breaking Glass Strategy for Accessing Underlying Content
 
-One of the most important migration patterns involves accessing underlying SDK objects and content. This is crucial for scenarios like CodeInterpreter tools, reasoning models, and other advanced features.
 
-#### Semantic Kernel Pattern (InnerContent)
+### Breaking Glass Pattern Transformation
 
-**Semantic Kernel** used `InnerContent` to access underlying SDK objects:
-
+<api_changes>
+**Replace this Semantic Kernel breaking glass pattern:**
 ```csharp
-// SK: Accessing underlying content via InnerContent
 await foreach (var content in agent.InvokeAsync(userInput, thread))
 {
     if (content.Message.InnerContent is OpenAI.Chat.ChatMessage underlyingChatMessage)
     {
-        // Access underlying SDK objects via chatResponse
+        // Access underlying SDK objects
     }
 }
 ```
 
-#### Agent Framework Pattern (RawRepresentation)
-
-**Agent Framework** uses `RawRepresentation` 
-
-When the agent is a `ChatClientAgent`, to access the underlying SDK a double-breaking glass pattern is required where:
-the first breaking glass exposes the `Microsoft.Extensions.AI` type, and the second breaking glass exposes the underlying SDK type.
-
-Below is an example how to retrieve different `RunStepDetailsUpdate` updates from the `AgentRunResponse` raw representation and check for the `CodeInterpreterInput` property to capture the generated code.
-
+**With this Agent Framework breaking glass pattern:**
 ```csharp
-// AF: Breaking glass to access underlying SDK objects
 var result = await agent.RunAsync(userInput, thread);
 
-// First level: AgentRunResponse.RawRepresentation exposes ME.AI type (e.g., ChatResponse)
+// First level: Access Microsoft.Extensions.AI type
 var chatResponse = result.RawRepresentation as ChatResponse;
 
-// Second level: ME.AI type.RawRepresentation exposes underlying SDK type
+// Second level: Access underlying SDK type
 foreach (object? updateRawRepresentation in chatResponse?.RawRepresentation as IEnumerable<object?> ?? [])
 {
     if (updateRawRepresentation is RunStepDetailsUpdate update && update.CodeInterpreterInput is not null)
     {
+        // Process underlying SDK objects
         generatedCode.Append(update.CodeInterpreterInput);
     }
 }
 ```
 
-#### CodeInterpreter Tool Migration 
+**Required changes:**
+1. Replace `InnerContent` property access with `RawRepresentation` property access
+2. Use two-level breaking glass: first to ME.AI type, then to SDK type
+3. Cast `RawRepresentation` to appropriate types based on provider
+4. Handle collections when accessing streaming updates
+</api_changes>
 
-Non-Streaming Semantic Kernel example of accessing CodeInterpreter tool output:
+#### CodeInterpreter Tool Transformation
 
-**Before (Semantic Kernel):**
+<behavioral_changes>
+**Replace this Semantic Kernel CodeInterpreter pattern:**
 ```csharp
 await foreach (var content in agent.InvokeAsync(userInput, thread))
 {
@@ -571,27 +688,16 @@ await foreach (var content in agent.InvokeAsync(userInput, thread))
 }
 ```
 
-**After (Agent Framework):**
-
-The changes compared to the Semantic Kernel are significant and may vary depending on the provider. 
-
-1.	Code interpreter output is its own separate thing, not a property or characteristic of a TextContent
-2.	We need to directly access and handle the code output from the raw representation
-3.	The TextContent and CodeInterpreter output are separate things to process independently
-4. In the Azure AI Foundry non-streaming case the raw representation `object?` from the `AgentRunResponse` can be casted to a list of the `RunStepDetailsUpdate` type which can be checked for the `CodeInterpreterInput` property to capture the generated code.
-
+**With this Agent Framework CodeInterpreter pattern:**
 ```csharp
 var result = await agent.RunAsync(userInput, thread);
 Console.WriteLine(result);
 
-// Extracts via breaking glass the code generated by code interpreter tool
+// Extract code interpreter output via breaking glass
 var chatResponse = result.RawRepresentation as ChatResponse;
 StringBuilder generatedCode = new();
 foreach (object? updateRawRepresentation in chatResponse?.RawRepresentation as IEnumerable<object?> ?? [])
 {
-    // To capture the code interpreter input we need to break glass all the updates raw representations, to check for the RunStepDetailsUpdate type and
-    // get the CodeInterpreterInput property which contains the generated code. 
-    // Note: Similar logic would needed for each individual update if used in the agent.RunStreamingAsync streaming API to aggregate or yield the generated code.
     if (updateRawRepresentation is RunStepDetailsUpdate update && update.CodeInterpreterInput is not null)
     {
         generatedCode.Append(update.CodeInterpreterInput);
@@ -604,14 +710,20 @@ if (!string.IsNullOrEmpty(generatedCode.ToString()))
 }
 ```
 
-#### ChatOptions Custom Model Settings
+**Functional differences:**
+1. Code interpreter output is separate from text content, not a metadata property
+2. Access code via `RunStepDetailsUpdate.CodeInterpreterInput` instead of metadata
+3. Use breaking glass pattern to access underlying SDK objects
+4. Process text content and code interpreter output independently
+</behavioral_changes>
 
-When using `ChatClientAgent` with `ChatClientAgentRunOptions`, there may be cases where the `ChatOptions` properties may not have an equivalent abstraction for the desired model setting (e.g. `reasoning effort level` for reasoning models).
+#### Provider-Specific Options Configuration
 
-For advanced scenarios like this, you can use the breaking-glass `RawRepresentationFactory` property of the `ChatOptions` to instruct the agent how to configure the provider-specific configuration. In the sample below we are using the OpenAI SDK specific `ResponseCreationOptions` type to configure the reasoning effort level.
+<configuration_changes>
+For advanced model settings not available in `ChatOptions`, use the `RawRepresentationFactory` property:
 
 ```csharp
-var agentOptions = new ChatClientAgentRunOptions(new()
+var agentOptions = new ChatClientAgentRunOptions(new ChatOptions
 {
     MaxOutputTokens = 8000,
     // Breaking glass to access provider-specific options
@@ -626,9 +738,16 @@ var agentOptions = new ChatClientAgentRunOptions(new()
 });
 ```
 
-#### Extension Methods for Type-Safe Breaking Glass
+**Use this pattern when:**
+1. Standard `ChatOptions` properties don't cover required model settings
+2. Provider-specific configuration is needed (e.g., reasoning effort level)
+3. Advanced SDK features need to be accessed
+</configuration_changes>
 
-Agent Framework provides extension methods for safer access to underlying types:
+#### Type-Safe Extension Methods
+
+<api_changes>
+Use provider-specific extension methods for safer breaking glass access:
 
 ```csharp
 using OpenAI; // Brings in extension methods
@@ -640,51 +759,57 @@ var chatCompletion = result.AsChatCompletion();
 var openAIResponse = chatCompletion.GetRawResponse();
 ```
 
-### Performance and Memory Improvements
+**Available extension methods:**
+- `result.AsChatCompletion()` for OpenAI providers
+- `result.GetRawResponse()` for accessing underlying SDK responses
+- Provider-specific extensions for type-safe casting
+</api_changes>
 
-Agent Framework provides several performance improvements:
+### Migration Validation Checklist
 
-- **Reduced Object Allocation**: Simplified object creation patterns
-- **Better Memory Usage**: Streamlined thread and message management
-- **Faster Startup**: Elimination of complex Kernel initialization
-- **Optimized Serialization**: More efficient message serialization patterns
+After completing migration, verify these specific items:
 
-### Migration Validation
+1. **Compilation**: Execute `dotnet build` on all modified projects - zero errors required
+2. **Namespace Updates**: Confirm all `using Microsoft.SemanticKernel.Agents` statements are replaced
+3. **Method Calls**: Verify all `InvokeAsync` calls are changed to `RunAsync`
+4. **Return Types**: Confirm handling of `AgentRunResponse` instead of `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>`
+5. **Thread Creation**: Validate all thread creation uses `agent.GetNewThread()` pattern
+6. **Tool Registration**: Ensure `[KernelFunction]` attributes are removed and `AIFunctionFactory.Create()` is used
+7. **Options Configuration**: Verify `ChatClientAgentRunOptions` replaces `AgentInvokeOptions`
+8. **Breaking Glass**: Test `RawRepresentation` access replaces `InnerContent` access
 
-After migration, validate the following:
+### Common Migration Issues and Solutions
 
-1. **Compilation**: All projects compile without errors
-2. **Functionality**: Agent responses are equivalent to original behavior
-3. **Tool Calls**: Functions are called correctly with proper parameters
-4. **Thread Management**: Conversations maintain state properly
-5. **Error Handling**: Exceptions are handled appropriately
-6. **Performance**: Response times are acceptable or improved
+**Issue: Missing Using Statements**
+- **Problem**: Compilation errors due to missing namespace imports
+- **Solution**: Add `using Microsoft.Extensions.AI.Agents;` and remove `using Microsoft.SemanticKernel.Agents;`
 
-### Common Migration Issues
+**Issue: Tool Function Signatures**
+- **Problem**: `[KernelFunction]` attributes cause compilation errors
+- **Solution**: Remove `[KernelFunction]` attributes, keep `[Description]` attributes
 
-#### Missing Using Statements
-Ensure proper namespace imports for Agent Framework types.
+**Issue: Thread Type Mismatches**
+- **Problem**: Provider-specific thread constructors not found
+- **Solution**: Replace all thread constructors with `agent.GetNewThread()`
 
-#### Tool Function Signatures
-Remove `[KernelFunction]` attributes.
+**Issue: Options Configuration**
+- **Problem**: `AgentInvokeOptions` type not found
+- **Solution**: Replace with `ChatClientAgentRunOptions` containing `ChatOptions`
 
-#### Thread Type Mismatches
-Replace specific thread types with unified `Microsoft.Extensions.AI.AgentThread` class.
+**Issue: Dependency Injection**
+- **Problem**: `Kernel` service registration not found
+- **Solution**: Remove `services.AddKernel()`, use direct client registration
 
-#### Options Configuration
-Update from `AgentInvokeOptions` to a `ChatClientAgentRunOptions` or a specialized provider-specific run options if available.
+### Migration Execution Steps
 
-#### Dependency Injection
-Simplify service registration by removing Kernel dependencies.
-
-### Best Practices for Migration
-
-1. **Incremental Migration**: Migrate one agent at a time
-2. **Test Coverage**: Ensure comprehensive testing of migrated functionality
-3. **Documentation**: Update code comments and documentation
-4. **Error Handling**: Review and update exception handling patterns
-5. **Performance Testing**: Validate performance improvements
-6. **Code Review**: Have migrated code reviewed by team members
+1. **Update Package References**: Remove SK packages, add AF packages per provider
+2. **Update Namespaces**: Replace SK namespaces with AF namespaces
+3. **Update Agent Creation**: Remove Kernel, use direct client creation
+4. **Update Method Calls**: Replace `InvokeAsync` with `RunAsync`
+5. **Update Thread Creation**: Replace provider-specific constructors with `GetNewThread()`
+6. **Update Tool Registration**: Remove attributes, use `AIFunctionFactory.Create()`
+7. **Update Options**: Replace `AgentInvokeOptions` with provider-specific options
+8. **Test and Validate**: Compile and test all functionality
 
 ## Provider-Specific Migration Patterns
 
@@ -809,6 +934,8 @@ AgentThread thread = new OpenAIAssistantAgentThread(assistantClient);
 ```
 
 **After (Agent Framework):**
+
+**Creating a new assistant:**
 ```csharp
 using Microsoft.Extensions.AI.Agents;
 using OpenAI;
@@ -821,6 +948,18 @@ AgentThread thread = agent.GetNewThread();
 
 // Cleanup when needed
 await assistantClient.DeleteThreadAsync(thread.ConversationId);
+```
+
+**Retrieving an existing assistant:**
+```csharp
+using Microsoft.Extensions.AI.Agents;
+using OpenAI;
+
+AIAgent agent = new OpenAIClient(apiKey)
+    .GetAssistantClient()
+    .GetAIAgent(assistantId); // Use existing assistant ID
+
+AgentThread thread = agent.GetNewThread();
 ```
 
 ### 4. Azure AI Foundry (AzureAIAgent) Migration
@@ -873,10 +1012,7 @@ AgentThread thread = new AzureAIAgentThread(client);
 
 **After (Agent Framework):**
 
-There are multiple ways to create an `AIAgent` in Agent Framework for Azure AI Foundry and ideally the 
-simplest approach is using the `PersistentAgentsClient` extension methods like `CreateAIAgent` which will 
-return the created `AIAgent` instance with the agent id as the `agent.Id` property.
-
+**Creating a new agent:**
 ```csharp
 using Microsoft.Extensions.AI.Agents;
 using Azure.AI.Agents.Persistent;
@@ -884,11 +1020,25 @@ using Azure.Identity;
 
 var client = new PersistentAgentsClient(endpoint, new AzureCliCredential());
 
-// Create an AIAgent using Agent Framework - pass model ID as required by the API
+// Create a new AIAgent using Agent Framework
 AIAgent agent = client.CreateAIAgent(
     model: deploymentName,
     instructions: "You are a helpful assistant",
     tools: [/* List of specialized Azure.AI.Agents.Persistent.ToolDefinition types */]);
+
+AgentThread thread = agent.GetNewThread();
+```
+
+**Retrieving an existing agent:**
+```csharp
+using Microsoft.Extensions.AI.Agents;
+using Azure.AI.Agents.Persistent;
+using Azure.Identity;
+
+var client = new PersistentAgentsClient(endpoint, new AzureCliCredential());
+
+// Retrieve an existing AIAgent using its ID
+AIAgent agent = await client.GetAIAgentAsync(agentId);
 
 AgentThread thread = agent.GetNewThread();
 ```
