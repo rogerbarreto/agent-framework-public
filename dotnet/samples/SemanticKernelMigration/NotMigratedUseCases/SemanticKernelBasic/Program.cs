@@ -13,6 +13,7 @@ var client = new PersistentAgentsClient(Environment.GetEnvironmentVariable("AZUR
 // Define the agent
 PersistentAgent definition = await client.Administration.CreateAgentAsync(
     Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME"),
+    instructions: "You are a coding assistant that always generates code using the code interpreter tool.",
     tools: [new CodeInterpreterToolDefinition()]);
 
 AzureAIAgent agent = new(definition, client);
@@ -22,7 +23,7 @@ AgentThread thread = new AzureAIAgentThread(client);
 
 try
 {
-    await InvokeAgentAsync("Use code interpreter tool to create a python code file where it determines the values in the Fibonacci sequence that that are less then the value of 101?");
+    await InvokeAgentAsync("Create a python file where it determines the values in the Fibonacci sequence that that are less then the value of 101.");
 }
 finally
 {
