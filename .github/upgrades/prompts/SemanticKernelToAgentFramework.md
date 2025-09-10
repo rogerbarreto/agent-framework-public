@@ -84,7 +84,9 @@ below in wrong order or skip any of them):
 4. Build all modified projects to ensure that they compile without errors. If there are any build errors, you must fix them all yourself one by one and
    don't stop until all errors are fixed without breaking any of the migration guidance.
 
-5. Generate the report file under `<solution root>\.github folder`, the file name should be `SemanticKernelToAgentFrameworkReport.md`, it is highly important that
+5. **Validate Migration**: Use the validation checklist below to ensure complete migration.
+
+6. Generate the report file under `<solution root>\.github folder`, the file name should be `SemanticKernelToAgentFrameworkReport.md`, it is highly important that
    you generate report when migration complete. Report should contain:
      - all project dependencies changes (mention what was changed, added or removed, including provider-specific packages)
      - all code files that were changed (mention what was changed in the file, if it was not changed, just mention that the file was not changed)
@@ -95,6 +97,19 @@ below in wrong order or skip any of them):
      - all behavioral changes that have to be verified at runtime
      - provider-specific configuration changes that may affect behavior
      - all follow up steps that user would have to do in the report markdown file
+
+## Migration Validation Checklist
+
+After completing migration, verify these specific items:
+
+1. **Compilation**: Execute `dotnet build` on all modified projects - zero errors required
+2. **Namespace Updates**: Confirm all `using Microsoft.SemanticKernel.Agents` statements are replaced
+3. **Method Calls**: Verify all `InvokeAsync` calls are changed to `RunAsync`
+4. **Return Types**: Confirm handling of `AgentRunResponse` instead of `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>`
+5. **Thread Creation**: Validate all thread creation uses `agent.GetNewThread()` pattern
+6. **Tool Registration**: Ensure `[KernelFunction]` attributes are removed and `AIFunctionFactory.Create()` is used
+7. **Options Configuration**: Verify `AgentRunOptions` or `ChatClientAgentRunOptions` replaces `AgentInvokeOptions`
+8. **Breaking Glass**: Test `RawRepresentation` access replaces `InnerContent` access
 
 ## Detailed information about differences in Semantic Kernel Agents and Agent Framework
 
@@ -765,21 +780,11 @@ var openAIResponse = chatCompletion.GetRawResponse();
 - Provider-specific extensions for type-safe casting
 </api_changes>
 
-### Migration Validation Checklist
 
-After completing migration, verify these specific items:
-
-1. **Compilation**: Execute `dotnet build` on all modified projects - zero errors required
-2. **Namespace Updates**: Confirm all `using Microsoft.SemanticKernel.Agents` statements are replaced
-3. **Method Calls**: Verify all `InvokeAsync` calls are changed to `RunAsync`
-4. **Return Types**: Confirm handling of `AgentRunResponse` instead of `IAsyncEnumerable<AgentResponseItem<ChatMessageContent>>`
-5. **Thread Creation**: Validate all thread creation uses `agent.GetNewThread()` pattern
-6. **Tool Registration**: Ensure `[KernelFunction]` attributes are removed and `AIFunctionFactory.Create()` is used
-7. **Options Configuration**: Verify `ChatClientAgentRunOptions` replaces `AgentInvokeOptions`
-8. **Breaking Glass**: Test `RawRepresentation` access replaces `InnerContent` access
 
 ### Common Migration Issues and Solutions
 
+<configuration_changes>
 **Issue: Missing Using Statements**
 - **Problem**: Compilation errors due to missing namespace imports
 - **Solution**: Add `using Microsoft.Extensions.AI.Agents;` and remove `using Microsoft.SemanticKernel.Agents;`
@@ -794,14 +799,16 @@ After completing migration, verify these specific items:
 
 **Issue: Options Configuration**
 - **Problem**: `AgentInvokeOptions` type not found
-- **Solution**: Replace with `ChatClientAgentRunOptions` containing `ChatOptions`
+- **Solution**: Replace with `AgentRunOptions` or `ChatClientAgentRunOptions` containing `ChatOptions`
 
 **Issue: Dependency Injection**
 - **Problem**: `Kernel` service registration not found
 - **Solution**: Remove `services.AddKernel()`, use direct client registration
+</configuration_changes>
 
 ### Migration Execution Steps
 
+<configuration_changes>
 1. **Update Package References**: Remove SK packages, add AF packages per provider
 2. **Update Namespaces**: Replace SK namespaces with AF namespaces
 3. **Update Agent Creation**: Remove Kernel, use direct client creation
@@ -810,22 +817,27 @@ After completing migration, verify these specific items:
 6. **Update Tool Registration**: Remove attributes, use `AIFunctionFactory.Create()`
 7. **Update Options**: Replace `AgentInvokeOptions` with provider-specific options
 8. **Test and Validate**: Compile and test all functionality
+</configuration_changes>
 
 ## Provider-Specific Migration Patterns
 
+<configuration_changes>
 The following sections provide detailed migration patterns for each supported provider, covering package references, agent creation patterns, and provider-specific configurations.
+</configuration_changes>
 
 ### 1. OpenAI Chat Completion Migration
 
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 ```
+</configuration_changes>
 
 **Before (Semantic Kernel):**
 ```csharp
@@ -859,21 +871,23 @@ AgentThread thread = agent.GetNewThread();
 
 ### 2. Azure OpenAI Chat Completion Migration
 
-If the authentication is not using `AzureCliCredential` you can use `ApiKeyCredential` instead without the need for `Azure.Identity` package.
-
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 <PackageReference Include="Azure.Identity" />
 ```
+
+**Note**: If not using `AzureCliCredential`, you can use `ApiKeyCredential` instead without the `Azure.Identity` package.
+</configuration_changes>
 
 **Before (Semantic Kernel):**
 ```csharp
@@ -905,17 +919,20 @@ AIAgent agent = new AzureOpenAIClient(new Uri(endpoint), new AzureCliCredential(
 
 ### 3. OpenAI Assistants Migration
 
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 ```
+</configuration_changes>
 
-**Before (Semantic Kernel):**
+<api_changes>
+**Replace this Semantic Kernel pattern:**
 ```csharp
 using Microsoft.SemanticKernel.Agents.OpenAI;
 using OpenAI.Assistants;
@@ -933,7 +950,7 @@ OpenAIAssistantAgent agent = new(assistant, assistantClient)
 AgentThread thread = new OpenAIAssistantAgentThread(assistantClient);
 ```
 
-**After (Agent Framework):**
+**With this Agent Framework pattern:**
 
 **Creating a new assistant:**
 ```csharp
@@ -961,26 +978,28 @@ AIAgent agent = new OpenAIClient(apiKey)
 
 AgentThread thread = agent.GetNewThread();
 ```
+</api_changes>
 
 ### 4. Azure AI Foundry (AzureAIAgent) Migration
 
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
 <PackageReference Include="Azure.Identity" />
 ```
+</configuration_changes>
 
-**Before (Semantic Kernel):**
+<api_changes>
+**Replace these Semantic Kernel patterns:**
 
-There are two common ways to create an `AzureAIAgent` in Semantic Kernel:
-
-1. Using the `AzureAIAgent` class directly
+**Pattern 1: Direct AzureAIAgent creation**
 ```csharp
 using Microsoft.SemanticKernel.Agents.AzureAI;
 using Azure.Identity;
@@ -996,8 +1015,7 @@ AzureAIAgent agent = new(
 AgentThread thread = new AzureAIAgentThread(agent);
 ```
 
-2. Using a `PersistentAgent` definition to create the `AzureAIAgent`
-
+**Pattern 2: PersistentAgent definition creation**
 ```csharp
 // Define the agent
 PersistentAgent definition = await client.Administration.CreateAgentAsync(
@@ -1010,7 +1028,7 @@ AzureAIAgent agent = new(definition, client);
 AgentThread thread = new AzureAIAgentThread(client);
 ```
 
-**After (Agent Framework):**
+**With these Agent Framework patterns:**
 
 **Creating a new agent:**
 ```csharp
@@ -1042,20 +1060,24 @@ AIAgent agent = await client.GetAIAgentAsync(agentId);
 
 AgentThread thread = agent.GetNewThread();
 ```
+</api_changes>
 
 ### 5. A2A Migration
 
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.A2A" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
 ```
+</configuration_changes>
 
-**Before (Semantic Kernel):**
+<api_changes>
+**Replace this Semantic Kernel pattern:**
 ```csharp
 // Create an A2A agent instance
 using var httpClient = CreateHttpClient();
@@ -1065,7 +1087,7 @@ var agentCard = await cardResolver.GetAgentCardAsync();
 var agent = new A2AAgent(client, agentCard);
 ```
 
-**After (Agent Framework):**
+**With this Agent Framework pattern:**
 ```csharp
 // Initialize an A2ACardResolver to get an A2A agent card.
 A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
@@ -1073,22 +1095,26 @@ A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
 // Create an instance of the AIAgent for an existing A2A agent specified by the agent card.
 AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 ```
+</api_changes>
 
 ### 6. OpenAI Responses Migration
 
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 ```
+</configuration_changes>
 
-**Before (Semantic Kernel):**
+<api_changes>
+**Replace this Semantic Kernel pattern:**
 
-The thread management is done manually with OpenAI Responses in Semantic Kernel, where the thread 
+The thread management is done manually with OpenAI Responses in Semantic Kernel, where the thread
 needs to be passed to the `InvokeAsync` method and updated with the `item.Thread` from the response.
 
 ```csharp
@@ -1114,7 +1140,7 @@ await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseIte
 }
 ```
 
-**After (Agent Framework):**
+**With this Agent Framework pattern:**
 
 Agent Framework automatically manages the thread, so there's no need to manually update it.
 
@@ -1134,24 +1160,28 @@ var result = await agent.RunAsync(userInput, thread);
 
 // The thread will be automatically updated with the new response id from this point
 ```
+</api_changes>
 
 ### 7. Azure OpenAI Responses Migration
 
-Azure OpenAI Responses samples is almost similar to OpenAI Responses, with the single difference that the `OpenAIResponseAgent` is created with a  `AzureOpenAIClient` instead of `OpenAIClient`.
-
-**Semantic Kernel Packages:**
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 ```
 
-**Agent Framework Packages:**
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 ```
-The thread management is done manually with OpenAI Responses in Semantic Kernel, where the thread 
-needs to be passed to the `InvokeAsync` method and updated with the `item.Thread` from the response.
+</configuration_changes>
+
+<api_changes>
+**Replace this Semantic Kernel pattern:**
+
+Azure OpenAI Responses uses `AzureOpenAIClient` instead of `OpenAIClient`. The thread management is done manually where the thread needs to be passed to the `InvokeAsync` method and updated with the `item.Thread` from the response.
 
 ```csharp
 using Microsoft.SemanticKernel.Agents.OpenAI;
@@ -1177,7 +1207,7 @@ await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseIte
 }
 ```
 
-**After (Agent Framework):**
+**With this Agent Framework pattern:**
 
 Agent Framework automatically manages the thread, so there's no need to manually update it.
 
@@ -1198,23 +1228,24 @@ var result = await agent.RunAsync(userInput, thread);
 
 // The thread will be automatically updated with the new response id from this point
 ```
+</api_changes>
 
 ### 8. A2A Migration
 
-**Semantic Kernel Packages:**
-
+<configuration_changes>
+**Remove Semantic Kernel Packages:**
 ```xml
 <PackageReference Include="Microsoft.SemanticKernel.Agents.A2A" />
 ```
 
-**Agent Framework Packages:**
-
+**Add Agent Framework Packages:**
 ```xml
 <PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
 ```
+</configuration_changes>
 
-**Before (Semantic Kernel):**
-
+<api_changes>
+**Replace this Semantic Kernel pattern:**
 ```csharp
 using A2A;
 using Microsoft.SemanticKernel;
@@ -1229,8 +1260,7 @@ Console.WriteLine(JsonSerializer.Serialize(agentCard, s_jsonSerializerOptions));
 var agent = new A2AAgent(client, agentCard);
 ```
 
-**After (Agent Framework):**
-
+**With this Agent Framework pattern:**
 ```csharp
 using System;
 using A2A;
@@ -1243,17 +1273,18 @@ A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
 // Create an instance of the AIAgent for an existing A2A agent specified by the agent card.
 AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 ```
+</api_changes>
 
 ### 9. Unsupported Providers (Require Custom Implementation)
 
+<behavioral_changes>
 #### BedrockAgent Migration
 
 **Status**: Hosted Agents is not directly supported in Agent Framework
 
 **Status**: Non-Hosted AI Model Agents supported via `ChatClientAgent`
 
-**Semantic Kernel (Before):**
-
+**Replace this Semantic Kernel pattern:**
 ```csharp
 using Microsoft.SemanticKernel.Agents.Bedrock;
 
@@ -1274,13 +1305,13 @@ var agentModel = await client.CreateAndPrepareAgentAsync(new CreateAgentRequest(
 var agent = new BedrockAgent(agentModel, client, runtimeClient);
 ```
 
-**Agent Framework (After):**
+**With this Agent Framework workaround:**
 
 Currently there's no support for the Hosted Bedrock Agent service in Agent Framework.
 
-Alternatively, for providers like AWS Bedrock that already have an `IChatClient` implementation available, you can use the `ChatClientAgent` directly by providing the `IChatClient` instance to the agent. 
+For providers like AWS Bedrock that have an `IChatClient` implementation available, use the `ChatClientAgent` directly by providing the `IChatClient` instance to the agent.
 
-_Those agents will be purelly backed by the AI chat models behavior and will not store any state in the server._
+_Those agents will be purely backed by the AI chat models behavior and will not store any state in the server._
 
 ```csharp
 using Microsoft.Extensions.AI.Agents;
@@ -1292,82 +1323,118 @@ IAmazonBedrockRuntime runtime = serviceProvider.GetRequiredService<IAmazonBedroc
 using var bedrockChatClient = runtime.AsIChatClient();
 AIAgent agent = new ChatClientAgent(bedrockChatClient, instructions: "You are a helpful assistant");
 ```
+</behavioral_changes>
 
-### Provider-Specific Package Reference Updates
+### Unsupported Features that need workarounds
 
-When migrating projects, update package references according to the provider being used:
-
-#### Remove Semantic Kernel Packages:
-- `Microsoft.SemanticKernel`
-- `Microsoft.SemanticKernel.Agents.Abstractions`
-- `Microsoft.SemanticKernel.Agents.Core`
-- `Microsoft.SemanticKernel.Agents.OpenAI`
-- `Microsoft.SemanticKernel.Agents.AzureAI`
-- `Microsoft.SemanticKernel.Agents.A2A`
-
-#### Add Agent Framework Packages
-- `Microsoft.Extensions.AI.Agents.Abstractions`
-- `Microsoft.Extensions.AI.Agents`
-- `Microsoft.Extensions.AI.Agents.OpenAI`
-- `Microsoft.Extensions.AI.Agents.AzureAI`
-- `Microsoft.Extensions.AI.Agents.A2A`
-
-### Provider-Specific Configuration Patterns
-
-Each provider may have specific configuration requirements:
-
-#### OpenAI Provider
-```csharp
-// API Key configuration
-AIAgent agent = new OpenAIClient(apiKey).GetChatClient(modelId).CreateAIAgent(instructions);
-
-// With custom options
-ChatClientAgentRunOptions options = new(new ChatOptions
-{
-    MaxOutputTokens = 1000,
-    Temperature = 0.7f,
-    Tools = [/* AITools */]
-});
-```
-
-#### Azure OpenAI Provider
-
-```csharp
-// Azure Cli Credential
-AIAgent agent = new AzureOpenAIClient(endpoint, new AzureCliCredential())
-    .GetChatClient(deploymentName)
-    .CreateAIAgent(instructions);
-
-// API Key
-AIAgent agent = new AzureOpenAIClient(endpoint, new AzureKeyCredential(apiKey))
-    .GetChatClient(deploymentName)
-    .CreateAIAgent(instructions);
-```
-
-#### A2A Provider
-
-```csharp
-// Initialize an A2ACardResolver to get an A2A agent card.
-A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
-
-// Create an instance of the AIAgent for an existing A2A agent specified by the agent card.
-AIAgent agent = await agentCardResolver.GetAIAgentAsync();
-```
-
-This migration guide provides the foundation for successfully transitioning from Semantic Kernel Agents to Agent Framework while maintaining functionality and improving code quality.
-
-### Unsupported Features and Workarounds
-
+<behavioral_changes>
 The following Semantic Kernel Agents features currently don't have direct equivalents in Agent Framework:
 
-#### Plugins
+#### Plugins Migration
 
-**Problem**: Semantic Kernel plugins allowed multiple functions to be registered under a type
+**Problem**: Semantic Kernel plugins allowed multiple functions to be registered under a type or object instance
 
-**Workaround**: Functions need to be provided directly as a flat list of tools to the agent.
+**Semantic Kernel pattern**
+```csharp
 
-#### Prompt Template
+// Create plugin with multiple functions
+public class WeatherPlugin
+{
+    [KernelFunction, Description("Get current weather")]
+    public string GetCurrentWeather(string location) 
+        => $"Weather in {location}: Sunny";
+
+    [KernelFunction, Description("Get weather forecast")]
+    public static Task<string> GetForecastAsync(string location, int days) 
+        => Task.FromResult($"Forecast for {location}: {days} days");
+}
+
+kernel.Plugins.AddFromType<WeatherPlugin>();
+// OR
+kernel.Plugins.AddFromObject(new WeatherPlugin());
+```
+
+**Agent Framework workaround:**
+
+```csharp
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.AI.Agents;
+
+// Create individual functions (no plugin grouping)
+public class WeatherFunctions
+{
+    [Description("Get current weather")]
+    public static string GetCurrentWeather(string location) 
+        => $"Weather in {location}: Sunny";
+
+    [Description("Get weather forecast")]
+    public Task<string> GetForecastAsync(string location, int days) 
+        => Task.FromResult($"Forecast for {location}: {days} days");
+}
+
+var weatherService = new WeatherService();
+
+// Register functions individually as tools
+AITool[] tools = [
+    AIFunctionFactory.Create(WeatherFunctions.GetCurrentWeather), // Get from type static method
+    AIFunctionFactory.Create(weatherService.GetForecastAsync) // Get from instance method
+];
+
+AIAgent agent = new OpenAIClient(apiKey)
+    .GetChatClient(modelId)
+    .CreateAIAgent(
+        instructions: "You are a weather assistant",
+        tools: tools);
+```
+
+#### Prompt Template Migration
 
 **Problem**: Agent prompt templating is not yet supported in Agent Framework
 
-**Workaround**: Use the existing `SemanticKernel` template engine to render the prompt before calling the agents.
+**Semantic Kernel pattern**
+```csharp
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Agents;
+
+var template = "Tell a story about {{$topic}} that is {{$length}} sentences long.";
+
+ChatCompletionAgent agent =
+    new(templateFactory: new KernelPromptTemplateFactory(),
+        templateConfig: new(template) { TemplateFormat = PromptTemplateConfig.SemanticKernelTemplateFormat })
+    {
+        Kernel = kernel,
+        Name = "StoryTeller",
+        Arguments = new KernelArguments()
+        {
+            { "topic", "Dog" },
+            { "length", "3" },
+        }
+    };
+```
+
+**Agent Framework workaround**
+
+```csharp
+using Microsoft.Extensions.AI.Agents;
+using Microsoft.SemanticKernel; 
+
+// Manually render template
+var template = "Tell a story about {{$topic}} that is {{$length}} sentences long.";
+
+var renderedTemplate = await new KernelPromptTemplateFactory()
+    .Create(new PromptTemplateConfig(template))
+    .RenderAsync(new Kernel(), new KernelArguments()
+    {
+        ["topic"] = "Dog",
+        ["length"] = "3"
+    });
+
+AIAgent agent = new OpenAIClient(apiKey)
+    .GetChatClient(modelId)
+    .CreateAIAgent(instructions: renderedTemplate);
+
+// No template variables in invocation - use plain string
+var result = await agent.RunAsync("What's the weather?", thread);
+Console.WriteLine(result);
+```
+</behavioral_changes>
