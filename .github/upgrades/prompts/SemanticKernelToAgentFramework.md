@@ -646,36 +646,25 @@ await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(input, t
 ```csharp
 await foreach (var content in agent.InvokeAsync(userInput, thread))
 {
-    if (content.Message.InnerContent is OpenAI.Chat.ChatMessage underlyingChatMessage)
-    {
-        // Access underlying SDK objects
-    }
+    UnderlyingSdkType? underlyingChatMessage = content.Message.InnerContent as UnderlyingSdkType;
 }
 ```
 
 **With this Agent Framework breaking glass pattern:**
 ```csharp
-var result = await agent.RunAsync(userInput, thread);
+var agentRunResponse = await agent.RunAsync(userInput, thread);
 
-// First level: Access Microsoft.Extensions.AI type
-var chatResponse = result.RawRepresentation as ChatResponse;
+// If the agent uses a ChatClient the first breaking glass probably will be a Microsoft.Extensions.AI.ChatResponse
+ChatResponse? chatResponse = agentRunResponse.RawRepresentation as ChatResponse;
 
-// Second level: Access underlying SDK type
-foreach (object? updateRawRepresentation in chatResponse?.RawRepresentation as IEnumerable<object?> ?? [])
-{
-    if (updateRawRepresentation is RunStepDetailsUpdate update && update.CodeInterpreterInput is not null)
-    {
-        // Process underlying SDK objects
-        generatedCode.Append(update.CodeInterpreterInput);
-    }
-}
+// If thats the case, to access the underlying SDK types you will need to break glass again.
+UnderlyingSdkType? underlyingChatMessage = chatResponse?.RawRepresentation as UnderlyingSdkType;
 ```
 
 **Required changes:**
 1. Replace `InnerContent` property access with `RawRepresentation` property access
-2. Use two-level breaking glass: first to ME.AI type, then to SDK type
-3. Cast `RawRepresentation` to appropriate types based on provider
-4. Handle collections when accessing streaming updates
+2. Cast `RawRepresentation` to appropriate type expected
+3. If the `RawRepresentation` is a `Microsoft.Extensions.AI` type, break glass again to access the underlying SDK types
 </api_changes>
 
 #### CodeInterpreter Tool Transformation
@@ -708,14 +697,18 @@ await foreach (var content in agent.InvokeAsync(userInput, thread))
 var result = await agent.RunAsync(userInput, thread);
 Console.WriteLine(result);
 
-// Extract code interpreter output via breaking glass
+// Extract chat response MEAI type via first level breaking glass
 var chatResponse = result.RawRepresentation as ChatResponse;
+
+// Extract underlying SDK updates via second level breaking glass
+var underlyingStreamingUpdates = chatResponse?.RawRepresentation as IEnumerable<object?> ?? [];
+
 StringBuilder generatedCode = new();
-foreach (object? updateRawRepresentation in chatResponse?.RawRepresentation as IEnumerable<object?> ?? [])
+foreach (object? underlyingUpdate in underlyingStreamingUpdates ?? [])
 {
-    if (updateRawRepresentation is RunStepDetailsUpdate update && update.CodeInterpreterInput is not null)
+    if (underlyingUpdate is RunStepDetailsUpdate stepDetailsUpdate && stepDetailsUpdate.CodeInterpreterInput is not null)
     {
-        generatedCode.Append(update.CodeInterpreterInput);
+        generatedCode.Append(stepDetailsUpdate.CodeInterpreterInput);
     }
 }
 
