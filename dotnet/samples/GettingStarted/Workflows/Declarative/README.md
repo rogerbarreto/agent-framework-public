@@ -21,10 +21,10 @@ $env:FOUNDRY_PROJECT_ENDPOINT="https://..."
 
 To set your secrets with .NET Secret Manager:
 
-1. From the root of the respository, navigate the console to the project folder:
+1. From the root of the repository, navigate the console to the project folder:
 
     ```
-    cd dotnet/demos/DeclarativeWorkflow
+    cd dotnet/samples/GettingStarted/Workflows/Declarative/DeclarativeWorkflow
     ```
 
 2. Examine existing secret definitions:
@@ -49,16 +49,16 @@ To set your secrets with .NET Secret Manager:
 
 Use [_Azure CLI_](https://learn.microsoft.com/cli/azure/authenticate-azure-cli) to authorize access to your Azure Foundry Project:
 
-    ```
-    az login
-    az account get-access-token
-    ```
+```
+az login
+az account get-access-token
+```
 
 #### Agents
 
 The sample workflows rely on agents defined in your Azure Foundry Project.
 
-To create agents, run the [`Create.ps1`](../../../workflows/) script.
+To create agents, run the [`Create.ps1`](../../../../../workflows/) script.
 This will create the agents used in the sample workflows in your Azure Foundry Project and format a script you can copy and use to configure your environment.
 
 > Note: `Create.ps1` relies upon the `FOUNDRY_PROJECT_ENDPOINT` setting.
@@ -66,13 +66,12 @@ This will create the agents used in the sample workflows in your Azure Foundry P
 ## Execution
 
 Run the demo from the console by specifying a path to a declarative (YAML) workflow file.  
-The repository has example workflows available in the root [`/workflows`](../../../workflows) folder.
+The repository has example workflows available in the root [`/workflows`](../../../../../workflows) folder.
 
-1. From the root of the respository, navigate the console to the project folder:
+1. From the root of the repository, navigate the console to the project folder:
 
     ```sh
-    cd dotnet/demos/DeclarativeWorkflow
-
+    cd dotnet/samples/GettingStarted/Workflows/Declarative/DeclarativeWorkflow
     ```
 
 2. Run the demo referencing a sample workflow by name:
