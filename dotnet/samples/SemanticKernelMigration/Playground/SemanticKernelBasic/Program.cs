@@ -50,7 +50,7 @@ void WriteAgentChatMessage(ChatMessageContent message)
     string contentExpression = string.IsNullOrWhiteSpace(message.Content) ? string.Empty : message.Content;
     bool isCode = message.Metadata?.ContainsKey(AzureAIAgent.CodeInterpreterMetadataKey) ?? false;
     string codeMarker = isCode ? "\n  [CODE]\n" : " ";
-    System.Console.WriteLine($"\n# {message.Role}{authorExpression}:{codeMarker}{contentExpression}");
+    Console.WriteLine($"\n# {message.Role}{authorExpression}:{codeMarker}{contentExpression}");
 
     // Provide visibility for inner content (that isn't TextContent).
     foreach (KernelContent item in message.Items)
