@@ -260,19 +260,31 @@ AIAgent agent = new OpenAIClient(apiKey)
 
 ### Chat Completion Service
 
-Agent Framework does not support `IChatCompletionService` directly. Instead, use `IChatClient` as the common abstraction.
-
 <configuration_changes>
 
 **Replace this Semantic Kernel pattern:**
+
 ```csharp
-IChatCompletionService completionService = GetChatCompletionService();
+IChatCompletionService completionService = kernel.GetService<IChatCompletionService>();
+
+ChatCompletionAgent agent = new()
+{
+    Instructions = "You are a helpful assistant",
+    Kernel = kernel
+};
 ```
 
 **With this Agent Framework pattern:**
+
+Agent Framework does not support `IChatCompletionService` directly. Instead, use `IChatClient` as the common abstraction
+converting from `IChatCompletionService` to `IChatClient` via `AsChatClient()` extension method or creating a new `IChatClient`
+ instance directly using the provider package dedicated extensions.
+
 ```csharp
-IChatCompletionService completionService = GetChatCompletionService();
+IChatCompletionService completionService = kernel.GetService<IChatCompletionService>();
 IChatClient chatClient = completionService.AsChatClient();
+
+var agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant");
 ```
 </configuration_changes>
 
@@ -295,7 +307,7 @@ ChatCompletionAgent agent = new()
 
 **With this Agent Framework pattern:**
 ```csharp
-// Method 1: Direct constructor
+// Method 1: Direct constructor (OpenAI/AzureOpenAI Package specific)
 IChatClient chatClient = new OpenAIClient(apiKey).GetChatClient(modelId).AsIChatClient();
 AIAgent agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant");
 
@@ -479,6 +491,9 @@ await thread.DeleteAsync(); // For hosted threads
 ```
 
 **With these Agent Framework cleanup patterns:**
+
+For every thread created if there's intent to cleanup, the caller should track all the created threads for the provider that support hosted threads for cleanup purposes.
+
 ```csharp
 // For OpenAI Assistants (when cleanup is needed):
 var assistantClient = new OpenAIClient(apiKey).GetAssistantClient();
@@ -1382,7 +1397,6 @@ The following Semantic Kernel Agents features currently don't have direct equiva
 
 **Semantic Kernel pattern**
 ```csharp
-
 // Create plugin with multiple functions
 public class WeatherPlugin
 {
@@ -1403,9 +1417,6 @@ kernel.Plugins.AddFromObject(new WeatherPlugin());
 **Agent Framework workaround:**
 
 ```csharp
-using Microsoft.Extensions.AI;
-using Microsoft.Agents.AI;
-
 // Create individual functions (no plugin grouping)
 public class WeatherFunctions
 {
