@@ -2,7 +2,7 @@
 
 ## Scope
 
-When you are asked to migrate a project from `Microsoft.SemanticKernel.Agents` to `Microsoft.Extensions.AI.Agents` you need to determine for which projects you need to do it.
+When you are asked to migrate a project from `Microsoft.SemanticKernel.Agents` to `Microsoft.Agents.AI` you need to determine for which projects you need to do it.
 If a single project is specified - do it for that project only. If you are asked to do it for a solution, migrate all projects in the solution
 that reference `Microsoft.SemanticKernel.Agents` or related Semantic Kernel agent packages. If you don't know which projects to migrate, ask the user.
 
@@ -53,8 +53,8 @@ below in wrong order or skip any of them):
   - `Microsoft.SemanticKernel.Agents.AzureAI`
   - `Microsoft.SemanticKernel` (if only used for agents)
 - Add the appropriate Agent Framework package references based on the provider being used:
-  - `Microsoft.Extensions.AI.Agents.Abstractions` (always required)
-  - `Microsoft.Extensions.AI.Agents.OpenAI` (for OpenAI and Azure OpenAI providers)
+  - `Microsoft.Agents.AI.Abstractions` (always required)
+  - `Microsoft.Agents.AI.OpenAI` (for OpenAI and Azure OpenAI providers)
   - For unsupported providers (Bedrock, CopilotStudio), note in the report that custom implementation is required
 - If projects use Central Package Management, update the `Directory.Packages.props` file to remove the Semantic Kernel agent package versions in addition to
   removing package reference from projects.
@@ -73,8 +73,8 @@ below in wrong order or skip any of them):
   API used in the file having any of the Semantic Kernel agent using statements; if no other API detected, Semantic Kernel agent using statements should be just removed
   instead of replaced). If there were no Semantic Kernel agent using statements in the file, do not add Agent Framework using statements.
 - When replacing types you must ensure that you add using statements for them, since some types that lived in main `Microsoft.SemanticKernel.Agents` namespace live in other namespaces
-  under `Microsoft.Extensions.AI.Agents`. For example, `Microsoft.SemanticKernel.Agents.ChatCompletionAgent` is replaced with `Microsoft.Extensions.AI.Agents.ChatClientAgent`, when that
-  happens using statement with `Microsoft.Extensions.AI.Agents` needs to be added (unless you use fully qualified type name)
+  under `Microsoft.Agents.AI`. For example, `Microsoft.SemanticKernel.Agents.ChatCompletionAgent` is replaced with `Microsoft.Agents.AI.ChatClientAgent`, when that
+  happens using statement with `Microsoft.Agents.AI` needs to be added (unless you use fully qualified type name)
 - If you see some code that really cannot be converted or will have potential behavior changes at runtime, remember files and code lines where it
   happens at the end of the migration process you will generate a report markdown file and list all follow up steps user would have to do.
 
@@ -129,7 +129,7 @@ Key API differences:
 Configuration patterns have changed from Kernel-based to direct client configuration:
 - Remove `Kernel.CreateBuilder()` patterns
 - Replace with provider-specific client creation
-- Update namespace imports from `Microsoft.SemanticKernel.Agents` to `Microsoft.Extensions.AI.Agents`
+- Update namespace imports from `Microsoft.SemanticKernel.Agents` to `Microsoft.Agents.AI`
 - Change tool registration from attribute-based to factory-based
 </configuration_changes>
 
@@ -140,6 +140,7 @@ Replace these Semantic Kernel agent classes with their Agent Framework equivalen
 
 | Semantic Kernel Class | Agent Framework Replacement | Constructor Changes |
 |----------------------|----------------------------|-------------------|
+| `IChatCompletionService` | `IChatClient` | Convert to `IChatClient` using `chatService.AsChatClient()` extensions |
 | `ChatCompletionAgent` | `ChatClientAgent` | Remove `Kernel` parameter, add `IChatClient` parameter |
 | `OpenAIAssistantAgent` | `AIAgent` (via extension) | **New**: `OpenAIClient.GetAssistantClient().CreateAIAgent()` <br> **Existing**: `OpenAIClient.GetAssistantClient().GetAIAgent(assistantId)` |
 | `AzureAIAgent` | `AIAgent` (via extension) | **New**: `PersistentAgentsClient.CreateAIAgent()` <br> **Existing**: `PersistentAgentsClient.GetAIAgent(agentId)` |
@@ -218,7 +219,7 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 **Add these Agent Framework namespaces:**
 ```csharp
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 // Provider-specific namespaces (add only if needed):
 using OpenAI; // For OpenAI provider
 using Azure.AI.OpenAI; // For Azure OpenAI provider
@@ -227,9 +228,58 @@ using Azure.Identity; // For Azure authentication
 ```
 </configuration_changes>
 
+### Chat Completion Abstractions
+
+<configuration_changes>
+
+**Replace this Semantic Kernel pattern:**
+```csharp
+Kernel kernel = Kernel.CreateBuilder()
+    .AddOpenAIChatCompletion(modelId, apiKey)
+    .Build();
+
+ChatCompletionAgent agent = new()
+{
+    Instructions = "You are a helpful assistant",
+    Kernel = kernel
+};
+```
+
+**With this Agent Framework pattern:**
+```csharp
+// Method 1: Direct constructor
+IChatClient chatClient = new OpenAIClient(apiKey).GetChatClient(modelId).AsIChatClient();
+AIAgent agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant");
+
+// Method 2: Extension method (recommended)
+AIAgent agent = new OpenAIClient(apiKey)
+    .GetChatClient(modelId)
+    .CreateAIAgent(instructions: "You are a helpful assistant");
+```
+</configuration_changes>
+
+### Chat Completion Service
+
+Agent Framework does not support `IChatCompletionService` directly. Instead, use `IChatClient` as the common abstraction.
+
+<configuration_changes>
+
+**Replace this Semantic Kernel pattern:**
+```csharp
+IChatCompletionService completionService = GetChatCompletionService();
+```
+
+**With this Agent Framework pattern:**
+```csharp
+IChatCompletionService completionService = GetChatCompletionService();
+IChatClient chatClient = completionService.AsChatClient();
+```
+</configuration_changes>
+
 ### Agent Creation Transformation
 
 <configuration_changes>
+
 **Replace this Semantic Kernel pattern:**
 ```csharp
 Kernel kernel = Kernel.CreateBuilder()
@@ -246,7 +296,7 @@ ChatCompletionAgent agent = new()
 **With this Agent Framework pattern:**
 ```csharp
 // Method 1: Direct constructor
-IChatClient chatClient = new OpenAIClient(apiKey).GetChatClient(modelId);
+IChatClient chatClient = new OpenAIClient(apiKey).GetChatClient(modelId).AsIChatClient();
 AIAgent agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant");
 
 // Method 2: Extension method (recommended)
@@ -391,6 +441,9 @@ ChatClientAgentRunOptions options = new(new ChatOptions { MaxOutputTokens = 1000
 
 <configuration_changes>
 **Replace this Semantic Kernel DI pattern:**
+
+Different providers require different kernel extensions:
+
 ```csharp
 services.AddKernel().AddOpenAIChatClient(modelId, apiKey);
 services.AddTransient<ChatCompletionAgent>(sp => new()
@@ -525,7 +578,7 @@ AgentThread thread = new ChatHistoryAgentThread();
 
 **With this complete Agent Framework pattern:**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
@@ -780,7 +833,7 @@ var openAIResponse = chatCompletion.GetRawResponse();
 <configuration_changes>
 **Issue: Missing Using Statements**
 - **Problem**: Compilation errors due to missing namespace imports
-- **Solution**: Add `using Microsoft.Extensions.AI.Agents;` and remove `using Microsoft.SemanticKernel.Agents;`
+- **Solution**: Add `using Microsoft.Agents.AI;` and remove `using Microsoft.SemanticKernel.Agents;`
 
 **Issue: Tool Function Signatures**
 - **Problem**: `[KernelFunction]` attributes cause compilation errors
@@ -828,7 +881,7 @@ The following sections provide detailed migration patterns for each supported pr
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
 ```
 </configuration_changes>
 
@@ -852,7 +905,7 @@ AgentThread thread = new ChatHistoryAgentThread();
 
 **After (Agent Framework):**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
@@ -874,7 +927,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 <PackageReference Include="Azure.Identity" />
 ```
@@ -901,7 +954,7 @@ ChatCompletionAgent agent = new()
 
 **After (Agent Framework):**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using Azure.AI.OpenAI;
 using Azure.Identity;
 
@@ -920,7 +973,7 @@ AIAgent agent = new AzureOpenAIClient(new Uri(endpoint), new AzureCliCredential(
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
 ```
 </configuration_changes>
 
@@ -947,7 +1000,7 @@ AgentThread thread = new OpenAIAssistantAgentThread(assistantClient);
 
 **Creating a new assistant:**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
@@ -962,7 +1015,7 @@ await assistantClient.DeleteThreadAsync(thread.ConversationId);
 
 **Retrieving an existing assistant:**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
@@ -984,7 +1037,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.AzureAI" />
+<PackageReference Include="Microsoft.Agents.AI.AzureAI" />
 <PackageReference Include="Azure.Identity" />
 ```
 </configuration_changes>
@@ -1025,7 +1078,7 @@ AgentThread thread = new AzureAIAgentThread(client);
 
 **Creating a new agent:**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using Azure.AI.Agents.Persistent;
 using Azure.Identity;
 
@@ -1042,7 +1095,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Retrieving an existing agent:**
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using Azure.AI.Agents.Persistent;
 using Azure.Identity;
 
@@ -1065,7 +1118,7 @@ AgentThread thread = agent.GetNewThread();
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
+<PackageReference Include="Microsoft.Agents.AI.A2A" />
 ```
 </configuration_changes>
 
@@ -1100,7 +1153,7 @@ AIAgent agent = await agentCardResolver.GetAIAgentAsync();
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
 ```
 </configuration_changes>
 
@@ -1138,7 +1191,7 @@ await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseIte
 Agent Framework automatically manages the thread, so there's no need to manually update it.
 
 ```csharp
-using Microsoft.Extensions.AI.Agents.OpenAI;
+using Microsoft.Agents.AI.OpenAI;
 
 AIAgent agent = new OpenAIClient(apiKey)
     .GetOpenAIResponseClient(modelId)
@@ -1166,7 +1219,7 @@ var result = await agent.RunAsync(userInput, thread);
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.OpenAI" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
 <PackageReference Include="Azure.AI.OpenAI" />
 ```
 </configuration_changes>
@@ -1205,7 +1258,7 @@ await foreach (AgentResponseItem<ChatMessageContent> responseItem in responseIte
 Agent Framework automatically manages the thread, so there's no need to manually update it.
 
 ```csharp
-using Microsoft.Extensions.AI.Agents.OpenAI;
+using Microsoft.Agents.AI.OpenAI;
 using Azure.AI.OpenAI;
 
 AIAgent agent = new AzureOpenAIClient(endpoint, new AzureCliCredential())
@@ -1233,7 +1286,7 @@ var result = await agent.RunAsync(userInput, thread);
 
 **Add Agent Framework Packages:**
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI.Agents.A2A" />
+<PackageReference Include="Microsoft.Agents.AI.A2A" />
 ```
 </configuration_changes>
 
@@ -1257,8 +1310,8 @@ var agent = new A2AAgent(client, agentCard);
 ```csharp
 using System;
 using A2A;
-using Microsoft.Extensions.AI.Agents;
-using Microsoft.Extensions.AI.Agents.A2A;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.A2A;
 
 // Initialize an A2ACardResolver to get an A2A agent card.
 A2ACardResolver agentCardResolver = new(new Uri(a2aAgentHost));
@@ -1307,7 +1360,7 @@ For providers like AWS Bedrock that have an `IChatClient` implementation availab
 _Those agents will be purely backed by the AI chat models behavior and will not store any state in the server._
 
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 
 services.TryAddAWSService<IAmazonBedrockRuntime>();
 var serviceProvider = services.BuildServiceProvider();
@@ -1351,7 +1404,7 @@ kernel.Plugins.AddFromObject(new WeatherPlugin());
 
 ```csharp
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 
 // Create individual functions (no plugin grouping)
 public class WeatherFunctions
@@ -1365,12 +1418,23 @@ public class WeatherFunctions
         => Task.FromResult($"Forecast for {location}: {days} days");
 }
 
-var weatherService = new WeatherService();
+var weatherService = new WeatherFunctions();
 
 // Register functions individually as tools
 AITool[] tools = [
     AIFunctionFactory.Create(WeatherFunctions.GetCurrentWeather), // Get from type static method
     AIFunctionFactory.Create(weatherService.GetForecastAsync) // Get from instance method
+];
+
+// OR Iterate over the type or instance if many functions are needed for registration
+AITool[] tools =
+[
+    .. typeof(WeatherFunctions)
+        .GetMethods(BindingFlags.Static | BindingFlags.Public)
+        .Select((m) => AIFunctionFactory.Create(m, target: null)), // Get from type static methods
+    .. weatherService.GetType()
+        .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+        .Select((m) => AIFunctionFactory.Create(m, target: weatherService)) // Get from instance methods
 ];
 
 AIAgent agent = new OpenAIClient(apiKey)
@@ -1408,7 +1472,7 @@ ChatCompletionAgent agent =
 **Agent Framework workaround**
 
 ```csharp
-using Microsoft.Extensions.AI.Agents;
+using Microsoft.Agents.AI;
 using Microsoft.SemanticKernel; 
 
 // Manually render template

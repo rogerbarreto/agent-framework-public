@@ -118,9 +118,9 @@
     <Project Path="samples/SemanticKernelMigration/AzureAIFoundry/Step03_DependencyInjection/AzureAIFoundry_Step03_DependencyInjection.csproj" />
     <Project Path="samples/SemanticKernelMigration/AzureAIFoundry/Step04_CodeInterpreter/AzureAIFoundry_Step04_CodeInterpreter.csproj" />
   </Folder>
-  <Folder Name="/Samples/SemanticKernelMigration/NotMigratedUseCases/">
-    <File Path="samples/SemanticKernelMigration/NotMigratedUseCases/README.md" />
-    <Project Path="samples/SemanticKernelMigration/NotMigratedUseCases/SemanticKernelBasic/SemanticKernelBasic.csproj" />
+  <Folder Name="/Samples/SemanticKernelMigration/Playground/">
+    <File Path="samples/SemanticKernelMigration/Playground/README.md" />
+    <Project Path="samples/SemanticKernelMigration/Playground/SemanticKernelBasic/SemanticKernelBasic.csproj" />
   </Folder>
   <Folder Name="/Samples/SemanticKernelMigration/OpenAI/">
     <Project Path="samples/SemanticKernelMigration/OpenAI/Step01_Basics/OpenAI_Step01_Basics.csproj" />
