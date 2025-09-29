@@ -25,9 +25,9 @@ from agent_framework import (
     TextContent,
     ToolProtocol,
     ai_function,
+    use_chat_middleware,
     use_function_invocation,
 )
-from agent_framework.telemetry import OtelSettings, setup_telemetry
 
 if sys.version_info >= (3, 12):
     from typing import override  # type: ignore
@@ -36,29 +36,6 @@ else:
 # region Chat History
 
 logger = logging.getLogger(__name__)
-
-
-@fixture
-def enable_otel(request: Any) -> bool:
-    """Fixture that returns a boolean indicating if Otel is enabled."""
-    return request.param if hasattr(request, "param") else True
-
-
-@fixture
-def enable_sensitive_data(request: Any) -> bool:
-    """Fixture that returns a boolean indicating if sensitive data is enabled."""
-    return request.param if hasattr(request, "param") else False
-
-
-@fixture
-def otel_settings(enable_otel: bool, enable_sensitive_data: bool) -> OtelSettings:
-    """Fixture to set environment variables for OtelSettings."""
-
-    from agent_framework.telemetry import OTEL_SETTINGS
-
-    setup_telemetry(enable_otel=enable_otel, enable_sensitive_data=enable_sensitive_data)
-
-    return OTEL_SETTINGS
 
 
 @fixture(scope="function")
@@ -105,6 +82,9 @@ class MockChatClient:
 
     def __init__(self) -> None:
         self.additional_properties: dict[str, Any] = {}
+        self.call_count: int = 0
+        self.responses: list[ChatResponse] = []
+        self.streaming_responses: list[list[ChatResponseUpdate]] = []
 
     async def get_response(
         self,
@@ -112,6 +92,9 @@ class MockChatClient:
         **kwargs: Any,
     ) -> ChatResponse:
         logger.debug(f"Running custom chat client, with: {messages=}, {kwargs=}")
+        self.call_count += 1
+        if self.responses:
+            return self.responses.pop(0)
         return ChatResponse(messages=ChatMessage(role="assistant", text="test response"))
 
     async def get_streaming_response(
@@ -120,15 +103,22 @@ class MockChatClient:
         **kwargs: Any,
     ) -> AsyncIterable[ChatResponseUpdate]:
         logger.debug(f"Running custom chat client stream, with: {messages=}, {kwargs=}")
-        yield ChatResponseUpdate(text=TextContent(text="test streaming response "), role="assistant")
-        yield ChatResponseUpdate(contents=[TextContent(text="another update")], role="assistant")
+        self.call_count += 1
+        if self.streaming_responses:
+            for update in self.streaming_responses.pop(0):
+                yield update
+        else:
+            yield ChatResponseUpdate(text=TextContent(text="test streaming response "), role="assistant")
+            yield ChatResponseUpdate(contents=[TextContent(text="another update")], role="assistant")
 
 
+@use_chat_middleware
 class MockBaseChatClient(BaseChatClient):
     """Mock implementation of the BaseChatClient."""
 
     run_responses: list[ChatResponse] = Field(default_factory=list)
     streaming_responses: list[list[ChatResponseUpdate]] = Field(default_factory=list)
+    call_count: int = Field(default=0)
 
     @override
     async def _inner_get_response(
@@ -149,6 +139,7 @@ class MockBaseChatClient(BaseChatClient):
             The chat response contents representing the response(s).
         """
         logger.debug(f"Running base chat client inner, with: {messages=}, {chat_options=}, {kwargs=}")
+        self.call_count += 1
         if not self.run_responses:
             return ChatResponse(messages=ChatMessage(role="assistant", text=f"test response - {messages[0].text}"))
 

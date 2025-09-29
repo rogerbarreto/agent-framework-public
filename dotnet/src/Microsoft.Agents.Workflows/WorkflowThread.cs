@@ -2,10 +2,8 @@
 
 using System;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.AI.Agents;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.Workflows;
@@ -14,7 +12,7 @@ internal sealed class WorkflowThread : AgentThread
 {
     public WorkflowThread(string workflowId, string? workflowName, string runId)
     {
-        base.MessageStore = this.MessageStore = new();
+        this.MessageStore = new();
         this.RunId = Throw.IfNullOrEmpty(runId, nameof(runId));
     }
 
@@ -28,7 +26,8 @@ internal sealed class WorkflowThread : AgentThread
 
     public string ResponseId => $"{this.RunId}@{this.Halts}";
 
-    public override Task<JsonElement> SerializeAsync(JsonSerializerOptions? jsonSerializerOptions = null, CancellationToken cancellationToken = default) => throw new NotImplementedException("Pending Checkpointing work.");
+    public override JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
+        => throw new NotImplementedException("Pending Checkpointing work.");
 
     public AgentRunResponseUpdate CreateUpdate(params AIContent[] parts)
     {
@@ -36,7 +35,7 @@ internal sealed class WorkflowThread : AgentThread
 
         AgentRunResponseUpdate update = new(ChatRole.Assistant, parts)
         {
-            CreatedAt = DateTimeOffset.Now,
+            CreatedAt = DateTimeOffset.UtcNow,
             MessageId = Guid.NewGuid().ToString("N"),
         };
 
@@ -46,5 +45,5 @@ internal sealed class WorkflowThread : AgentThread
     }
 
     /// <inheritdoc/>
-    public new WorkflowMessageStore MessageStore { get; }
+    public WorkflowMessageStore MessageStore { get; }
 }
