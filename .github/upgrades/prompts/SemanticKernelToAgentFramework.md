@@ -1506,3 +1506,134 @@ var result = await agent.RunAsync("What's the weather?", thread);
 Console.WriteLine(result);
 ```
 </behavioral_changes>
+
+### 10. Function Invocation Filtering
+
+**Invocation Context**
+
+Semantic Kernel's `IAutoFunctionInvocationFilter` provides a `AutoFunctionInvocationContext` where Agent Framework provides `FunctionInvocationContext` 
+
+The property mapping guide from a `AutoFunctionInvocationContext` to a `FunctionInvocationContext` is as follows:
+
+| SK | AF |
+| --- | --- |
+| RequestSequenceIndex | Iteration |
+| FunctionSequenceIndex | FunctionCallIndex |
+| ToolCallId | CallContent.CallId |
+| ChatMessageContent | Messages[0] |
+| ExecutionSettings | Options |
+| ChatHistory | Messages |
+| Function | Function |
+| Kernel | N/A |
+| Result | Use `return` from the delegate |
+| Terminate | Terminate |
+| CancellationToken | provided via argument to middleware delegate |
+| Arguments | Arguments |
+
+#### Semantic Kernel
+
+```csharp
+// Filter specifically for functions calling
+public sealed class CustomAutoFunctionInvocationFilter : IAutoFunctionInvocationFilter
+{
+    public async Task OnAutoFunctionInvocationAsync(AutoFunctionInvocationContext context, Func<AutoFunctionInvocationContext, Task> next)
+    {
+        Console.WriteLine($"[SK Auto Filter] Auto-invoking function: {context.Function.Name}");
+
+        // Check if function should be auto-invoked
+        if (context.Function.Name.Contains("Dangerous"))
+        {
+            Console.WriteLine($"[SK Auto Filter] Skipping dangerous function: {context.Function.Name}");
+            context.Terminate = true;
+            return;
+        }
+
+        await next(context);
+
+        Console.WriteLine($"[SK Auto Filter] Auto-invocation completed for: {context.Function.Name}");
+    }
+}
+
+var builder = Kernel.CreateBuilder()
+    .AddOpenAIChatClient(modelId, apiKey);
+    
+// via builder DI
+var builder = Kernel.CreateBuilder()
+    .AddOpenAIChatClient(modelId, apiKey)
+    .Services
+    .AddSingleton<IAutoFunctionInvocationFilter, CustomAutoFunctionInvocationFilter>();
+
+// OR via DI
+services
+    .AddKernel()
+    .AddOpenAIChatClient(modelId, apiKey)
+    .AddSingleton<IAutoFunctionInvocationFilter, CustomAutoFunctionInvocationFilter>();
+
+// OR register auto function filter directly with the kernel instance
+kernel.AutoFunctionInvocationFilters.Add(new CustomAutoFunctionInvocationFilter());
+
+// Create agent with filtered kernel
+ChatCompletionAgent agent = new()
+{
+    Instructions = "You are a helpful assistant",
+    Kernel = kernel
+};
+```
+
+#### Agent Framework
+
+Agent Framework provides function calling middleware that offers equivalent capabilities to Semantic Kernel's auto function invocation filters:
+
+```csharp
+// Function calling middleware equivalent to CustomAutoFunctionInvocationFilter
+async ValueTask<object?> CustomAutoFunctionMiddleware(
+    AIAgent agent,
+    FunctionInvocationContext context,
+    Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> next,
+    CancellationToken cancellationToken)
+{
+    Console.WriteLine($"[AF Middleware] Auto-invoking function: {context.Function.Name}");
+
+    // Check if function should be auto-invoked
+    if (context.Function.Name.Contains("Dangerous"))
+    {
+        Console.WriteLine($"[AF Middleware] Skipping dangerous function: {context.Function.Name}");
+        context.Terminate = true;
+        return "Function execution blocked for security reasons";
+    }
+
+    var result = await next(context, cancellationToken);
+
+    Console.WriteLine($"[AF Middleware] Auto-invocation completed for: {context.Function.Name}");
+    return result;
+}
+
+// Apply middleware to agent
+var filteredAgent = originalAgent
+    .AsBuilder()
+    .Use(CustomAutoFunctionMiddleware)
+    .Build();
+```
+
+### 11. Function Invocation Contexts
+
+**Invocation Context**
+
+Semantic Kernel's `IAutoFunctionInvocationFilter` provides a `AutoFunctionInvocationContext` where Agent Framework provides `FunctionInvocationContext` 
+
+The property mapping guide from a `AutoFunctionInvocationContext` to a `FunctionInvocationContext` is as follows:
+
+| Semantic Kernel | Agent Framework |
+| --- | --- |
+| RequestSequenceIndex | Iteration |
+| FunctionSequenceIndex | FunctionCallIndex |
+| ToolCallId | CallContent.CallId |
+| ChatMessageContent | Messages[0] |
+| ExecutionSettings | Options |
+| ChatHistory | Messages |
+| Function | Function |
+| Kernel | N/A |
+| Result | Use `return` from the delegate |
+| Terminate | Terminate |
+| CancellationToken | provided via argument to middleware delegate |
+| Arguments | Arguments |
