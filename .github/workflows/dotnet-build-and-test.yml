@@ -54,6 +54,28 @@ jobs:
             .
             .github
             dotnet
+            workflow-samples
+
+      - name: Debug - Print Matrix and GitHub Event
+        shell: bash
+        run: |
+          echo "=== Matrix Values ==="
+          echo "targetFramework: ${{ matrix.targetFramework }}"
+          echo "os: ${{ matrix.os }}"
+          echo "configuration: ${{ matrix.configuration }}"
+          echo "integration-tests: ${{ matrix.integration-tests }}"
+          echo "environment: ${{ matrix.environment }}"
+          echo ""
+          echo "=== GitHub Event Context ==="
+          echo "event_name: ${{ github.event_name }}"
+          echo "event.action: ${{ github.event.action }}"
+          echo "event.pull_request.merged: ${{ github.event.pull_request.merged }}"
+          echo "ref: ${{ github.ref }}"
+          echo "sha: ${{ github.sha }}"
+          echo ""
+          echo "=== Full GitHub Event JSON ==="
+          echo '${{ toJSON(github.event) }}'
+
       - name: Setup dotnet
         uses: actions/setup-dotnet@v5.0.0
         with:
@@ -113,7 +135,7 @@ jobs:
         run: echo "github.event_name:${{ github.event_name }} matrix.integration-tests:${{ matrix.integration-tests }} github.event.action:${{ github.event.action }} github.event.pull_request.merged:${{ github.event.pull_request.merged }}" 
 
       - name: Azure CLI Login
-        if: github.event_name != 'pull_request' && matrix.integration-tests
+        if: (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') && matrix.integration-tests
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -122,7 +144,7 @@ jobs:
 
       - name: Run Integration Tests
         shell: bash
-        if: github.event_name != 'pull_request' && matrix.integration-tests
+        if: (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') && matrix.integration-tests
         run: |
           export INTEGRATION_TEST_PROJECTS=$(find ./dotnet -type f -name "*IntegrationTests.csproj" | tr '\n' ' ')
           for project in $INTEGRATION_TEST_PROJECTS; do
@@ -136,6 +158,10 @@ jobs:
           # Azure AI Foundry
           AzureAI__Endpoint: ${{ secrets.AZUREAI__ENDPOINT }}
           AzureAI__DeploymentName: ${{ vars.AZUREAI__DEPLOYMENTNAME }}
+          AzureAI__BingConnectionId: ${{ vars.AZUREAI__BINGCONECTIONID }}
+          FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: ${{ vars.FOUNDRY_MODEL_DEPLOYMENT_NAME }}
+          FOUNDRY_CONNECTION_GROUNDING_TOOL: ${{ vars.FOUNDRY_CONNECTION_GROUNDING_TOOL }}
 
       # Generate test reports and check coverage
       - name: Generate test reports
