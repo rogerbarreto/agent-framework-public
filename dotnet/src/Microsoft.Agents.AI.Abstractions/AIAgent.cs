@@ -15,7 +15,7 @@ namespace Microsoft.Agents.AI;
 /// </summary>
 /// <remarks>
 /// <see cref="AIAgent"/> serves as the foundational class for implementing AI agents that can participate in conversations
-/// and process user requests. An agent instance may participate in multiple concurrent conversations, and each conversation
+/// and process user a requests. An agent instance may participate in multiple concurrent conversations, and each conversation
 /// may involve multiple agents working together.
 /// </remarks>
 public abstract class AIAgent
