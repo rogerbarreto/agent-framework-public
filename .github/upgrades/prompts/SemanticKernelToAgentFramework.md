@@ -22,9 +22,9 @@ For each project that needs to be migrated, you need to do the following:
   solution or you could not find the project, notify user and continue with other projects).
 - Identify the specific Semantic Kernel agent types being used:
   - `ChatCompletionAgent` → `ChatClientAgent`
-  - `OpenAIAssistantAgent` → `AIAgent` (via OpenAI Assistants client extension)
+  - `OpenAIAssistantAgent` → `assistantsClient.CreateAIAgent()` (via OpenAI Assistants client extension)
   - `AzureAIAgent` → `AIAgent` (via Azure AI Foundry client extension)
-  - `OpenAIResponseAgent` → `AIAgent` (via OpenAI Responses client extension)
+  - `OpenAIResponseAgent` → `responsesClient.CreateAIAgent()` (via OpenAI Responses client extension)
   - `A2AAgent` → `AIAgent` (via A2A card resolver)
   - `BedrockAgent` → Custom implementation required (not supported)
 - Determine if agents are being created new or retrieved from hosted services:
