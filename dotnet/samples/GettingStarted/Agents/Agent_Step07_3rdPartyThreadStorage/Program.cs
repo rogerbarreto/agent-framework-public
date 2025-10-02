@@ -4,7 +4,12 @@
 
 // This sample shows how to create and use a simple AI agent with a conversation that can be persisted to disk.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Azure.AI.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;

@@ -10,6 +10,4 @@ internal sealed class AzureAIConfiguration
     public string Endpoint { get; set; }
 
     public string DeploymentName { get; set; }
-
-    public string BingConnectionId { get; set; }
 }

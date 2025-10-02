@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using Microsoft.Agents.AI.Workflows;
 
 namespace WorkflowVisualizationSample;

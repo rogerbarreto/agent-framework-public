@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
@@ -27,10 +26,6 @@ public static partial class AgentAbstractionsJsonUtilities
     /// <item>Enables <see cref="JsonSerializerDefaults.Web"/> defaults.</item>
     /// <item>Enables <see cref="JsonIgnoreCondition.WhenWritingNull"/> as the default ignore condition for properties.</item>
     /// <item>Enables <see cref="JsonNumberHandling.AllowReadingFromString"/> as the default number handling for number types.</item>
-    /// <item>
-    /// Enables <see cref="JavaScriptEncoder.UnsafeRelaxedJsonEscaping"/> when escaping JSON strings.
-    /// Consuming applications must ensure that JSON outputs are adequately escaped before embedding in other document formats, such as HTML and XML.
-    /// </item>
     /// </list>
     /// </para>
     /// </remarks>
@@ -45,28 +40,17 @@ public static partial class AgentAbstractionsJsonUtilities
     private static JsonSerializerOptions CreateDefaultOptions()
     {
         // Copy the configuration from the source generated context.
-        JsonSerializerOptions options = new(JsonContext.Default.Options)
-        {
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // same as AIJsonUtilities
-        };
+        JsonSerializerOptions options = new(JsonContext.Default.Options);
 
         // Chain with all supported types from Microsoft.Extensions.AI.Abstractions.
-        // If reflection-based serialization is enabled by default, this includes
-        // the default type info resolver that utilizes reflection, but we need to manually
-        // apply the same converter AIJsonUtilities adds for string-based enum serialization,
-        // as that's not propagated as part of the resolver.
         options.TypeInfoResolverChain.Add(AIJsonUtilities.DefaultOptions.TypeInfoResolver!);
-        if (JsonSerializer.IsReflectionEnabledByDefault)
-        {
-            options.Converters.Add(new JsonStringEnumConverter());
-        }
 
         options.MakeReadOnly();
         return options;
     }
 
+    // Keep in sync with CreateDefaultOptions above.
     [JsonSourceGenerationOptions(JsonSerializerDefaults.Web,
-        UseStringEnumConverter = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         NumberHandling = JsonNumberHandling.AllowReadingFromString)]
 
@@ -81,5 +65,5 @@ public static partial class AgentAbstractionsJsonUtilities
     [JsonSerializable(typeof(InMemoryChatMessageStore.StoreState))]
 
     [ExcludeFromCodeCoverage]
-    private sealed partial class JsonContext : JsonSerializerContext;
+    internal sealed partial class JsonContext : JsonSerializerContext;
 }

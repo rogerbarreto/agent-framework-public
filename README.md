@@ -28,9 +28,8 @@ Welcome to Microsoft's comprehensive multi-language framework for building, orch
 Python
 
 ```bash
-pip install agent-framework --prerelease=allow
-# This will install all sub-packages, see `python/packages` for individual packages.
-# It may take a minute on first install on Windows.
+# This will install all sub-packages, see `python/packages` for individual packages
+pip install agent-framework
 ```
 
 .NET
@@ -88,27 +87,20 @@ dotnet add package Microsoft.Agents.AI
 Create a simple Azure Responses Agent that writes a haiku about the Microsoft Agent Framework
 
 ```python
-# pip install agent-framework --pre
+# pip install agent-framework
 # Use `az login` to authenticate with Azure CLI
 import asyncio
 from agent_framework.azure import AzureOpenAIResponsesClient
 from azure.identity import AzureCliCredential
 
-
 async def main():
-    # Initialize a chat agent with Azure OpenAI Responses
-    agent = AzureOpenAIResponsesClient(
-        endpoint="https://your-custom-endpoint.openai.azure.com/",
-        deployment_name="gpt-5",
-        api_version="2025-03-01-preview",
-        credential=AzureCliCredential(),
-    ).create_agent(
-        name="HaikuBot",
-        instructions="You are an upbeat assistant that writes beautifully.",
-    )
+  # Initialize a chat agent with basic instructions
+  agent = AzureOpenAIResponsesClient(credential=AzureCliCredential()).create_agent(
+    name="HaikuBot",
+    instructions="You are an upbeat assistant that writes beautifully.",
+  )
 
-    print(await agent.run("Write a haiku about Microsoft Agent Framework."))
-
+  print(await agent.run("Write a haiku about Microsoft Agent Framework."))
 
 asyncio.run(main())
 ```

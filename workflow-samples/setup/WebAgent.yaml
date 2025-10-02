@@ -7,9 +7,9 @@ instructions: |-
   Never generate a file.
   Avoid repeating yourself.
 model:
-  id: ${FOUNDRY_MODEL_DEPLOYMENT_NAME}
+  id: ${AzureAI:ModelDeployment}
 tools:
   - type: bing_grounding
     options:
       tool_connections:
-        - ${FOUNDRY_CONNECTION_GROUNDING_TOOL}
+        - ${AzureAI:BingConnectionId}

@@ -12,7 +12,7 @@ internal sealed class CompilerFeatureRequiredAttribute : Attribute
 {
     public CompilerFeatureRequiredAttribute(string featureName)
     {
-        this.FeatureName = featureName;
+        FeatureName = featureName;
     }
 
     /// <summary>

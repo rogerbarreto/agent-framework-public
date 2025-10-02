@@ -2,6 +2,7 @@
 
 // This sample shows how to create and use an AI agent with reasoning capabilities.
 
+using System;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI;

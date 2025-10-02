@@ -20,7 +20,7 @@ public class AIAgentMetadata
     /// </param>
     public AIAgentMetadata(string? providerName = null)
     {
-        this.ProviderName = providerName;
+        ProviderName = providerName;
     }
 
     /// <summary>

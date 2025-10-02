@@ -49,8 +49,6 @@ public abstract class IntegrationTest : IDisposable
 
     protected static IConfigurationRoot InitializeConfig() =>
         new ConfigurationBuilder()
-            .AddJsonFile("appsettings.Development.json", true)
-            .AddEnvironmentVariables()
             .AddUserSecrets(Assembly.GetExecutingAssembly())
             .Build();
 }

@@ -5,6 +5,7 @@
 // ------------------------------------------------------------------------------
 
 #nullable enable
+#pragma warning disable IDE0005 // Extra using directive is ok.
 
 using System;
 using System.Collections;

@@ -2,6 +2,7 @@
 
 // This sample shows how to create and use a simple AI agent with an existing A2A agent.
 
+using System;
 using A2A;
 using Microsoft.Agents.AI;
 

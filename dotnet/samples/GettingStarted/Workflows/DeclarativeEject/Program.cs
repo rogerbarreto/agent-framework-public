@@ -1,6 +1,9 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using Microsoft.Agents.AI.Workflows.Declarative;
 
 namespace Demo.DeclarativeEject;

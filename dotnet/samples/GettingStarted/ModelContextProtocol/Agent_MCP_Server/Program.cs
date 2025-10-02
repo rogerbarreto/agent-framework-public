@@ -2,6 +2,8 @@
 
 // This sample shows how to create and use a simple AI agent with tools from an MCP Server.
 
+using System;
+using System.Linq;
 using Azure.AI.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;

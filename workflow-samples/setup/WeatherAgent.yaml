@@ -2,7 +2,7 @@ type: foundry_agent
 name: ResearchWeather
 description: Demo agent for DeepResearch workflow
 model:
-  id: ${FOUNDRY_MODEL_DEPLOYMENT_NAME}
+  id: ${AzureAI:ModelDeployment}
 tools:
   - type: openapi
     id: GetCurrentWeather

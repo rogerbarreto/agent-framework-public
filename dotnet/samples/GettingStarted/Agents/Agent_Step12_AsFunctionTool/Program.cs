@@ -2,6 +2,7 @@
 
 // This sample shows how to create and use a Azure OpenAI AI agent as a function tool.
 
+using System;
 using System.ComponentModel;
 using Azure.AI.OpenAI;
 using Azure.Identity;

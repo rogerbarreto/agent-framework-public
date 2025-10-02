@@ -16,17 +16,15 @@ internal sealed class <#= this.Name #>Executor(FormulaSession session, WorkflowA
         {
             throw new DeclarativeActionException($"Conversation identifier must be defined: {this.Id}");
         }
-        ChatMessage newMessage = new(ChatRole.<#= FormatEnum(this.Model.Role, RoleMap) #>, await this.GetContentAsync(context).ConfigureAwait(false)) { AdditionalProperties = this.GetMetadata() };
+        ChatMessage newMessage = new(ChatRole.<#= FormatEnum(this.Model.Role, RoleMap) #>, [.. this.GetContentAsync(context).ToEnumerable()]) { AdditionalProperties = this.GetMetadata() };
         await agentProvider.CreateMessageAsync(conversationId, newMessage, cancellationToken).ConfigureAwait(false);<#
         AssignVariable(this.Message, "newMessage");
         #>
         return default;
     }
 
-    private async ValueTask<IList<AIContent>> GetContentAsync(IWorkflowContext context)
-    {
-        List<AIContent> content = [];
-        <#
+    private async IAsyncEnumerable<AIContent> GetContentAsync(IWorkflowContext context)
+    {<#
         int index = 0;
         foreach (AddConversationMessageContent content in this.Model.Content)
         {
@@ -35,18 +33,17 @@ internal sealed class <#= this.Name #>Executor(FormulaSession session, WorkflowA
             AgentMessageContentType contentType = content.Type.Value;
             if (contentType == AgentMessageContentType.ImageUrl)
             {#>
-        content.Add(UriContent(contentValue<#= index #>, "image/*"));<#
+        yield return new UriContent(contentValue, "image/*");<#
             }
             else if (contentType == AgentMessageContentType.ImageFile)
             {#>
-        content.Add(new HostedFileContent(contentValue<#= index #>));<#
+        yield return new HostedFileContent(contentValue);<#
             }
             else
             {#>
-        content.Add(new TextContent(contentValue<#= index #>));<#
+        yield return new TextContent(contentValue<#= index #>);<#
             }
         }#>
-        return content;
     }
 
     private AdditionalPropertiesDictionary? GetMetadata()

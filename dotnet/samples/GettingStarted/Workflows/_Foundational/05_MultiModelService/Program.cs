@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using Amazon.BedrockRuntime;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
