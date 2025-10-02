@@ -34,7 +34,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      dotnetChanges: ${{ steps.filter.outputs.python}}
+      dotnetChanges: ${{ steps.filter.outputs.dotnet}}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
