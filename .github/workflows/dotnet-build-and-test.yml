@@ -55,6 +55,27 @@ jobs:
             .github
             dotnet
             workflow-samples
+
+      - name: Debug - Print Matrix and GitHub Event
+        shell: bash
+        run: |
+          echo "=== Matrix Values ==="
+          echo "targetFramework: ${{ matrix.targetFramework }}"
+          echo "os: ${{ matrix.os }}"
+          echo "configuration: ${{ matrix.configuration }}"
+          echo "integration-tests: ${{ matrix.integration-tests }}"
+          echo "environment: ${{ matrix.environment }}"
+          echo ""
+          echo "=== GitHub Event Context ==="
+          echo "event_name: ${{ github.event_name }}"
+          echo "event.action: ${{ github.event.action }}"
+          echo "event.pull_request.merged: ${{ github.event.pull_request.merged }}"
+          echo "ref: ${{ github.ref }}"
+          echo "sha: ${{ github.sha }}"
+          echo ""
+          echo "=== Full GitHub Event JSON ==="
+          echo '${{ toJSON(github.event) }}'
+
       - name: Setup dotnet
         uses: actions/setup-dotnet@v5.0.0
         with:
