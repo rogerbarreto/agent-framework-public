@@ -72,9 +72,6 @@ jobs:
           echo "event.pull_request.merged: ${{ github.event.pull_request.merged }}"
           echo "ref: ${{ github.ref }}"
           echo "sha: ${{ github.sha }}"
-          echo ""
-          echo "=== Full GitHub Event JSON ==="
-          echo '${{ toJSON(github.event) }}'
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v5.0.0
