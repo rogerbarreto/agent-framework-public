@@ -12,7 +12,7 @@ using Microsoft.SemanticKernel.Connectors.Google;
 #pragma warning disable IDE0002 // Simplify Member Access
 
 var apiKey = Environment.GetEnvironmentVariable("GOOGLEAI_API_KEY") ?? throw new InvalidOperationException("GOOGLEAI_API_KEY is not set.");
-var model = System.Environment.GetEnvironmentVariable("GOOGLEAI_MODEL") ?? "gpt-4o";
+var model = System.Environment.GetEnvironmentVariable("GOOGLEAI_MODEL") ?? "gemini-2.0-flash";
 var userInput = "What is the weather like in Amsterdam?";
 
 Console.WriteLine($"User Input: {userInput}");

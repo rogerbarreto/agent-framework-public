@@ -7,7 +7,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Google;
 
 var apiKey = Environment.GetEnvironmentVariable("GOOGLEAI_API_KEY") ?? throw new InvalidOperationException("GOOGLEAI_API_KEY is not set.");
-var model = System.Environment.GetEnvironmentVariable("GOOGLEAI_MODEL") ?? "";
+var model = System.Environment.GetEnvironmentVariable("GOOGLEAI_MODEL") ?? "gemini-2.0-flash";
 var userInput = "Tell me a joke about a pirate.";
 
 Console.WriteLine($"User Input: {userInput}");
