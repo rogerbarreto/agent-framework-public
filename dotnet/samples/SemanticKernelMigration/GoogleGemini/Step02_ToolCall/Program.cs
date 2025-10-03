@@ -74,7 +74,7 @@ internal sealed class GoogleChatClientFunctionInvocationAdapter(IChatClient chat
         if (options?.Tools is { Count: > 0 })
         {
             // Before passing the request into Chat Completion Services, a kernel needs to be created as the container of functions and passed into the additional properties
-            // So it can be later captured via PromptExecutionSettings into the ExtensionData
+            // So it can be later captured from PromptExecutionSettings via the ExtensionData dictionary
             var kernel = new Kernel();
             kernel.Plugins.AddFromFunctions("Tools", options.Tools.OfType<AIFunction>().Select(f => f.AsKernelFunction()).ToList());
 
@@ -99,15 +99,13 @@ internal sealed class GoogleChatCompletionServiceFunctionInvocationAdapter : ICh
 
     public async Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, CancellationToken cancellationToken = default)
     {
-        // A compatible chat history is generated for if any downstream chat content that the connector is not familiar to.
+        // A compatible chat history is generated adapting any downstream chat content that the connector is not familiar with.
         ChatHistory geminiCompatibleChatHistory = [];
         foreach (var message in chatHistory)
         {
             // Convert the Function Call Contents back into GeminiContents
             foreach (var callContent in message.Items.OfType<Microsoft.SemanticKernel.FunctionCallContent>())
             {
-                var value = ((ValueTuple<GeminiChatMessageContent, GeminiFunctionToolCall>)callContent.InnerContent!).Item1;
-
                 geminiCompatibleChatHistory.Add(((ValueTuple<GeminiChatMessageContent, GeminiFunctionToolCall>)callContent.InnerContent!).Item1);
             }
 
@@ -188,7 +186,8 @@ internal sealed class GoogleChatCompletionServiceFunctionInvocationAdapter : ICh
                         pluginName: toolCall.PluginName,
                         id: Guid.NewGuid().ToString()
                     )
-                    // Provides breaking glass options to recover the types for backfilling the chat history later on.
+                    // Uses the breaking glass InnerContent field providing the references necessary to generate
+                    // compatible chat history for further iterations with the AI Model.
                     { InnerContent = (result, toolCall) };
 
                     result.Items.Add(functionCallContent);
@@ -214,6 +213,7 @@ internal sealed class GoogleChatCompletionServiceFunctionInvocationAdapter : ICh
         else
         {
             // If a different PromptExecutionSettings type is used, create a new GeminiPromptExecutionSettings
+            // necessary to pass the GeminiToolCallBehavior setting.
             settings = new GeminiPromptExecutionSettings()
             {
                 ToolCallBehavior = GeminiToolCallBehavior.EnableKernelFunctions,
@@ -226,7 +226,7 @@ internal sealed class GoogleChatCompletionServiceFunctionInvocationAdapter : ICh
         return settings;
     }
 
-    // Pop the kernel out from the extension attributes
+    // Pop the kernel out from the settings extension data dictionary to avoid it being serialized and sent over the wire.
     private static Kernel? PopKernelFromSettings(PromptExecutionSettings? executionSettings)
     {
         if (executionSettings?.ExtensionData is not null && executionSettings.ExtensionData.TryGetValue("Kernel", out var kernelObj) && kernelObj is Kernel kernel)
