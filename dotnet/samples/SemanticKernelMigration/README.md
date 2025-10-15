@@ -1,3 +1,3 @@
 # Semantic Kernel to Agent Framework Migration Guide
 
-This document has been moved to the Semantic Kernel Repository. You can find it by navigating to this [Semantic Kernel Repository](https://github.com/microsoft/semantic-kernel/tree/main/dotnet/samples/AgentFrameworkMigration) page.
+For instructions and samples describing how to migrate from Semantic Kernel to Microsoft Agent Framework see the [Semantic Kernel Repository](https://github.com/microsoft/semantic-kernel/tree/main/dotnet/samples/AgentFrameworkMigration) page.
