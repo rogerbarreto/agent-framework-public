@@ -140,8 +140,9 @@ public static class Program
     /// </summary>
     /// <returns>A ChatClientAgent configured for email analysis</returns>
     private static ChatClientAgent GetEmailAnalysisAgent(IChatClient chatClient) =>
-        new(chatClient, new ChatClientAgentOptions(instructions: "You are a spam detection assistant that identifies spam emails.")
+        new(chatClient, new ChatClientAgentOptions()
         {
+            Instructions = "You are a spam detection assistant that identifies spam emails.",
             ChatOptions = new()
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<AnalysisResult>()
@@ -153,8 +154,9 @@ public static class Program
     /// </summary>
     /// <returns>A ChatClientAgent configured for email assistance</returns>
     private static ChatClientAgent GetEmailAssistantAgent(IChatClient chatClient) =>
-        new(chatClient, new ChatClientAgentOptions(instructions: "You are an email assistant that helps users draft responses to emails with professionalism.")
+        new(chatClient, new ChatClientAgentOptions()
         {
+            Instructions = "You are an email assistant that helps users draft responses to emails with professionalism.",
             ChatOptions = new()
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<EmailResponse>()
@@ -166,8 +168,9 @@ public static class Program
     /// </summary>
     /// <returns>A ChatClientAgent configured for email summarization</returns>
     private static ChatClientAgent GetEmailSummaryAgent(IChatClient chatClient) =>
-        new(chatClient, new ChatClientAgentOptions(instructions: "You are an assistant that helps users summarize emails.")
+        new(chatClient, new ChatClientAgentOptions()
         {
+            Instructions = "You are an assistant that helps users summarize emails.",
             ChatOptions = new()
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<EmailSummary>()

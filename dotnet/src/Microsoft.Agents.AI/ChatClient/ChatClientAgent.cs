@@ -451,7 +451,11 @@ public sealed partial class ChatClientAgent : AIAgent
         requestChatOptions.AllowMultipleToolCalls ??= this._agentOptions.ChatOptions.AllowMultipleToolCalls;
         requestChatOptions.ConversationId ??= this._agentOptions.ChatOptions.ConversationId;
         requestChatOptions.FrequencyPenalty ??= this._agentOptions.ChatOptions.FrequencyPenalty;
-        requestChatOptions.Instructions ??= this._agentOptions.ChatOptions.Instructions;
+
+        requestChatOptions.Instructions = !string.IsNullOrEmpty(requestChatOptions.Instructions)
+            ? $"{this.Instructions}\n{requestChatOptions.Instructions}"
+            : this.Instructions;
+
         requestChatOptions.MaxOutputTokens ??= this._agentOptions.ChatOptions.MaxOutputTokens;
         requestChatOptions.ModelId ??= this._agentOptions.ChatOptions.ModelId;
         requestChatOptions.PresencePenalty ??= this._agentOptions.ChatOptions.PresencePenalty;
@@ -604,12 +608,6 @@ public sealed partial class ChatClientAgent : AIAgent
                 The {nameof(chatOptions.ConversationId)} provided via {nameof(this.ChatOptions)} is different to the id of the provided {nameof(AgentThread)}.
                 Only one id can be used for a run.
                 """);
-        }
-
-        if (!string.IsNullOrWhiteSpace(this.Instructions))
-        {
-            chatOptions ??= new();
-            chatOptions.Instructions = string.IsNullOrWhiteSpace(chatOptions.Instructions) ? this.Instructions : $"{this.Instructions}\n{chatOptions.Instructions}";
         }
 
         // Only create or update ChatOptions if we have an id on the thread and we don't have the same one already in ChatOptions.

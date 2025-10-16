@@ -892,7 +892,7 @@ public partial class ChatClientAgentTests
         Assert.Equal("TestInstructions", agent.Instructions);
         Assert.Equal("TestName", agent.Name);
         Assert.Equal("TestDescription", agent.Description);
-        Assert.Null(agent.ChatOptions);
+        Assert.NotNull(agent.ChatOptions);
     }
 
     #endregion
@@ -1026,7 +1026,7 @@ public partial class ChatClientAgentTests
                 capturedChatOptions = opts)
             .ReturnsAsync(new ChatResponse([new(ChatRole.Assistant, "response")]));
 
-        ChatClientAgent agent = new(mockService.Object, options: new("test instructions"));
+        ChatClientAgent agent = new(mockService.Object, options: new() { Instructions = "test instructions" });
         var messages = new List<ChatMessage> { new(ChatRole.User, "test") };
 
         // Act
@@ -1348,7 +1348,7 @@ public partial class ChatClientAgentTests
             TopK = 50,
             PresencePenalty = 0.1f,
             FrequencyPenalty = 0.2f,
-            Instructions = "test instructions\nrequest instructions",
+            Instructions = "agent instructions\nrequest instructions",
             ModelId = "agent-model",
             Seed = 12345,
             ConversationId = "agent-conversation",

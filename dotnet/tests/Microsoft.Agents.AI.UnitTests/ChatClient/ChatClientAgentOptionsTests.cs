@@ -30,17 +30,12 @@ public class ChatClientAgentOptionsTests
     public void ParameterizedConstructor_WithNullValues_SetsPropertiesCorrectly()
     {
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: null,
-            name: null,
-            description: null,
-            tools: null);
+        var options = new ChatClientAgentOptions() { Instructions = null, Name = null, Description = null, ChatOptions = new() { Tools = null } };
 
         // Assert
         Assert.Null(options.Name);
         Assert.Null(options.Instructions);
         Assert.Null(options.Description);
-        Assert.Null(options.ChatOptions);
         Assert.Null(options.AIContextProviderFactory);
     }
 
@@ -51,17 +46,18 @@ public class ChatClientAgentOptionsTests
         const string Instructions = "Test instructions";
 
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: Instructions,
-            name: null,
-            description: null,
-            tools: null);
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = Instructions,
+            Name = null,
+            Description = null,
+            ChatOptions = new() { Tools = null }
+        };
 
         // Assert
         Assert.Null(options.Name);
         Assert.Equal(Instructions, options.Instructions);
         Assert.Null(options.Description);
-        Assert.Null(options.ChatOptions);
     }
 
     [Fact]
@@ -71,19 +67,21 @@ public class ChatClientAgentOptionsTests
         var tools = new List<AITool> { AIFunctionFactory.Create(() => "test") };
 
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: null,
-            name: null,
-            description: null,
-            tools: tools);
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = null,
+            Name = null,
+            Description = null,
+            ChatOptions = new() { Tools = tools }
+        };
 
         // Assert
         Assert.Null(options.Name);
         Assert.Null(options.Instructions);
+        Assert.Equal(options.Instructions, options.ChatOptions.Instructions);
         Assert.Null(options.Description);
         Assert.NotNull(options.ChatOptions);
-        Assert.Null(options.ChatOptions.Instructions);
-        Assert.Same(tools, options.ChatOptions.Tools);
+        AssertSameTools(tools, options.ChatOptions.Tools);
     }
 
     [Fact]
@@ -94,19 +92,21 @@ public class ChatClientAgentOptionsTests
         var tools = new List<AITool> { AIFunctionFactory.Create(() => "test") };
 
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: Instructions,
-            name: null,
-            description: null,
-            tools: tools);
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = Instructions,
+            Name = null,
+            Description = null,
+            ChatOptions = new() { Tools = tools }
+        };
 
         // Assert
         Assert.Null(options.Name);
         Assert.Equal(Instructions, options.Instructions);
+        Assert.Equal(Instructions, options.ChatOptions.Instructions);
         Assert.Null(options.Description);
         Assert.NotNull(options.ChatOptions);
-        Assert.Null(options.ChatOptions.Instructions);
-        Assert.Same(tools, options.ChatOptions.Tools);
+        AssertSameTools(tools, options.ChatOptions.Tools);
     }
 
     [Fact]
@@ -119,19 +119,21 @@ public class ChatClientAgentOptionsTests
         var tools = new List<AITool> { AIFunctionFactory.Create(() => "test") };
 
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: Instructions,
-            name: Name,
-            description: Description,
-            tools: tools);
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = Instructions,
+            Name = Name,
+            Description = Description,
+            ChatOptions = new() { Tools = tools }
+        };
 
         // Assert
         Assert.Equal(Name, options.Name);
         Assert.Equal(Instructions, options.Instructions);
+        Assert.Equal(Instructions, options.ChatOptions.Instructions);
         Assert.Equal(Description, options.Description);
         Assert.NotNull(options.ChatOptions);
-        Assert.Null(options.ChatOptions.Instructions);
-        Assert.Same(tools, options.ChatOptions.Tools);
+        AssertSameTools(tools, options.ChatOptions.Tools);
     }
 
     [Fact]
@@ -142,17 +144,18 @@ public class ChatClientAgentOptionsTests
         const string Description = "Test description";
 
         // Act
-        var options = new ChatClientAgentOptions(
-            instructions: null,
-            name: Name,
-            description: Description,
-            tools: null);
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = null,
+            Name = Name,
+            Description = Description,
+            ChatOptions = new() { Tools = null },
+        };
 
         // Assert
         Assert.Equal(Name, options.Name);
         Assert.Null(options.Instructions);
         Assert.Equal(Description, options.Description);
-        Assert.Null(options.ChatOptions);
     }
 
     [Fact]
@@ -171,8 +174,12 @@ public class ChatClientAgentOptionsTests
             ChatClientAgentOptions.AIContextProviderFactoryContext ctx) =>
             new Mock<AIContextProvider>().Object;
 
-        var original = new ChatClientAgentOptions(Instructions, Name, Description, tools)
+        var original = new ChatClientAgentOptions()
         {
+            Instructions = Instructions,
+            Name = Name,
+            Description = Description,
+            ChatOptions = new() { Tools = tools },
             Id = "test-id",
             ChatMessageStoreFactory = ChatMessageStoreFactory,
             AIContextProviderFactory = AIContextProviderFactory
@@ -197,7 +204,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void Clone_WithNullChatOptions_ClonesCorrectly()
+    public void Clone_WithoutProvidingChatOptions_ClonesCorrectly()
     {
         // Arrange
         var original = new ChatClientAgentOptions
@@ -217,8 +224,18 @@ public class ChatClientAgentOptionsTests
         Assert.Equal(original.Name, clone.Name);
         Assert.Equal(original.Instructions, clone.Instructions);
         Assert.Equal(original.Description, clone.Description);
-        Assert.Null(clone.ChatOptions);
+        Assert.Equal(original.ChatOptions?.Instructions, clone.ChatOptions?.Instructions);
         Assert.Null(clone.ChatMessageStoreFactory);
         Assert.Null(clone.AIContextProviderFactory);
+    }
+
+    private static void AssertSameTools(IList<AITool>? expected, IList<AITool>? actual)
+    {
+        var index = 0;
+        foreach (var tool in expected ?? [])
+        {
+            Assert.Same(tool, actual?[index]);
+            index++;
+        }
     }
 }

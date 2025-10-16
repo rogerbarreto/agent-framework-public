@@ -118,8 +118,9 @@ internal sealed class SloganWriterExecutor : Executor
     /// <param name="chatClient">The chat client to use for the AI agent.</param>
     public SloganWriterExecutor(string id, IChatClient chatClient) : base(id)
     {
-        ChatClientAgentOptions agentOptions = new(instructions: "You are a professional slogan writer. You will be given a task to create a slogan.")
+        ChatClientAgentOptions agentOptions = new()
         {
+            Instructions = "You are a professional slogan writer. You will be given a task to create a slogan.",
             ChatOptions = new()
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<SloganResult>()
@@ -193,8 +194,9 @@ internal sealed class FeedbackExecutor : Executor<SloganResult>
     /// <param name="chatClient">The chat client to use for the AI agent.</param>
     public FeedbackExecutor(string id, IChatClient chatClient) : base(id)
     {
-        ChatClientAgentOptions agentOptions = new(instructions: "You are a professional editor. You will be given a slogan and the task it is meant to accomplish.")
+        ChatClientAgentOptions agentOptions = new()
         {
+            Instructions = "You are a professional editor. You will be given a slogan and the task it is meant to accomplish.",
             ChatOptions = new()
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<FeedbackResult>()

@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 
@@ -17,33 +16,14 @@ namespace Microsoft.Agents.AI;
 /// </remarks>
 public class ChatClientAgentOptions
 {
+    private ChatOptions? _chatOptions;
+    private string? _instructions;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatClientAgentOptions"/> class.
     /// </summary>
     public ChatClientAgentOptions()
     {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ChatClientAgentOptions"/> class with the specified parameters.
-    /// </summary>
-    /// <remarks>If <paramref name="tools"/> is provided, a new <see cref="ChatOptions"/> instance is created
-    /// with the specified instructions and tools.</remarks>
-    /// <param name="instructions">The instructions or guidelines for the chat client agent. Can be <see langword="null"/> if not specified.</param>
-    /// <param name="name">The name of the chat client agent. Can be <see langword="null"/> if not specified.</param>
-    /// <param name="description">The description of the chat client agent. Can be <see langword="null"/> if not specified.</param>
-    /// <param name="tools">A list of <see cref="AITool"/> instances available to the chat client agent. Can be <see langword="null"/> if no
-    /// tools are specified.</param>
-    public ChatClientAgentOptions(string? instructions, string? name = null, string? description = null, IList<AITool>? tools = null)
-    {
-        this.Name = name;
-        this.Instructions = instructions;
-        this.Description = description;
-
-        if (tools is not null)
-        {
-            (this.ChatOptions ??= new()).Tools = tools;
-        }
     }
 
     /// <summary>
@@ -59,7 +39,16 @@ public class ChatClientAgentOptions
     /// <summary>
     /// Gets or sets the agent instructions.
     /// </summary>
-    public string? Instructions { get; set; }
+    public string? Instructions
+    {
+        get => this._chatOptions?.Instructions ?? this._instructions;
+        set
+        {
+            this._instructions = value;
+            this._chatOptions ??= new();
+            this._chatOptions.Instructions = this._instructions;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the agent description.
@@ -69,7 +58,31 @@ public class ChatClientAgentOptions
     /// <summary>
     /// Gets or sets the default chatOptions to use.
     /// </summary>
-    public ChatOptions? ChatOptions { get; set; }
+    /// <remarks>
+    /// When providing instructions via both <see cref="Instructions"/> and <see cref="ChatOptions"/>,
+    /// will result in a new instruction different lines with the <see cref="Instructions"/> first.
+    /// </remarks>
+    public ChatOptions? ChatOptions
+    {
+        get => this._chatOptions;
+        set
+        {
+            var providedOptions = value;
+            if (providedOptions is not null)
+            {
+                // Ensure immutable copy of provided options.
+                providedOptions = providedOptions.Clone();
+            }
+
+            if (this._chatOptions is not null && providedOptions is not null && string.IsNullOrWhiteSpace(providedOptions.Instructions))
+            {
+                // Preserve existing agent options instructions if new ChatOptions does not have instructions set.
+                providedOptions.Instructions = this._chatOptions.Instructions;
+            }
+
+            this._chatOptions = providedOptions;
+        }
+    }
 
     /// <summary>
     /// Gets or sets a factory function to create an instance of <see cref="ChatMessageStore"/>
