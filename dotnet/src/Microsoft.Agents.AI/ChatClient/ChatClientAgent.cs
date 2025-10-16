@@ -59,13 +59,13 @@ public sealed partial class ChatClientAgent : AIAgent
               chatClient,
               new ChatClientAgentOptions
               {
-                  Name = name,
-                  Description = description,
-                  Instructions = instructions,
                   ChatOptions = tools is null ? null : new ChatOptions
                   {
                       Tools = tools,
-                  }
+                  },
+                  Name = name,
+                  Description = description,
+                  Instructions = instructions,
               },
               loggerFactory,
               services)
@@ -452,9 +452,11 @@ public sealed partial class ChatClientAgent : AIAgent
         requestChatOptions.ConversationId ??= this._agentOptions.ChatOptions.ConversationId;
         requestChatOptions.FrequencyPenalty ??= this._agentOptions.ChatOptions.FrequencyPenalty;
 
-        requestChatOptions.Instructions = !string.IsNullOrEmpty(requestChatOptions.Instructions)
+        requestChatOptions.Instructions = !string.IsNullOrEmpty(requestChatOptions.Instructions) && !string.IsNullOrEmpty(this.Instructions)
             ? $"{this.Instructions}\n{requestChatOptions.Instructions}"
-            : this.Instructions;
+            : (!string.IsNullOrEmpty(requestChatOptions.Instructions)
+            ? requestChatOptions.Instructions
+            : this.Instructions);
 
         requestChatOptions.MaxOutputTokens ??= this._agentOptions.ChatOptions.MaxOutputTokens;
         requestChatOptions.ModelId ??= this._agentOptions.ChatOptions.ModelId;

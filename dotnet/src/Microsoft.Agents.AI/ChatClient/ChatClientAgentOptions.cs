@@ -17,7 +17,6 @@ namespace Microsoft.Agents.AI;
 public class ChatClientAgentOptions
 {
     private ChatOptions? _chatOptions;
-    private string? _instructions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatClientAgentOptions"/> class.
@@ -41,12 +40,17 @@ public class ChatClientAgentOptions
     /// </summary>
     public string? Instructions
     {
-        get => this._chatOptions?.Instructions ?? this._instructions;
+        get => this._chatOptions?.Instructions;
         set
         {
-            this._instructions = value;
+            if (value is null && this._chatOptions is null)
+            {
+                // No instructions to set and no existing chat options, nothing to do.
+                return;
+            }
+
             this._chatOptions ??= new();
-            this._chatOptions.Instructions = this._instructions;
+            this._chatOptions.Instructions = value;
         }
     }
 

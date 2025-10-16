@@ -27,7 +27,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithNullValues_SetsPropertiesCorrectly()
+    public void Constructor_WithNullValues_SetsPropertiesCorrectly()
     {
         // Act
         var options = new ChatClientAgentOptions() { Instructions = null, Name = null, Description = null, ChatOptions = new() { Tools = null } };
@@ -40,7 +40,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithInstructionsOnly_SetsChatOptionsWithInstructions()
+    public void Constructor_WithInstructionsOnly_SetsChatOptionsWithInstructions()
     {
         // Arrange
         const string Instructions = "Test instructions";
@@ -61,7 +61,55 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithToolsOnly_SetsChatOptionsWithTools()
+    public void Constructor_ChatOptionsWithoutInstructions_RetainsExistingAgentOptionsInstructions()
+    {
+        // Arrange
+        const string Instructions = "Test instructions";
+
+        // Act
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = Instructions,
+            Name = null,
+            Description = null
+        };
+
+        // Assert
+        Assert.Null(options.Name);
+        Assert.Equal(Instructions, options.Instructions);
+
+        options.ChatOptions = new() { Tools = null };
+        Assert.Equal(Instructions, options.Instructions);
+
+        Assert.Null(options.Description);
+    }
+
+    [Fact]
+    public void Constructor_ChatOptionsWithInstructions_ChangesExistingAgentOptionsInstructions()
+    {
+        // Arrange
+        const string Instructions = "Test instructions";
+
+        // Act
+        var options = new ChatClientAgentOptions()
+        {
+            Instructions = Instructions,
+            Name = null,
+            Description = null
+        };
+
+        // Assert
+        Assert.Null(options.Name);
+        Assert.Equal(Instructions, options.Instructions);
+
+        options.ChatOptions = new() { Instructions = "new" };
+        Assert.Equal("new", options.Instructions);
+
+        Assert.Null(options.Description);
+    }
+
+    [Fact]
+    public void Constructor_WithToolsOnly_SetsChatOptionsWithTools()
     {
         // Arrange
         var tools = new List<AITool> { AIFunctionFactory.Create(() => "test") };
@@ -85,7 +133,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithInstructionsAndTools_SetsChatOptionsWithBoth()
+    public void Constructor_WithInstructionsAndTools_SetsChatOptionsWithBoth()
     {
         // Arrange
         const string Instructions = "Test instructions";
@@ -110,7 +158,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithAllParameters_SetsAllPropertiesCorrectly()
+    public void Constructor_WithAllParameters_SetsAllPropertiesCorrectly()
     {
         // Arrange
         const string Instructions = "Test instructions";
@@ -137,7 +185,7 @@ public class ChatClientAgentOptionsTests
     }
 
     [Fact]
-    public void ParameterizedConstructor_WithNameAndDescriptionOnly_DoesNotCreateChatOptions()
+    public void Constructor_WithNameAndDescriptionOnly_DoesNotCreateChatOptions()
     {
         // Arrange
         const string Name = "Test name";
