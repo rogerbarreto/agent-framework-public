@@ -63,8 +63,8 @@ public class ChatClientAgentOptions
     /// Gets or sets the default chatOptions to use.
     /// </summary>
     /// <remarks>
-    /// When providing instructions via both <see cref="Instructions"/> and <see cref="ChatOptions"/>,
-    /// will result in a new instruction different lines with the <see cref="Instructions"/> first.
+    /// When <see cref="ChatOptions"/> is provided with <see langword="null"/> instructions
+    /// the <see cref="ChatClientAgentOptions"/> <see cref="Instructions"/> instructions are preserved.
     /// </remarks>
     public ChatOptions? ChatOptions
     {
