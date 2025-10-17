@@ -102,9 +102,9 @@ public static class Program
     private static ChatClientAgent GetSpamDetectionAgent(IChatClient chatClient) =>
         new(chatClient, new ChatClientAgentOptions()
         {
-            Instructions = "You are a spam detection assistant that identifies spam emails. Be less confident in your assessments.",
             ChatOptions = new()
             {
+                Instructions = "You are a spam detection assistant that identifies spam emails. Be less confident in your assessments.",
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<DetectionResult>()
             }
         });
@@ -116,9 +116,9 @@ public static class Program
     private static ChatClientAgent GetEmailAssistantAgent(IChatClient chatClient) =>
         new(chatClient, new ChatClientAgentOptions()
         {
-            Instructions = "You are an email assistant that helps users draft responses to emails with professionalism.",
             ChatOptions = new()
             {
+                Instructions = "You are an email assistant that helps users draft responses to emails with professionalism.",
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<EmailResponse>()
             }
         });

@@ -142,9 +142,9 @@ public static class Program
     private static ChatClientAgent GetEmailAnalysisAgent(IChatClient chatClient) =>
         new(chatClient, new ChatClientAgentOptions()
         {
-            Instructions = "You are a spam detection assistant that identifies spam emails.",
             ChatOptions = new()
             {
+                Instructions = "You are a spam detection assistant that identifies spam emails.",
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<AnalysisResult>()
             }
         });
@@ -156,9 +156,9 @@ public static class Program
     private static ChatClientAgent GetEmailAssistantAgent(IChatClient chatClient) =>
         new(chatClient, new ChatClientAgentOptions()
         {
-            Instructions = "You are an email assistant that helps users draft responses to emails with professionalism.",
             ChatOptions = new()
             {
+                Instructions = "You are an email assistant that helps users draft responses to emails with professionalism.",
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<EmailResponse>()
             }
         });
@@ -170,9 +170,9 @@ public static class Program
     private static ChatClientAgent GetEmailSummaryAgent(IChatClient chatClient) =>
         new(chatClient, new ChatClientAgentOptions()
         {
-            Instructions = "You are an assistant that helps users summarize emails.",
             ChatOptions = new()
             {
+                Instructions = "You are an assistant that helps users summarize emails.",
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<EmailSummary>()
             }
         });

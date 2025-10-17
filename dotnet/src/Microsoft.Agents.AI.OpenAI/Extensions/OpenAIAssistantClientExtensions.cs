@@ -73,12 +73,17 @@ public static class OpenAIAssistantClientExtensions
             chatClient = clientFactory(chatClient);
         }
 
+        if (!string.IsNullOrWhiteSpace(assistantMetadata.Instructions) && chatOptions?.Instructions is null)
+        {
+            chatOptions ??= new ChatOptions();
+            chatOptions.Instructions = assistantMetadata.Instructions;
+        }
+
         return new ChatClientAgent(chatClient, options: new()
         {
             Id = assistantMetadata.Id,
             Name = assistantMetadata.Name,
             Description = assistantMetadata.Description,
-            Instructions = assistantMetadata.Instructions,
             ChatOptions = chatOptions
         });
     }
@@ -172,10 +177,10 @@ public static class OpenAIAssistantClientExtensions
             {
                 Name = name,
                 Description = description,
-                Instructions = instructions,
-                ChatOptions = tools is null ? null : new ChatOptions()
+                ChatOptions = new ChatOptions()
                 {
                     Tools = tools,
+                    Instructions = instructions
                 }
             },
             clientFactory,
@@ -207,7 +212,7 @@ public static class OpenAIAssistantClientExtensions
         {
             Name = options.Name,
             Description = options.Description,
-            Instructions = options.Instructions,
+            Instructions = options.ChatOptions?.Instructions,
         };
 
         if (options.ChatOptions?.Tools is not null)
@@ -238,9 +243,9 @@ public static class OpenAIAssistantClientExtensions
             Id = assistantId,
             Name = options.Name,
             Description = options.Description,
-            Instructions = options.Instructions,
             ChatOptions = options.ChatOptions?.Tools is null ? null : new ChatOptions()
             {
+                Instructions = options.ChatOptions.Instructions,
                 Tools = options.ChatOptions.Tools,
             }
         };
@@ -283,10 +288,10 @@ public static class OpenAIAssistantClientExtensions
             {
                 Name = name,
                 Description = description,
-                Instructions = instructions,
-                ChatOptions = tools is null ? null : new ChatOptions()
+                ChatOptions = new ChatOptions()
                 {
                     Tools = tools,
+                    Instructions = instructions,
                 }
             },
             clientFactory,
@@ -318,7 +323,7 @@ public static class OpenAIAssistantClientExtensions
         {
             Name = options.Name,
             Description = options.Description,
-            Instructions = options.Instructions,
+            Instructions = options.ChatOptions?.Instructions,
         };
 
         if (options.ChatOptions?.Tools is not null)
@@ -349,9 +354,9 @@ public static class OpenAIAssistantClientExtensions
             Id = assistantId,
             Name = options.Name,
             Description = options.Description,
-            Instructions = options.Instructions,
             ChatOptions = options.ChatOptions?.Tools is null ? null : new ChatOptions()
             {
+                Instructions = options.ChatOptions.Instructions,
                 Tools = options.ChatOptions.Tools,
             }
         };

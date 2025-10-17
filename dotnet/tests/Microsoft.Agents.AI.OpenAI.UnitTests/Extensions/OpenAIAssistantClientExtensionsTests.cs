@@ -91,7 +91,7 @@ public sealed class OpenAIAssistantClientExtensionsTests
         {
             Name = "Test Agent",
             Description = "Test description",
-            Instructions = "Test instructions"
+            ChatOptions = new() { Instructions = "Test instructions" }
         };
 
         // Act

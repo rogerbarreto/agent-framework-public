@@ -55,12 +55,17 @@ public static class PersistentAgentsClientExtensions
             chatClient = clientFactory(chatClient);
         }
 
+        if (!string.IsNullOrWhiteSpace(persistentAgentMetadata.Instructions) && chatOptions?.Instructions is null)
+        {
+            chatOptions ??= new ChatOptions();
+            chatOptions.Instructions = persistentAgentMetadata.Instructions;
+        }
+
         return new ChatClientAgent(chatClient, options: new()
         {
             Id = persistentAgentMetadata.Id,
             Name = persistentAgentMetadata.Name,
             Description = persistentAgentMetadata.Description,
-            Instructions = persistentAgentMetadata.Instructions,
             ChatOptions = chatOptions
         });
     }

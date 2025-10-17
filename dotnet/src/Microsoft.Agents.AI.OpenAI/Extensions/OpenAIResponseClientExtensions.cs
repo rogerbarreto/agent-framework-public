@@ -48,9 +48,9 @@ public static class OpenAIResponseClientExtensions
             {
                 Name = name,
                 Description = description,
-                Instructions = instructions,
                 ChatOptions = tools is null ? null : new ChatOptions()
                 {
+                    Instructions = instructions,
                     Tools = tools,
                 }
             },

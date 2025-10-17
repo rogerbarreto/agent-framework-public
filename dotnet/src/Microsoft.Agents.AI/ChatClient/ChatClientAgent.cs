@@ -59,13 +59,13 @@ public sealed partial class ChatClientAgent : AIAgent
               chatClient,
               new ChatClientAgentOptions
               {
-                  ChatOptions = tools is null ? null : new ChatOptions
+                  ChatOptions = (tools is null && string.IsNullOrWhiteSpace(instructions)) ? null : new ChatOptions
                   {
                       Tools = tools,
+                      Instructions = instructions
                   },
                   Name = name,
-                  Description = description,
-                  Instructions = instructions,
+                  Description = description
               },
               loggerFactory,
               services)
@@ -141,7 +141,7 @@ public sealed partial class ChatClientAgent : AIAgent
     /// These instructions are typically provided to the AI model as system messages to establish
     /// the context and expected behavior for the agent's responses.
     /// </remarks>
-    public string? Instructions => this._agentOptions?.Instructions;
+    public string? Instructions => this._agentOptions?.ChatOptions?.Instructions;
 
     /// <summary>
     /// Gets of the default <see cref="ChatOptions"/> used by the agent.
@@ -452,9 +452,9 @@ public sealed partial class ChatClientAgent : AIAgent
         requestChatOptions.ConversationId ??= this._agentOptions.ChatOptions.ConversationId;
         requestChatOptions.FrequencyPenalty ??= this._agentOptions.ChatOptions.FrequencyPenalty;
 
-        requestChatOptions.Instructions = !string.IsNullOrEmpty(requestChatOptions.Instructions) && !string.IsNullOrEmpty(this.Instructions)
+        requestChatOptions.Instructions = !string.IsNullOrWhiteSpace(requestChatOptions.Instructions) && !string.IsNullOrWhiteSpace(this.Instructions)
             ? $"{this.Instructions}\n{requestChatOptions.Instructions}"
-            : (!string.IsNullOrEmpty(requestChatOptions.Instructions)
+            : (!string.IsNullOrWhiteSpace(requestChatOptions.Instructions)
             ? requestChatOptions.Instructions
             : this.Instructions);
 
