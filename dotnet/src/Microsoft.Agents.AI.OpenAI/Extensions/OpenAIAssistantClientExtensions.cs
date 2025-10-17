@@ -331,7 +331,7 @@ public static class OpenAIAssistantClientExtensions
             {
                 Name = name,
                 Description = description,
-                ChatOptions = new ChatOptions()
+                ChatOptions = tools is null && string.IsNullOrWhiteSpace(instructions) ? null : new ChatOptions()
                 {
                     Tools = tools,
                     Instructions = instructions
@@ -423,7 +423,7 @@ public static class OpenAIAssistantClientExtensions
             {
                 Name = name,
                 Description = description,
-                ChatOptions = new ChatOptions()
+                ChatOptions = tools is null && string.IsNullOrWhiteSpace(instructions) ? null : new ChatOptions()
                 {
                     Tools = tools,
                     Instructions = instructions,
