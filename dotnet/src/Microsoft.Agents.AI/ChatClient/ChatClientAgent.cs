@@ -451,13 +451,6 @@ public sealed partial class ChatClientAgent : AIAgent
         requestChatOptions.AllowMultipleToolCalls ??= this._agentOptions.ChatOptions.AllowMultipleToolCalls;
         requestChatOptions.ConversationId ??= this._agentOptions.ChatOptions.ConversationId;
         requestChatOptions.FrequencyPenalty ??= this._agentOptions.ChatOptions.FrequencyPenalty;
-
-        requestChatOptions.Instructions = !string.IsNullOrWhiteSpace(requestChatOptions.Instructions) && !string.IsNullOrWhiteSpace(this.Instructions)
-            ? $"{this.Instructions}\n{requestChatOptions.Instructions}"
-            : (!string.IsNullOrWhiteSpace(requestChatOptions.Instructions)
-            ? requestChatOptions.Instructions
-            : this.Instructions);
-
         requestChatOptions.MaxOutputTokens ??= this._agentOptions.ChatOptions.MaxOutputTokens;
         requestChatOptions.ModelId ??= this._agentOptions.ChatOptions.ModelId;
         requestChatOptions.PresencePenalty ??= this._agentOptions.ChatOptions.PresencePenalty;
@@ -467,6 +460,13 @@ public sealed partial class ChatClientAgent : AIAgent
         requestChatOptions.TopP ??= this._agentOptions.ChatOptions.TopP;
         requestChatOptions.TopK ??= this._agentOptions.ChatOptions.TopK;
         requestChatOptions.ToolMode ??= this._agentOptions.ChatOptions.ToolMode;
+
+        // Merge instructions by concatenating them if both are present.
+        requestChatOptions.Instructions = !string.IsNullOrWhiteSpace(requestChatOptions.Instructions) && !string.IsNullOrWhiteSpace(this.Instructions)
+            ? $"{this.Instructions}\n{requestChatOptions.Instructions}"
+            : (!string.IsNullOrWhiteSpace(requestChatOptions.Instructions)
+            ? requestChatOptions.Instructions
+            : this.Instructions);
 
         // Merge only the additional properties from the agent if they are not already set in the request options.
         if (requestChatOptions.AdditionalProperties is not null && this._agentOptions.ChatOptions.AdditionalProperties is not null)
