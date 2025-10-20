@@ -22,7 +22,7 @@ ChatClient chatClient = new AzureOpenAIClient(
         .GetChatClient(deploymentName);
 
 // Create the ChatClientAgent with the specified name and instructions.
-ChatClientAgent agent = chatClient.CreateAIAgent(new ChatClientAgentOptions() { Name = "HelpfulAssistant", ChatOptions = new() { Instructions = "You are a helpful assistant." } });
+ChatClientAgent agent = chatClient.CreateAIAgent(name: "HelpfulAssistant", instructions: "You are a helpful assistant.");
 
 // Set PersonInfo as the type parameter of RunAsync method to specify the expected structured output from the agent and invoke the agent with some unstructured input.
 AgentRunResponse<PersonInfo> response = await agent.RunAsync<PersonInfo>("Please provide information about John Smith, who is a 35-year-old software engineer.");
