@@ -315,7 +315,7 @@ public static class AgentsClientExtensions
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
 
         if (clientFactory is not null)
         {
@@ -349,13 +349,14 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(agentDefinition);
 
-        if (model is null && (agentDefinition as PromptAgentDefinition)?.Model is null)
+        model ??= (agentDefinition as PromptAgentDefinition)?.Model;
+        if (string.IsNullOrWhiteSpace(model))
         {
             throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
         }
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, versionCreationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
 
         if (clientFactory is not null)
         {
@@ -390,13 +391,14 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(agentDefinition);
 
-        if (model is null && (agentDefinition as PromptAgentDefinition)?.Model is null)
+        model ??= (agentDefinition as PromptAgentDefinition)?.Model;
+        if (string.IsNullOrWhiteSpace(model))
         {
             throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
         }
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
 
         if (clientFactory is not null)
         {
@@ -447,7 +449,7 @@ public static class AgentsClientExtensions
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
 
         if (clientFactory is not null)
         {
