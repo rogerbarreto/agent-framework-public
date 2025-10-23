@@ -328,7 +328,7 @@ public static class AgentsClientExtensions
     /// <param name="tools">The tools to be used by the agent.</param>
     /// <param name="temperature">The temperature setting for the agent.</param>
     /// <param name="topP">The top-p setting for the agent.</param>
-    /// <param name="raiConfig">The response format for the agent.</param>
+    /// <param name="raiConfig">The responsible AI configuration for the agent.</param>
     /// <param name="reasoningOptions">The reasoning options for the agent.</param>
     /// <param name="textOptions">The text options for the agent.</param>
     /// <param name="structuredInputs">The structured inputs for the agent.</param>
