@@ -1,15 +1,17 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.AzureAIAgents;
 using Microsoft.Extensions.AI;
+using Microsoft.Shared.Diagnostics;
 using OpenAI.Responses;
 
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-namespace Azure.AI.Agents.Persistent;
+namespace Azure.AI.Agents;
 
 /// <summary>
-/// Provides extension methods for <see cref="PersistentAgentsClient"/>.
+/// Provides extension methods for <see cref="AgentsClient"/>.
 /// </summary>
 public static class AgentsClientExtensions
 {
@@ -273,29 +275,32 @@ public static class AgentsClientExtensions
     }*/
 
     /// <summary>
-    /// Creates a new server side agent using the provided <see cref="PersistentAgentsClient"/>.
+    /// Creates a new server side agent using the provided <see cref="AgentsClient"/>.
     /// </summary>
-    /// <param name="client">The <see cref="AgentsClient"/> to create the agent with.</param>
+    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the agent with.</param>
     /// <param name="model">The model to be used by the agent.</param>
     /// <param name="name">The name of the agent.</param>
     /// <param name="instructions">The instructions for the agent.</param>
     /// <param name="tools">The tools to be used by the agent.</param>
     /// <param name="temperature">The temperature setting for the agent.</param>
     /// <param name="topP">The top-p setting for the agent.</param>
-    /// <param name="responseFormat">The response format for the agent.</param>
+    /// <param name="raiConfig">The response format for the agent.</param>
+    /// <param name="reasoningOptions">The reasoning options for the agent.</param>
+    /// <param name="textOptions">The text options for the agent.</param>
+    /// <param name="structuredInputs">The structured inputs for the agent.</param>
     /// <param name="metadata">The metadata for the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    public static async Task<ChatClientAgent> CreateAIAgentAsync(
-        this AgentsClient client,
+    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    public static AIAgent CreateAIAgent(
+        this AgentsClient agentsClient,
         string model,
         string? name = null,
         string? instructions = null,
         IEnumerable<ResponseTool>? tools = null,
         float? temperature = null,
         float? topP = null,
-        RaiConfig raiConfig = null,
+        RaiConfig? raiConfig = null,
         ResponseReasoningOptions? reasoningOptions = null,
         ResponseTextOptions? textOptions = null,
         IDictionary<string, StructuredInputDefinition>? structuredInputs = null,
@@ -303,15 +308,73 @@ public static class AgentsClientExtensions
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
-        if (client is null)
-        {
-            throw new ArgumentNullException(nameof(client));
-        }
+        Throw.IfNull(agentsClient);
 
-        var openAIClient = client.GetOpenAIClient();
-        var chatClient = openAIClient.GetOpenAIResponseClient(model).AsIChatClient();
+        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
+            model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
-        var promptAgentDefinition = new PromptAgentDefinition(model)
+        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
+        IChatClient chatClient = agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient();
+        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+    }
+
+    /// <summary>
+    /// Creates a new server side agent using the provided <see cref="AgentsClient"/>.
+    /// </summary>
+    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the agent with.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="name">The name of the agent.</param>
+    /// <param name="instructions">The instructions for the agent.</param>
+    /// <param name="tools">The tools to be used by the agent.</param>
+    /// <param name="temperature">The temperature setting for the agent.</param>
+    /// <param name="topP">The top-p setting for the agent.</param>
+    /// <param name="raiConfig">The response format for the agent.</param>
+    /// <param name="reasoningOptions">The reasoning options for the agent.</param>
+    /// <param name="textOptions">The text options for the agent.</param>
+    /// <param name="structuredInputs">The structured inputs for the agent.</param>
+    /// <param name="metadata">The metadata for the agent.</param>
+    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    public static async Task<AIAgent> CreateAIAgentAsync(
+        this AgentsClient agentsClient,
+        string model,
+        string? name = null,
+        string? instructions = null,
+        IEnumerable<ResponseTool>? tools = null,
+        float? temperature = null,
+        float? topP = null,
+        RaiConfig? raiConfig = null,
+        ResponseReasoningOptions? reasoningOptions = null,
+        ResponseTextOptions? textOptions = null,
+        IDictionary<string, StructuredInputDefinition>? structuredInputs = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(agentsClient);
+
+        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
+            model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
+
+        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient();
+        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+    }
+
+    private static (PromptAgentDefinition, AgentVersionCreationOptions?) CreatePromptAgentDefinitionAndOptions(
+        string model,
+        string? instructions,
+        float? temperature,
+        float? topP,
+        RaiConfig? raiConfig,
+        ResponseReasoningOptions? reasoningOptions,
+        ResponseTextOptions? textOptions,
+        IEnumerable<ResponseTool>? tools,
+        IDictionary<string, StructuredInputDefinition>? structuredInputs,
+        IReadOnlyDictionary<string, string>? metadata)
+    {
+        PromptAgentDefinition promptAgentDefinition = new(model)
         {
             Instructions = instructions,
             Temperature = temperature,
@@ -321,16 +384,15 @@ public static class AgentsClientExtensions
             TextOptions = textOptions,
         };
 
-        var versionCreation = new AgentVersionCreationOptions();
+        AgentVersionCreationOptions? versionCreationOptions = null;
         if (metadata is not null)
         {
+            versionCreationOptions = new();
             foreach (var kvp in metadata)
             {
-                versionCreation.Metadata.Add(kvp.Key, kvp.Value);
+                versionCreationOptions.Metadata.Add(kvp.Key, kvp.Value);
             }
         }
-
-        AgentVersion newAgentVersion = await client.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreation, cancellationToken).ConfigureAwait(false);
 
         if (tools is not null)
         {
@@ -355,308 +417,6 @@ public static class AgentsClientExtensions
             }
         }
 
-        var agent = new ChatClientAgent(chatClient);
-        agent.AsBuilder().Use(FoundryAgentMiddlewareAsync).Build();
-
-        async Task FoundryAgentMiddlewareAsync(IEnumerable<ChatMessage> messages, AgentThread? thread, AgentRunOptions? options, Func<IEnumerable<ChatMessage>, AgentThread?, AgentRunOptions?, CancellationToken, Task> sharedFunc, CancellationToken cancellationToken)
-        {
-            if (options is not ChatClientAgentRunOptions chatClientOptions)
-            {
-                throw new InvalidOperationException("The provided AgentRunOptions is not of type ChatClientAgentRunOptions.");
-            }
-
-            ChatClientAgentThread? chatClientThread = null;
-            if (thread is not null)
-            {
-                if (thread is not ChatClientAgentThread asChatClientAgentThread)
-                {
-                    throw new InvalidOperationException("The provided AgentThread is not of type ChatClientAgentThread.");
-                }
-
-                if (string.IsNullOrWhiteSpace(asChatClientAgentThread.ConversationId))
-                {
-                    throw new InvalidOperationException("The ChatClientAgentThread does not have a valid ConversationId.");
-                }
-
-                chatClientThread = asChatClientAgentThread;
-            }
-
-            var conversation = (chatClientThread is not null)
-                ? await client.GetConversationsClient().GetConversationAsync(chatClientThread.ConversationId, cancellationToken).ConfigureAwait(false)
-                : await client.GetConversationsClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            chatClientOptions.ChatOptions ??= new();
-            chatClientOptions.ChatOptions.RawRepresentationFactory = (client) =>
-            {
-                var rawRepresentationFactory = chatClientOptions.ChatOptions?.RawRepresentationFactory;
-                ResponseCreationOptions? responseCreationOptions = null;
-
-                if (rawRepresentationFactory is not null)
-                {
-                    responseCreationOptions = rawRepresentationFactory.Invoke(chatClient) as ResponseCreationOptions;
-
-                    if (responseCreationOptions is null)
-                    {
-                        throw new InvalidOperationException("The RawRepresentationFactory did not return a valid ResponseCreationOptions instance.");
-                    }
-                }
-                else
-                {
-                    responseCreationOptions = new ResponseCreationOptions();
-                }
-
-                responseCreationOptions.SetAgentReference(name);
-                responseCreationOptions.SetConversationReference(conversation);
-
-                return responseCreationOptions;
-            };
-
-            await sharedFunc(messages, thread, options, cancellationToken).ConfigureAwait(false);
-        }
-
-        return agent;
-    }
-
-    /// <summary>
-    /// Creates a new server side agent using the provided <see cref="PersistentAgentsClient"/>.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the agent with.</param>
-    /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="name">The name of the agent.</param>
-    /// <param name="description">The description of the agent.</param>
-    /// <param name="instructions">The instructions for the agent.</param>
-    /// <param name="tools">The tools to be used by the agent.</param>
-    /// <param name="toolResources">The resources for the tools.</param>
-    /// <param name="temperature">The temperature setting for the agent.</param>
-    /// <param name="topP">The top-p setting for the agent.</param>
-    /// <param name="responseFormat">The response format for the agent.</param>
-    /// <param name="metadata">The metadata for the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    public static ChatClientAgent CreateAIAgent(
-        this PersistentAgentsClient persistentAgentsClient,
-        string model,
-        string? name = null,
-        string? description = null,
-        string? instructions = null,
-        IEnumerable<ToolDefinition>? tools = null,
-        ToolResources? toolResources = null,
-        float? temperature = null,
-        float? topP = null,
-        BinaryData? responseFormat = null,
-        IReadOnlyDictionary<string, string>? metadata = null,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        var createPersistentAgentResponse = persistentAgentsClient.Administration.CreateAgent(
-            model: model,
-            name: name,
-            description: description,
-            instructions: instructions,
-            tools: tools,
-            toolResources: toolResources,
-            temperature: temperature,
-            topP: topP,
-            responseFormat: responseFormat,
-            metadata: metadata,
-            cancellationToken: cancellationToken);
-
-        // Get a local proxy for the agent to work with.
-        return persistentAgentsClient.GetAIAgent(createPersistentAgentResponse.Value.Id, clientFactory: clientFactory, cancellationToken: cancellationToken);
-    }
-
-    /// <summary>
-    /// Creates a new server side agent using the provided <see cref="PersistentAgentsClient"/>.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the agent with.</param>
-    /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="options">Full set of options to configure the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentsClient"/> or <paramref name="model"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is empty or whitespace.</exception>
-    public static ChatClientAgent CreateAIAgent(
-        this PersistentAgentsClient persistentAgentsClient,
-        string model,
-        ChatClientAgentOptions options,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            throw new ArgumentException($"{nameof(model)} should not be null or whitespace.", nameof(model));
-        }
-
-        if (options is null)
-        {
-            throw new ArgumentNullException(nameof(options));
-        }
-
-        var toolDefinitionsAndResources = ConvertAIToolsToToolDefinitions(options.ChatOptions?.Tools);
-
-        var createPersistentAgentResponse = persistentAgentsClient.Administration.CreateAgent(
-            model: model,
-            name: options.Name,
-            description: options.Description,
-            instructions: options.Instructions,
-            tools: toolDefinitionsAndResources.ToolDefinitions,
-            toolResources: toolDefinitionsAndResources.ToolResources,
-            temperature: null,
-            topP: null,
-            responseFormat: null,
-            metadata: null,
-            cancellationToken: cancellationToken);
-
-        if (options.ChatOptions?.Tools is { Count: > 0 } && (toolDefinitionsAndResources.FunctionToolsAndOtherTools is null || options.ChatOptions.Tools.Count != toolDefinitionsAndResources.FunctionToolsAndOtherTools.Count))
-        {
-            options = options.Clone();
-            options.ChatOptions!.Tools = toolDefinitionsAndResources.FunctionToolsAndOtherTools;
-        }
-
-        // Get a local proxy for the agent to work with.
-        return persistentAgentsClient.GetAIAgent(createPersistentAgentResponse.Value.Id, options, clientFactory: clientFactory, cancellationToken: cancellationToken);
-    }
-
-    /// <summary>
-    /// Creates a new server side agent using the provided <see cref="PersistentAgentsClient"/>.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the agent with.</param>
-    /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="options">Full set of options to configure the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentsClient"/> or <paramref name="model"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is empty or whitespace.</exception>
-    public static async Task<ChatClientAgent> CreateAIAgentAsync(
-        this PersistentAgentsClient persistentAgentsClient,
-        string model,
-        ChatClientAgentOptions options,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            throw new ArgumentException($"{nameof(model)} should not be null or whitespace.", nameof(model));
-        }
-
-        if (options is null)
-        {
-            throw new ArgumentNullException(nameof(options));
-        }
-
-        var toolDefinitionsAndResources = ConvertAIToolsToToolDefinitions(options.ChatOptions?.Tools);
-
-        var createPersistentAgentResponse = await persistentAgentsClient.Administration.CreateAgentAsync(
-            model: model,
-            name: options.Name,
-            description: options.Description,
-            instructions: options.Instructions,
-            tools: toolDefinitionsAndResources.ToolDefinitions,
-            toolResources: toolDefinitionsAndResources.ToolResources,
-            temperature: null,
-            topP: null,
-            responseFormat: null,
-            metadata: null,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (options.ChatOptions?.Tools is { Count: > 0 } && (toolDefinitionsAndResources.FunctionToolsAndOtherTools is null || options.ChatOptions.Tools.Count != toolDefinitionsAndResources.FunctionToolsAndOtherTools.Count))
-        {
-            options = options.Clone();
-            options.ChatOptions!.Tools = toolDefinitionsAndResources.FunctionToolsAndOtherTools;
-        }
-
-        // Get a local proxy for the agent to work with.
-        return await persistentAgentsClient.GetAIAgentAsync(createPersistentAgentResponse.Value.Id, options, clientFactory: clientFactory, cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
-    private static (List<ToolDefinition>? ToolDefinitions, ToolResources? ToolResources, List<AITool>? FunctionToolsAndOtherTools) ConvertAIToolsToToolDefinitions(IList<AITool>? tools)
-    {
-        List<ToolDefinition>? toolDefinitions = null;
-        ToolResources? toolResources = null;
-        List<AITool>? functionToolsAndOtherTools = null;
-
-        if (tools is not null)
-        {
-            foreach (AITool tool in tools)
-            {
-                switch (tool)
-                {
-                    case HostedCodeInterpreterTool codeTool:
-
-                        toolDefinitions ??= new();
-                        toolDefinitions.Add(new CodeInterpreterToolDefinition());
-
-                        if (codeTool.Inputs is { Count: > 0 })
-                        {
-                            foreach (var input in codeTool.Inputs)
-                            {
-                                switch (input)
-                                {
-                                    case HostedFileContent hostedFile:
-                                        // If the input is a HostedFileContent, we can use its ID directly.
-                                        toolResources ??= new();
-                                        toolResources.CodeInterpreter ??= new();
-                                        toolResources.CodeInterpreter.FileIds.Add(hostedFile.FileId);
-                                        break;
-                                }
-                            }
-                        }
-                        break;
-
-                    case HostedFileSearchTool fileSearchTool:
-                        toolDefinitions ??= new();
-                        toolDefinitions.Add(new FileSearchToolDefinition
-                        {
-                            FileSearch = new() { MaxNumResults = fileSearchTool.MaximumResultCount }
-                        });
-
-                        if (fileSearchTool.Inputs is { Count: > 0 })
-                        {
-                            foreach (var input in fileSearchTool.Inputs)
-                            {
-                                switch (input)
-                                {
-                                    case HostedVectorStoreContent hostedVectorStore:
-                                        toolResources ??= new();
-                                        toolResources.FileSearch ??= new();
-                                        toolResources.FileSearch.VectorStoreIds.Add(hostedVectorStore.VectorStoreId);
-                                        break;
-                                }
-                            }
-                        }
-                        break;
-
-                    case HostedWebSearchTool webSearch when webSearch.AdditionalProperties?.TryGetValue("connectionId", out object? connectionId) is true:
-                        toolDefinitions ??= new();
-                        toolDefinitions.Add(new BingGroundingToolDefinition(new BingGroundingSearchToolParameters([new BingGroundingSearchConfiguration(connectionId!.ToString())])));
-                        break;
-
-                    default:
-                        functionToolsAndOtherTools ??= new();
-                        functionToolsAndOtherTools.Add(tool);
-                        break;
-                }
-            }
-        }
-
-        return (toolDefinitions, toolResources, functionToolsAndOtherTools);
+        return (promptAgentDefinition, versionCreationOptions);
     }
 }
