@@ -22,10 +22,21 @@ internal sealed class AzureAIAgent : DelegatingAIAgent
         this._agentsClient = agentsClient;
         this._agentVersion = agentVersion;
         this._agentMetadata = new AIAgentMetadata("azure.ai.agents");
+
+        if (innerAgent.GetService<ChatClientAgent>() is null)
+        {
+            throw new InvalidOperationException("The provided AI Agent must to have a ChatClientAgent in the decoration pipeline for the agent to function properly.");
+        }
     }
 
     /// <inheritdoc />
-    public async override Task<AgentRunResponse> RunAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
+    public override string Id => this._agentVersion.Id;
+
+    /// <inheritdoc />
+    public override string Name => this._agentVersion.Name;
+
+    /// <inheritdoc />
+    public override async Task<AgentRunResponse> RunAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
     {
         this.ValidateChatClient();
         this.ValidateThread(thread);
@@ -34,7 +45,7 @@ internal sealed class AzureAIAgent : DelegatingAIAgent
     }
 
     /// <inheritdoc />
-    public async override IAsyncEnumerable<AgentRunResponseUpdate> RunStreamingAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public override async IAsyncEnumerable<AgentRunResponseUpdate> RunStreamingAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         this.ValidateChatClient();
         this.ValidateThread(thread);
