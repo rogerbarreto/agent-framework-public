@@ -18,22 +18,22 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
 {
     private readonly ChatClientMetadata? _metadata;
     private readonly AgentsClient _agentsClient;
-    private readonly AgentVersion _agentVersion;
+    private readonly AgentRecord _agentRecord;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AzureAIAgentChatClient"/> class.
     /// </summary>
     /// <param name="agentsClient">An instance of <see cref="AgentsClient"/> to interact with Azure AI Agents services.</param>
-    /// <param name="agentVersion">An instance of <see cref="AgentVersion"/> representing the specific agent version to use.</param>
-    /// <param name="model">The model to use for the chat client.</param>
+    /// <param name="agentRecord">An instance of <see cref="AgentRecord"/> representing the specific agent to use.</param>
+    /// <param name="model">The AI model to use for the chat client.</param>
     /// <remarks>
     /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
     /// </remarks>
-    internal AzureAIAgentChatClient(AgentsClient agentsClient, AgentVersion agentVersion, string model)
+    internal AzureAIAgentChatClient(AgentsClient agentsClient, AgentRecord agentRecord, string model)
         : base(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(Throw.IfNull(model)).AsIChatClient())
     {
         this._agentsClient = Throw.IfNull(agentsClient);
-        this._agentVersion = Throw.IfNull(agentVersion);
+        this._agentRecord = Throw.IfNull(agentRecord);
         this._metadata = new ChatClientMetadata("azure.ai.agents");
     }
 
@@ -45,7 +45,9 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
             : (serviceKey is null && serviceType == typeof(AgentsClient))
             ? this._agentsClient
             : (serviceKey is null && serviceType == typeof(AgentVersion))
-            ? this._agentVersion
+            ? this._agentRecord.Versions.Latest
+            : (serviceKey is null && serviceType == typeof(AgentRecord))
+            ? this._agentRecord
             : base.GetService(serviceType, serviceKey);
     }
 
@@ -120,7 +122,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
                 responseCreationOptions = new ResponseCreationOptions();
             }
 
-            responseCreationOptions.SetAgentReference(this._agentVersion.Name);
+            responseCreationOptions.SetAgentReference(this._agentRecord.Name);
             responseCreationOptions.SetConversationReference(agentConversation);
 
             return responseCreationOptions;

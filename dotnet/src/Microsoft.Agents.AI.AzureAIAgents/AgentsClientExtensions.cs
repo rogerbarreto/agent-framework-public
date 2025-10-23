@@ -1,11 +1,16 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.AzureAIAgents;
 using Microsoft.Extensions.AI;
 using Microsoft.Shared.Diagnostics;
 using OpenAI.Responses;
 
+#pragma warning disable MEAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
 namespace Azure.AI.Agents;
@@ -105,32 +110,32 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="PersistentAgentsClient"/>.
     /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
+    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
     /// <returns>A <see cref="ChatClientAgent"/> for the persistent agent.</returns>
-    /// <param name="agentId"> The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="name"> The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
-        this PersistentAgentsClient persistentAgentsClient,
-        string agentId,
+        this AgentsClient agentsClient,
+        string name,
         ChatOptions? chatOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
-        if (persistentAgentsClient is null)
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(name);
+
+        var agent = await agentsClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
+        if (agent is null)
         {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
+            agent.ver
+            throw new InvalidOperationException($"Agent with name '{name}' not found.");
         }
 
-        if (string.IsNullOrWhiteSpace(agentId))
-        {
-            throw new ArgumentException($"{nameof(agentId)} should not be null or whitespace.", nameof(agentId));
-        }
-
-        var persistentAgentResponse = await persistentAgentsClient.Administration.GetAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
-        return persistentAgentsClient.GetAIAgent(persistentAgentResponse, chatOptions, clientFactory);
+        var persistentAgentResponse = await agentsClient.Administration.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
+        return agentsClient.GetAIAgent(persistentAgentResponse, chatOptions, clientFactory);
     }
 
     /// <summary>
@@ -292,7 +297,7 @@ public static class AgentsClientExtensions
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    public static AIAgent CreateAIAgent(
+    public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
         string model,
         string? name = null,
@@ -311,18 +316,18 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
+        var (promptAgentDefinition, creationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
-        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
+        AgentRecord agentRecord = agentsClient.CreateAgent(name, promptAgentDefinition, creationOptions, cancellationToken);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+        return new ChatClientAgent(chatClient);
     }
 
     /// <summary>
@@ -332,17 +337,17 @@ public static class AgentsClientExtensions
     /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
     /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
     /// <param name="name">The name for the agent.</param>
-    /// <param name="versionCreationOptions">Settings that control the creation of the agent version.</param>
+    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
-    public static AIAgent CreateAIAgent(
+    public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
         AgentDefinition agentDefinition,
         string? model = null,
         string? name = null,
-        AgentVersionCreationOptions? versionCreationOptions = null,
+        AgentCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
@@ -355,15 +360,61 @@ public static class AgentsClientExtensions
             throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
         }
 
-        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, versionCreationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
+        AgentRecord agentRecord = agentsClient.CreateAgent(name, agentDefinition, creationOptions, cancellationToken);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+        return new ChatClientAgent(chatClient);
+    }
+
+    /// <summary>
+    /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
+    /// </summary>
+    /// <param name="agentsClient">The client used to manage and interact with AI agents.</param>
+    /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
+    /// <param name="options">The options for creating the agent.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
+    public static ChatClientAgent CreateAIAgent(
+        this AgentsClient agentsClient,
+        string model,
+        ChatClientAgentOptions options,
+        Func<IChatClient, IChatClient>? clientFactory = null)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNull(options);
+
+        PromptAgentDefinition promptAgentDefinition = new(model)
+        {
+            Model = model,
+            Instructions = options.Instructions,
+        };
+
+        if (options.ChatOptions?.Tools is { Count: > 0 })
+        {
+            foreach (var tool in options.ChatOptions.Tools)
+            {
+                promptAgentDefinition.Tools.Add(ToResponseTool(tool, options.ChatOptions));
+            }
+        }
+
+        AgentCreationOptions creationOptions = new();
+
+        AgentRecord agentRecord = agentsClient.CreateAgent(options.Name, promptAgentDefinition, creationOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
+        return new ChatClientAgent(chatClient);
     }
 
     /// <summary>
@@ -374,7 +425,7 @@ public static class AgentsClientExtensions
     /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
     /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
     /// <param name="name">The name for the agent.</param>
-    /// <param name="versionCreationOptions">Settings that control the creation of the agent version.</param>
+    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the created AI agent.</returns>
@@ -384,7 +435,7 @@ public static class AgentsClientExtensions
         AgentDefinition agentDefinition,
         string? model = null,
         string? name = null,
-        AgentVersionCreationOptions? versionCreationOptions = null,
+        AgentCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
@@ -397,15 +448,15 @@ public static class AgentsClientExtensions
             throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
         }
 
-        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
+        AgentRecord agentRecord = await agentsClient.CreateAgentAsync(name, agentDefinition, creationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+        return new ChatClientAgent(chatClient);
     }
 
     /// <summary>
@@ -445,21 +496,23 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
+        var (promptAgentDefinition, creationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
-        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model);
+        AgentRecord agentRecord = await agentsClient.CreateAgentAsync(name, promptAgentDefinition, creationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+        return new ChatClientAgent(chatClient);
     }
 
-    private static (PromptAgentDefinition, AgentVersionCreationOptions?) CreatePromptAgentDefinitionAndOptions(
+    #region Private
+
+    private static (PromptAgentDefinition, AgentCreationOptions?) CreatePromptAgentDefinitionAndOptions(
         string model,
         string? instructions,
         float? temperature,
@@ -482,13 +535,13 @@ public static class AgentsClientExtensions
             TextOptions = textOptions,
         };
 
-        AgentVersionCreationOptions? versionCreationOptions = null;
+        AgentCreationOptions? creationOptions = null;
         if (metadata is not null)
         {
-            versionCreationOptions = new();
+            creationOptions = new();
             foreach (var kvp in metadata)
             {
-                versionCreationOptions.Metadata.Add(kvp.Key, kvp.Value);
+                creationOptions.Metadata.Add(kvp.Key, kvp.Value);
             }
         }
 
@@ -515,6 +568,227 @@ public static class AgentsClientExtensions
             }
         }
 
-        return (promptAgentDefinition, versionCreationOptions);
+        return (promptAgentDefinition, creationOptions);
     }
+
+    /// <summary>Key into AdditionalProperties used to store a strict option.</summary>
+    private const string StrictKey = "strictJsonSchema";
+
+    private static FunctionTool ToResponseFunctionTool(AIFunctionDeclaration aiFunction, ChatOptions? options = null)
+    {
+        bool? strict =
+            HasStrict(aiFunction.AdditionalProperties) ??
+            HasStrict(options?.AdditionalProperties);
+
+        return ResponseTool.CreateFunctionTool(
+            aiFunction.Name,
+            ToOpenAIFunctionParameters(aiFunction, strict),
+            strict,
+            aiFunction.Description);
+    }
+
+    /// <summary>Gets whether the properties specify that strict schema handling is desired.</summary>
+    private static bool? HasStrict(IReadOnlyDictionary<string, object?>? additionalProperties) =>
+        additionalProperties?.TryGetValue(StrictKey, out object? strictObj) is true &&
+        strictObj is bool strictValue ?
+        strictValue : null;
+
+    /// <summary>Extracts from an <see cref="AIFunctionDeclaration"/> the parameters and strictness setting for use with OpenAI's APIs.</summary>
+    private static BinaryData ToOpenAIFunctionParameters(AIFunctionDeclaration aiFunction, bool? strict)
+    {
+        // Perform any desirable transformations on the function's JSON schema, if it'll be used in a strict setting.
+        JsonElement jsonSchema = strict is true ?
+            GetStrictSchemaTransformCache().GetOrCreateTransformedSchema(aiFunction) :
+            aiFunction.JsonSchema;
+
+        // Roundtrip the schema through the ToolJson model type to remove extra properties
+        // and force missing ones into existence, then return the serialized UTF8 bytes as BinaryData.
+        var tool = JsonSerializer.Deserialize(jsonSchema, AgentsClientJsonContext.Default.ToolJson)!;
+        return BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(tool, AgentsClientJsonContext.Default.ToolJson));
+    }
+
+    /// <summary>
+    /// Gets the JSON schema transformer cache conforming to OpenAI <b>strict</b> / structured output restrictions per
+    /// https://platform.openai.com/docs/guides/structured-outputs?api-mode=responses#supported-schemas.
+    /// </summary>
+    private static AIJsonSchemaTransformCache GetStrictSchemaTransformCache() => new(new()
+    {
+        DisallowAdditionalProperties = true,
+        ConvertBooleanSchemas = true,
+        MoveDefaultKeywordToDescription = true,
+        RequireAllProperties = true,
+        TransformSchemaNode = (ctx, node) =>
+        {
+            // Move content from common but unsupported properties to description. In particular, we focus on properties that
+            // the AIJsonUtilities schema generator might produce and/or that are explicitly mentioned in the OpenAI documentation.
+
+            if (node is JsonObject schemaObj)
+            {
+                StringBuilder? additionalDescription = null;
+
+                ReadOnlySpan<string> unsupportedProperties =
+                [
+                    // Produced by AIJsonUtilities but not in allow list at https://platform.openai.com/docs/guides/structured-outputs#supported-properties:
+                    "contentEncoding", "contentMediaType", "not",
+
+                    // Explicitly mentioned at https://platform.openai.com/docs/guides/structured-outputs?api-mode=responses#key-ordering as being unsupported with some models:
+                    "minLength", "maxLength", "pattern", "format",
+                    "minimum", "maximum", "multipleOf",
+                    "patternProperties",
+                    "minItems", "maxItems",
+
+                    // Explicitly mentioned at https://learn.microsoft.com/azure/ai-services/openai/how-to/structured-outputs?pivots=programming-language-csharp&tabs=python-secure%2Cdotnet-entra-id#unsupported-type-specific-keywords
+                    // as being unsupported with Azure OpenAI:
+                    "unevaluatedProperties", "propertyNames", "minProperties", "maxProperties",
+                    "unevaluatedItems", "contains", "minContains", "maxContains", "uniqueItems",
+                ];
+
+                foreach (string propName in unsupportedProperties)
+                {
+                    if (schemaObj[propName] is { } propNode)
+                    {
+                        _ = schemaObj.Remove(propName);
+                        AppendLine(ref additionalDescription, propName, propNode);
+                    }
+                }
+
+                if (additionalDescription is not null)
+                {
+                    schemaObj["description"] = schemaObj["description"] is { } descriptionNode && descriptionNode.GetValueKind() == JsonValueKind.String ?
+                        $"{descriptionNode.GetValue<string>()}{Environment.NewLine}{additionalDescription}" :
+                        additionalDescription.ToString();
+                }
+
+                return node;
+
+                static void AppendLine(ref StringBuilder? sb, string propName, JsonNode propNode)
+                {
+                    sb ??= new();
+
+                    if (sb.Length > 0)
+                    {
+                        _ = sb.AppendLine();
+                    }
+
+                    _ = sb.Append(propName).Append(": ").Append(propNode);
+                }
+            }
+
+            return node;
+        },
+    });
+
+    private static ResponseTool ToResponseTool(AITool tool, ChatOptions options)
+    {
+        switch (tool)
+        {
+            case AIFunctionDeclaration aiFunction:
+                return ToResponseFunctionTool(aiFunction, options);
+
+            case HostedWebSearchTool webSearchTool:
+                WebSearchToolLocation? location = null;
+                if (webSearchTool.AdditionalProperties.TryGetValue(nameof(WebSearchToolLocation), out object? objLocation))
+                {
+                    location = objLocation as WebSearchToolLocation;
+                }
+
+                WebSearchToolContextSize? size = null;
+                if (webSearchTool.AdditionalProperties.TryGetValue(nameof(WebSearchToolContextSize), out object? objSize) &&
+                    objSize is WebSearchToolContextSize)
+                {
+                    size = (WebSearchToolContextSize)objSize;
+                }
+
+                return ResponseTool.CreateWebSearchTool(location, size);
+
+            case HostedFileSearchTool fileSearchTool:
+                return ResponseTool.CreateFileSearchTool(
+                    fileSearchTool.Inputs?.OfType<HostedVectorStoreContent>().Select(c => c.VectorStoreId) ?? [],
+                    fileSearchTool.MaximumResultCount);
+
+            case HostedCodeInterpreterTool codeTool:
+                return ResponseTool.CreateCodeInterpreterTool(
+                    new CodeInterpreterToolContainer(codeTool.Inputs?.OfType<HostedFileContent>().Select(f => f.FileId).ToList() is { Count: > 0 } ids ?
+                            CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration(ids) :
+                            new()));
+
+            case HostedMcpServerTool mcpTool:
+                McpTool responsesMcpTool = Uri.TryCreate(mcpTool.ServerAddress, UriKind.Absolute, out Uri? url) ?
+                    ResponseTool.CreateMcpTool(
+                        mcpTool.ServerName,
+                        url,
+                        mcpTool.AuthorizationToken,
+                        mcpTool.ServerDescription) :
+                    ResponseTool.CreateMcpTool(
+                        mcpTool.ServerName,
+                        new McpToolConnectorId(mcpTool.ServerAddress),
+                        mcpTool.AuthorizationToken,
+                        mcpTool.ServerDescription);
+
+                if (mcpTool.AllowedTools is not null)
+                {
+                    responsesMcpTool.AllowedTools = new();
+                    AddAllMcpFilters(mcpTool.AllowedTools, responsesMcpTool.AllowedTools);
+                }
+
+                switch (mcpTool.ApprovalMode)
+                {
+                    case HostedMcpServerToolAlwaysRequireApprovalMode:
+                        responsesMcpTool.ToolCallApprovalPolicy = new McpToolCallApprovalPolicy(GlobalMcpToolCallApprovalPolicy.AlwaysRequireApproval);
+                        break;
+
+                    case HostedMcpServerToolNeverRequireApprovalMode:
+                        responsesMcpTool.ToolCallApprovalPolicy = new McpToolCallApprovalPolicy(GlobalMcpToolCallApprovalPolicy.NeverRequireApproval);
+                        break;
+
+                    case HostedMcpServerToolRequireSpecificApprovalMode specificMode:
+                        responsesMcpTool.ToolCallApprovalPolicy = new McpToolCallApprovalPolicy(new CustomMcpToolCallApprovalPolicy());
+
+                        if (specificMode.AlwaysRequireApprovalToolNames is { Count: > 0 } alwaysRequireToolNames)
+                        {
+                            responsesMcpTool.ToolCallApprovalPolicy.CustomPolicy.ToolsAlwaysRequiringApproval = new();
+                            AddAllMcpFilters(alwaysRequireToolNames, responsesMcpTool.ToolCallApprovalPolicy.CustomPolicy.ToolsAlwaysRequiringApproval);
+                        }
+
+                        if (specificMode.NeverRequireApprovalToolNames is { Count: > 0 } neverRequireToolNames)
+                        {
+                            responsesMcpTool.ToolCallApprovalPolicy.CustomPolicy.ToolsNeverRequiringApproval = new();
+                            AddAllMcpFilters(neverRequireToolNames, responsesMcpTool.ToolCallApprovalPolicy.CustomPolicy.ToolsNeverRequiringApproval);
+                        }
+
+                        break;
+                }
+
+                return responsesMcpTool;
+
+            default:
+                throw new NotSupportedException($"Tool of type '{tool.GetType().FullName}' is not supported.");
+        }
+    }
+
+    private static void AddAllMcpFilters(IList<string> toolNames, McpToolFilter filter)
+    {
+        foreach (var toolName in toolNames)
+        {
+            filter.ToolNames.Add(toolName);
+        }
+    }
+
+    /// <summary>Used to create the JSON payload for an OpenAI tool description.</summary>
+    internal sealed class ToolJson
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "object";
+
+        [JsonPropertyName("required")]
+        public HashSet<string> Required { get; set; } = [];
+
+        [JsonPropertyName("properties")]
+        public Dictionary<string, JsonElement> Properties { get; set; } = [];
+
+        [JsonPropertyName("additionalProperties")]
+        public bool AdditionalProperties { get; set; }
+    }
+
+    #endregion
 }
