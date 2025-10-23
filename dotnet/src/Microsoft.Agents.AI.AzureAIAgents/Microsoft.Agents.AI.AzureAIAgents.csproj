@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>$(ProjectsTargetFrameworks)</TargetFrameworks>
     <TargetFrameworks Condition="'$(Configuration)' == 'Debug'">$(ProjectsDebugTargetFrameworks)</TargetFrameworks>
-    <VersionSuffix>preview</VersionSuffix>
+    <VersionSuffix>alpha</VersionSuffix>
     <ImplicitUsings>enable</ImplicitUsings>
     <InjectSharedThrow>true</InjectSharedThrow>
   </PropertyGroup>
@@ -22,8 +22,8 @@
 
   <PropertyGroup>
     <!-- NuGet Package Settings -->
-    <Title>Microsoft Agent Framework AzureAI</Title>
-    <Description>Provides Microsoft Agent Framework support for Azure AI.</Description>
+    <Title>Microsoft Agent Framework Azure AI Agents</Title>
+    <Description>Provides Microsoft Agent Framework support for Azure AI Agents.</Description>
   </PropertyGroup>
 
 </Project>
