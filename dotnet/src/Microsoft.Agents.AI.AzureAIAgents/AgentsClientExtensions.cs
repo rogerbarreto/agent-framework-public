@@ -289,7 +289,7 @@ public static class AgentsClientExtensions
     /// <param name="textOptions">The text options for the agent.</param>
     /// <param name="structuredInputs">The structured inputs for the agent.</param>
     /// <param name="metadata">The metadata for the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     public static AIAgent CreateAIAgent(
@@ -309,17 +309,105 @@ public static class AgentsClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
+        Throw.IfNull(model);
 
         var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
-        IChatClient chatClient = agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient();
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
         return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
     }
 
     /// <summary>
-    /// Creates a new server side agent using the provided <see cref="AgentsClient"/>.
+    /// Creates a new AI agent using the specified agent definition and optional configuration parameters.
+    /// </summary>
+    /// <param name="agentsClient">The client used to manage and interact with AI agents.</param>
+    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
+    /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
+    /// <param name="name">The name for the agent.</param>
+    /// <param name="versionCreationOptions">Settings that control the creation of the agent version.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
+    public static AIAgent CreateAIAgent(
+        this AgentsClient agentsClient,
+        AgentDefinition agentDefinition,
+        string? model = null,
+        string? name = null,
+        AgentVersionCreationOptions? versionCreationOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNull(agentDefinition);
+
+        if (model is null && (agentDefinition as PromptAgentDefinition)?.Model is null)
+        {
+            throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
+        }
+
+        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, versionCreationOptions, cancellationToken);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
+        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+    }
+
+    /// <summary>
+    /// Asynchronously creates a new AI agent using the specified agent definition and optional configuration
+    /// parameters.
+    /// </summary>
+    /// <param name="agentsClient">The client used to manage and interact with AI agents.</param>
+    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
+    /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
+    /// <param name="name">The name for the agent.</param>
+    /// <param name="versionCreationOptions">Settings that control the creation of the agent version.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the created AI agent.</returns>
+    /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
+    public static async Task<AIAgent> CreateAIAgentAsync(
+        this AgentsClient agentsClient,
+        AgentDefinition agentDefinition,
+        string? model = null,
+        string? name = null,
+        AgentVersionCreationOptions? versionCreationOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNull(agentDefinition);
+
+        if (model is null && (agentDefinition as PromptAgentDefinition)?.Model is null)
+        {
+            throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
+        }
+
+        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
+        return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
+    }
+
+    /// <summary>
+    /// Creates a new server side prompt agent using the provided <see cref="AgentsClient"/>.
     /// </summary>
     /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the agent with.</param>
     /// <param name="model">The model to be used by the agent.</param>
@@ -333,9 +421,9 @@ public static class AgentsClientExtensions
     /// <param name="textOptions">The text options for the agent.</param>
     /// <param name="structuredInputs">The structured inputs for the agent.</param>
     /// <param name="metadata">The metadata for the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <param name="clientFactory">A factory function to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains a <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     public static async Task<AIAgent> CreateAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
@@ -353,12 +441,19 @@ public static class AgentsClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
+        Throw.IfNull(model);
 
         var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient();
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient.GetOpenAIClient().GetOpenAIResponseClient(model).AsIChatClient());
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
         return new AzureAIAgent(agentsClient, agentVersion, new ChatClientAgent(chatClient));
     }
 
@@ -376,6 +471,7 @@ public static class AgentsClientExtensions
     {
         PromptAgentDefinition promptAgentDefinition = new(model)
         {
+            Model = model,
             Instructions = instructions,
             Temperature = temperature,
             TopP = topP,
