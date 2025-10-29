@@ -1,6 +1,5 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System.ClientModel;
 using System.Runtime.CompilerServices;
 using Azure.AI.Agents;
 using Microsoft.Extensions.AI;
@@ -63,25 +62,16 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
         var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
-        try
-        {
-            return await base.GetResponseAsync(messages, conversationOptions, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ClientResultException crex)
-        {
-            var result = crex.GetRawResponse()?.Content.ToString();
-            Console.WriteLine($"ClientResultException: {result}");
-            throw;
-        }
+        return await base.GetResponseAsync(messages, conversationOptions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public async override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        this.GetConversationEnabledChatOptions(options, conversation);
+        var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
-        await foreach (var chunk in base.GetStreamingResponseAsync(messages, options, cancellationToken).ConfigureAwait(false))
+        await foreach (var chunk in base.GetStreamingResponseAsync(messages, conversationOptions, cancellationToken).ConfigureAwait(false))
         {
             yield return chunk;
         }
