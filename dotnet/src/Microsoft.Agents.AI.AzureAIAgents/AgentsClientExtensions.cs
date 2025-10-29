@@ -201,8 +201,6 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(model);
         Throw.IfNull(agentVersion);
-        Throw.IfNull(options);
-
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
@@ -317,7 +315,7 @@ public static class AgentsClientExtensions
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
         string model,
@@ -376,7 +374,7 @@ public static class AgentsClientExtensions
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="agentDefinition"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
     public static ChatClientAgent CreateAIAgent(
