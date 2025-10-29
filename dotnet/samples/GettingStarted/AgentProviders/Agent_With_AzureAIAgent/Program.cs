@@ -11,6 +11,7 @@ var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOIN
 var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string JokerInstructions = "You are good at telling jokes.";
+const string JokerName = "JokerAgent";
 
 #pragma warning disable CA5399
 
@@ -24,13 +25,13 @@ var agentsClient = new AgentsClient(new Uri(endpoint), new AzureCliCredential(),
 var agentDefinition = new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions };
 
 // You can create a server side agent with the Azure.AI.Agents SDK.
-var agentRecord = agentsClient.CreateAgentVersion(agentName: "Joker1", definition: agentDefinition).Value;
+var agentRecord = agentsClient.CreateAgentVersion(agentName: JokerName, definition: agentDefinition).Value;
 
 // You can retrieve an already created server side agent as an AIAgent.
 AIAgent existingAgent = await agentsClient.GetAIAgentAsync(deploymentName, agentRecord.Name, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
 // You can also create a server side persistent agent and return it as an AIAgent directly.
-//var createdAgent = agentsClient.CreateAIAgent(deploymentName, name: "Joker2", instructions: JokerInstructions);
+var createdAgent = agentsClient.CreateAIAgent(deploymentName, name: JokerName, instructions: JokerInstructions);
 
 // You can then invoke the agent like any other AIAgent.
 AgentThread thread = existingAgent.GetNewThread();
@@ -38,7 +39,7 @@ Console.WriteLine(await existingAgent.RunAsync("Tell me a joke about a pirate.",
 
 // Cleanup for sample purposes.
 agentsClient.DeleteAgent(agentRecord.Name);
-//agentsClient.DeleteAgent(createdAgent.Name);
+agentsClient.DeleteAgent(createdAgent.Name);
 
 internal sealed class MyHttpHandler : HttpClientHandler
 {

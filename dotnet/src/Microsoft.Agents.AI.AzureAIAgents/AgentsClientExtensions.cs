@@ -93,6 +93,7 @@ public static class AgentsClientExtensions
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
+    /// <exception cref="InvalidOperationException">The agent with the specified name was not found.</exception>
     public static ChatClientAgent GetAIAgent(
         this AgentsClient agentsClient,
         string model,
@@ -106,11 +107,8 @@ public static class AgentsClientExtensions
         Throw.IfNullOrWhitespace(model);
         Throw.IfNullOrWhitespace(name);
 
-        var agentRecord = agentsClient.GetAgent(name, cancellationToken);
-        if (agentRecord is null)
-        {
-            throw new InvalidOperationException($"Agent with name '{name}' not found.");
-        }
+        var agentRecord = agentsClient.GetAgent(name, cancellationToken)
+            ?? throw new InvalidOperationException($"Agent with name '{name}' not found.");
 
         return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory, openAIClientOptions, cancellationToken);
     }
@@ -127,6 +125,7 @@ public static class AgentsClientExtensions
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
+    /// <exception cref="InvalidOperationException">The agent with the specified name was not found.</exception>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
@@ -189,7 +188,7 @@ public static class AgentsClientExtensions
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the provided version of the Azure AI Agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, <paramref name="agentRecord"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, <paramref name="agentVersion"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     public static ChatClientAgent GetAIAgent(
         this AgentsClient agentsClient,
         string model,
@@ -304,6 +303,7 @@ public static class AgentsClientExtensions
     /// <param name="model">The model to be used by the agent.</param>
     /// <param name="name">The name of the agent.</param>
     /// <param name="instructions">The instructions for the agent.</param>
+    /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to be used by the agent.</param>
     /// <param name="temperature">The temperature setting for the agent.</param>
     /// <param name="topP">The top-p setting for the agent.</param>
@@ -319,9 +319,10 @@ public static class AgentsClientExtensions
     public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
         string model,
-        string? name = null,
+        string name,
         string? instructions = null,
-        IEnumerable<ResponseTool>? tools = null,
+        string? description = null,
+        IList<ResponseTool>? tools = null,
         float? temperature = null,
         float? topP = null,
         RaiConfig? raiConfig = null,
@@ -336,8 +337,19 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
-            model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
+        var (promptAgentDefinition, versionCreationOptions, chatClientAgentOptions) = CreatePromptAgentDefinitionAndOptions(
+            name,
+            model,
+            instructions,
+            description,
+            temperature,
+            topP,
+            raiConfig,
+            reasoningOptions,
+            textOptions,
+            tools,
+            structuredInputs,
+            metadata);
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
@@ -347,16 +359,16 @@ public static class AgentsClientExtensions
             chatClient = clientFactory(chatClient);
         }
 
-        return new ChatClientAgent(chatClient);
+        return new ChatClientAgent(chatClient, chatClientAgentOptions);
     }
 
     /// <summary>
     /// Creates a new AI agent using the specified agent definition and optional configuration parameters.
     /// </summary>
     /// <param name="agentsClient">The client used to manage and interact with AI agents.</param>
-    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
-    /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
     /// <param name="name">The name for the agent.</param>
+    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
+    /// <param name="model">The name of the model to use for the agent. Model must be provided either directly or as part of a <see cref="PromptAgentDefinition.Model"/> specialization property.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
@@ -365,9 +377,9 @@ public static class AgentsClientExtensions
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
     public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
+        string name,
         AgentDefinition agentDefinition,
         string? model = null,
-        string? name = null,
         AgentCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
@@ -416,21 +428,26 @@ public static class AgentsClientExtensions
         Throw.IfNullOrWhitespace(model);
         Throw.IfNull(options);
 
-        PromptAgentDefinition promptAgentDefinition = new(model)
+        if (string.IsNullOrWhiteSpace(options.Name))
         {
-            Model = model,
-            Instructions = options.Instructions,
-        };
+            throw new ArgumentNullException(nameof(options), "Agent name must be provided in the options property");
+        }
+
+        var (agentDefinition, versionCreationOptions, chatClientAgentOptions) = CreatePromptAgentDefinitionAndOptions(
+            options.Name,
+            model,
+            options.Instructions,
+            options.Description);
 
         if (options.ChatOptions?.Tools is { Count: > 0 })
         {
             foreach (var tool in options.ChatOptions.Tools)
             {
-                promptAgentDefinition.Tools.Add(ToResponseTool(tool, options.ChatOptions));
+                agentDefinition.Tools.Add(ToResponseTool(tool, options.ChatOptions));
             }
         }
 
-        AgentVersion agentVersion = agentsClient.CreateAgentVersion(options.Name, promptAgentDefinition, new() { Description = options.Description }, cancellationToken);
+        AgentVersion agentVersion = agentsClient.CreateAgentVersion(options.Name, agentDefinition, versionCreationOptions, cancellationToken);
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
@@ -438,7 +455,9 @@ public static class AgentsClientExtensions
             chatClient = clientFactory(chatClient);
         }
 
-        return new ChatClientAgent(chatClient);
+        chatClientAgentOptions.Id = GetAgentId(agentVersion);
+
+        return new ChatClientAgent(chatClient, chatClientAgentOptions);
     }
 
     /// <summary>
@@ -449,7 +468,7 @@ public static class AgentsClientExtensions
     /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create.</param>
     /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
     /// <param name="name">The name for the agent.</param>
-    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
+    /// <param name="agentVersionCreationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
@@ -460,7 +479,7 @@ public static class AgentsClientExtensions
         AgentDefinition agentDefinition,
         string? model = null,
         string? name = null,
-        AgentCreationOptions? creationOptions = null,
+        AgentVersionCreationOptions? agentVersionCreationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
@@ -474,15 +493,31 @@ public static class AgentsClientExtensions
             throw new ArgumentException("Model must be provided either directly or as part of a PromptAgentDefinition specialization.", nameof(model));
         }
 
-        AgentRecord agentRecord = await agentsClient.CreateAgentAsync(name, agentDefinition, creationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model, openAIClientOptions);
+        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, agentVersionCreationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new ChatClientAgent(chatClient);
+        List<AITool>? aiTools = null;
+        if ((agentDefinition as PromptAgentDefinition)?.Tools is { Count: > 0 } definitionTools)
+        {
+            aiTools = definitionTools.Select(rt => rt.AsAITool()).ToList();
+        }
+
+        return new ChatClientAgent(chatClient, new ChatClientAgentOptions()
+        {
+            Id = GetAgentId(agentVersion),
+            Name = name,
+            Description = agentVersionCreationOptions?.Description,
+            Instructions = (agentDefinition as PromptAgentDefinition)?.Instructions,
+            ChatOptions = new ChatOptions()
+            {
+                Tools = aiTools
+            }
+        });
     }
 
     /// <summary>
@@ -492,6 +527,7 @@ public static class AgentsClientExtensions
     /// <param name="model">The model to be used by the agent.</param>
     /// <param name="name">The name of the agent.</param>
     /// <param name="instructions">The instructions for the agent.</param>
+    /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to be used by the agent.</param>
     /// <param name="temperature">The temperature setting for the agent.</param>
     /// <param name="topP">The top-p setting for the agent.</param>
@@ -507,9 +543,10 @@ public static class AgentsClientExtensions
     public static async Task<ChatClientAgent> CreateAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
-        string? name = null,
+        string name,
         string? instructions = null,
-        IEnumerable<ResponseTool>? tools = null,
+        string? description = null,
+        IList<ResponseTool>? tools = null,
         float? temperature = null,
         float? topP = null,
         RaiConfig? raiConfig = null,
@@ -524,8 +561,7 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
-            model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
+        var (promptAgentDefinition, versionCreationOptions, chatClientAgentOptions) = CreatePromptAgentDefinitionAndOptions(name, model, instructions, description, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
@@ -535,22 +571,26 @@ public static class AgentsClientExtensions
             chatClient = clientFactory(chatClient);
         }
 
-        return new ChatClientAgent(chatClient);
+        chatClientAgentOptions.Id = GetAgentId(agentVersion);
+
+        return new ChatClientAgent(chatClient, chatClientAgentOptions);
     }
 
     #region Private
 
-    private static (PromptAgentDefinition, AgentVersionCreationOptions?) CreatePromptAgentDefinitionAndOptions(
+    private static (PromptAgentDefinition, AgentVersionCreationOptions?, ChatClientAgentOptions) CreatePromptAgentDefinitionAndOptions(
+        string name,
         string model,
         string? instructions,
-        float? temperature,
-        float? topP,
-        RaiConfig? raiConfig,
-        ResponseReasoningOptions? reasoningOptions,
-        ResponseTextOptions? textOptions,
-        IEnumerable<ResponseTool>? tools,
-        IDictionary<string, StructuredInputDefinition>? structuredInputs,
-        IReadOnlyDictionary<string, string>? metadata)
+        string? description,
+        float? temperature = null,
+        float? topP = null,
+        RaiConfig? raiConfig = null,
+        ResponseReasoningOptions? reasoningOptions = null,
+        ResponseTextOptions? textOptions = null,
+        IList<ResponseTool>? tools = null,
+        IDictionary<string, StructuredInputDefinition>? structuredInputs = null,
+        IReadOnlyDictionary<string, string>? metadata = null)
     {
         PromptAgentDefinition promptAgentDefinition = new(model)
         {
@@ -563,28 +603,36 @@ public static class AgentsClientExtensions
             TextOptions = textOptions,
         };
 
-        AgentVersionCreationOptions? creationOptions = null;
+        var chatOptions = new ChatOptions()
+        {
+            TopP = topP,
+            Temperature = temperature,
+            Instructions = instructions,
+        };
+
+        AgentVersionCreationOptions? versionCreationOptions = null;
         if (metadata is not null)
         {
-            creationOptions = new();
+            versionCreationOptions ??= new();
             foreach (var kvp in metadata)
             {
-                creationOptions.Metadata.Add(kvp.Key, kvp.Value);
+                versionCreationOptions.Metadata.Add(kvp.Key, kvp.Value);
             }
         }
 
-        if (tools is not null)
+        if (!string.IsNullOrWhiteSpace(description))
         {
-            if (promptAgentDefinition.Tools is List<ResponseTool> toolsList)
+            (versionCreationOptions ??= new()).Description = description;
+        }
+
+        if (tools is { Count: > 0 })
+        {
+            chatOptions.Tools ??= [];
+
+            foreach (var tool in tools)
             {
-                toolsList.AddRange(tools);
-            }
-            else
-            {
-                foreach (var tool in tools)
-                {
-                    promptAgentDefinition.Tools.Add(tool);
-                }
+                chatOptions.Tools.Add(tool);
+                promptAgentDefinition.Tools.Add(tool);
             }
         }
 
@@ -596,7 +644,15 @@ public static class AgentsClientExtensions
             }
         }
 
-        return (promptAgentDefinition, creationOptions);
+        var chatClientAgentOptions = new ChatClientAgentOptions()
+        {
+            Name = name,
+            Instructions = instructions,
+            Description = description,
+            ChatOptions = chatOptions
+        };
+
+        return (promptAgentDefinition, versionCreationOptions, chatClientAgentOptions);
     }
 
     private static string GetAgentId(AgentVersion agentVersion)
