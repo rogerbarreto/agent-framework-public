@@ -8,6 +8,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.AzureAIAgents;
 using Microsoft.Extensions.AI;
 using Microsoft.Shared.Diagnostics;
+using OpenAI;
 using OpenAI.Responses;
 
 #pragma warning disable MEAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
@@ -25,27 +26,59 @@ public static class AgentsClientExtensions
     /// </summary>
     /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
     /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="agentRecord">The agent record to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="agentRecord">The agent record to be converted. The latest version will be used. Cannot be <see langword="null"/>.</param>
     /// <param name="chatOptions">The default <see cref="ChatOptions"/> to use when interacting with the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the Azure AI Agent.</returns>
     public static ChatClientAgent GetAIAgent(
         this AgentsClient agentsClient,
         string model,
         AgentRecord agentRecord,
         ChatOptions? chatOptions = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
+        => GetAIAgent(
+            agentsClient,
+            model,
+            Throw.IfNull(agentRecord).Versions.Latest,
+            chatOptions,
+            clientFactory,
+            openAIClientOptions,
+            cancellationToken);
+
+    /// <summary>
+    /// Gets a runnable agent instance from the provided agent record.
+    /// </summary>
+    /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentVersion">The agent version to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="chatOptions">The default <see cref="ChatOptions"/> to use when interacting with the agent.</param>
+    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the specified version of the Azure AI Agent.</returns>
+    public static ChatClientAgent GetAIAgent(
+        this AgentsClient agentsClient,
+        string model,
+        AgentVersion agentVersion,
+        ChatOptions? chatOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
-        Throw.IfNull(agentRecord);
+        Throw.IfNull(agentVersion);
 
         if (model is null)
         {
             throw new ArgumentException("When not using a PromptAgent the model needs to be provided in the ChatOptions.ModelId property");
         }
 
-        return GetAIAgent(agentsClient, model, agentRecord, new ChatClientAgentOptions() { ChatOptions = chatOptions }, clientFactory);
+        return GetAIAgent(agentsClient, model, agentVersion, new ChatClientAgentOptions() { ChatOptions = chatOptions }, clientFactory, openAIClientOptions, cancellationToken);
     }
 
     /// <summary>
@@ -54,28 +87,32 @@ public static class AgentsClientExtensions
     /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
     /// <returns>A <see cref="ChatClientAgent"/> for the Azure AI Agent.</returns>
     /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="agentName"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="name"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
     public static ChatClientAgent GetAIAgent(
         this AgentsClient agentsClient,
         string model,
-        string agentName,
+        string name,
         ChatOptions? chatOptions = null,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(model);
-        Throw.IfNullOrWhitespace(agentName);
+        Throw.IfNullOrWhitespace(name);
 
-        var agentRecord = agentsClient.GetAgent(agentName);
+        var agentRecord = agentsClient.GetAgent(name, cancellationToken);
         if (agentRecord is null)
         {
-            throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
+            throw new InvalidOperationException($"Agent with name '{name}' not found.");
         }
 
-        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory);
+        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory, openAIClientOptions, cancellationToken);
     }
 
     /// <summary>
@@ -84,30 +121,32 @@ public static class AgentsClientExtensions
     /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
     /// <returns>A <see cref="ChatClientAgent"/> for the persistent agent.</returns>
     /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="agentName"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="name"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
-        string agentName,
+        string name,
         ChatOptions? chatOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(model);
-        Throw.IfNullOrWhitespace(agentName);
+        Throw.IfNullOrWhitespace(name);
 
-        var agentRecord = await agentsClient.GetAgentAsync(agentName, cancellationToken).ConfigureAwait(false);
+        var agentRecord = await agentsClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
         if (agentRecord is null)
         {
-            throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
+            throw new InvalidOperationException($"Agent with name '{name}' not found.");
         }
 
-        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory);
+        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory, openAIClientOptions, cancellationToken);
     }
 
     /// <summary>
@@ -115,19 +154,57 @@ public static class AgentsClientExtensions
     /// </summary>
     /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
     /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="agentRecord">The persistent agent metadata to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="agentRecord">The agent record to be converted. The latest version will be used. Cannot be <see langword="null"/>.</param>
     /// <param name="options">Full set of options to configure the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the Azure AI Agent record.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, <paramref name="agentRecord"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    public static ChatClientAgent GetAIAgent(this AgentsClient agentsClient, string model, AgentRecord agentRecord, ChatClientAgentOptions? options = null, Func<IChatClient, IChatClient>? clientFactory = null)
+    public static ChatClientAgent GetAIAgent(
+        this AgentsClient agentsClient,
+        string model,
+        AgentRecord agentRecord,
+        ChatClientAgentOptions? options = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
+        => GetAIAgent(
+            agentsClient,
+            model,
+            agentRecord.Versions.Latest,
+            options ?? new ChatClientAgentOptions(),
+            clientFactory,
+            openAIClientOptions,
+            cancellationToken);
+
+    /// <summary>
+    /// Gets a runnable agent instance from a <see cref="AgentVersion"/> containing metadata about an Azure AI Agent.
+    /// </summary>
+    /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentVersion">The agent version to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="options">Full set of options to configure the agent.</param>
+    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the provided version of the Azure AI Agent.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, <paramref name="agentRecord"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    public static ChatClientAgent GetAIAgent(
+        this AgentsClient agentsClient,
+        string model,
+        AgentVersion agentVersion,
+        ChatClientAgentOptions? options = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(model);
-        Throw.IfNull(agentRecord);
+        Throw.IfNull(agentVersion);
         Throw.IfNull(options);
 
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -137,13 +214,13 @@ public static class AgentsClientExtensions
         ChatClientAgentOptions? agentOptions;
 
         // If options are null, populate from agentRecord definition
-        var version = agentRecord.Versions.Latest;
+        var version = agentVersion;
 
         if (options is null)
         {
             agentOptions = new();
-            agentOptions.Id = agentRecord.Id;
-            agentOptions.Name = agentRecord.Name;
+            agentOptions.Id = GetAgentId(agentVersion);
+            agentOptions.Name = agentVersion.Name;
 
             agentOptions.Description = version.Description;
 
@@ -164,8 +241,8 @@ public static class AgentsClientExtensions
             // When agent options it is used when available otherwise fallback to the agent definition used for the agent record.
             agentOptions = new ChatClientAgentOptions()
             {
-                Id = options.Id ?? agentRecord.Id,
-                Name = options.Name ?? agentRecord.Name,
+                Id = options.Id ?? GetAgentId(agentVersion),
+                Name = options.Name ?? agentVersion.Name,
                 Description = options.Description ?? version.Description,
                 Instructions = options.Instructions ?? options.ChatOptions?.Instructions ?? (version.Definition as PromptAgentDefinition)?.Instructions,
                 ChatOptions = options.ChatOptions,
@@ -195,27 +272,29 @@ public static class AgentsClientExtensions
     /// </summary>
     /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
     /// <param name="model">The model to be used by the agent.</param>
-    /// <param name="agentName">The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="name">The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="options">Full set of options to configure the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of named the Azure AI Agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="agentName"/> is empty or whitespace.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or whitespace.</exception>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
-        string agentName,
+        string name,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
-        Throw.IfNullOrWhitespace(agentName);
+        Throw.IfNullOrWhitespace(name);
         Throw.IfNull(options);
 
-        var agentRecord = await agentsClient.GetAgentAsync(agentName, cancellationToken).ConfigureAwait(false);
-        return agentsClient.GetAIAgent(model, agentRecord, options, clientFactory);
+        var agentRecord = await agentsClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
+        return agentsClient.GetAIAgent(model, agentRecord, options, clientFactory, openAIClientOptions, cancellationToken);
     }
 
     /// <summary>
@@ -234,6 +313,7 @@ public static class AgentsClientExtensions
     /// <param name="structuredInputs">The structured inputs for the agent.</param>
     /// <param name="metadata">The metadata for the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     public static ChatClientAgent CreateAIAgent(
@@ -250,16 +330,17 @@ public static class AgentsClientExtensions
         IDictionary<string, StructuredInputDefinition>? structuredInputs = null,
         IReadOnlyDictionary<string, string>? metadata = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, creationOptions) = CreatePromptAgentDefinitionAndOptions(
+        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
-        AgentRecord agentRecord = agentsClient.CreateAgent(name, promptAgentDefinition, creationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, promptAgentDefinition, versionCreationOptions, cancellationToken);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -278,6 +359,7 @@ public static class AgentsClientExtensions
     /// <param name="name">The name for the agent.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
@@ -288,6 +370,7 @@ public static class AgentsClientExtensions
         string? name = null,
         AgentCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
@@ -300,7 +383,7 @@ public static class AgentsClientExtensions
         }
 
         AgentRecord agentRecord = agentsClient.CreateAgent(name, agentDefinition, creationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -317,13 +400,17 @@ public static class AgentsClientExtensions
     /// <param name="model">The name of the model to use for the agent. If not specified, the model must be provided as part of the agent definition.</param>
     /// <param name="options">The options for creating the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
     public static ChatClientAgent CreateAIAgent(
         this AgentsClient agentsClient,
         string model,
         ChatClientAgentOptions options,
-        Func<IChatClient, IChatClient>? clientFactory = null)
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(model);
@@ -343,8 +430,8 @@ public static class AgentsClientExtensions
             }
         }
 
-        AgentRecord agentRecord = agentsClient.CreateAgent(options.Name, promptAgentDefinition, new() { Description = options.Description });
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        AgentVersion agentVersion = agentsClient.CreateAgentVersion(options.Name, promptAgentDefinition, new() { Description = options.Description }, cancellationToken);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -364,16 +451,18 @@ public static class AgentsClientExtensions
     /// <param name="name">The name for the agent.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains the created AI agent.</returns>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentException">Thrown if neither the 'model' parameter nor a model in the agent definition is provided.</exception>
-    public static async Task<AIAgent> CreateAIAgentAsync(
+    public static async Task<ChatClientAgent> CreateAIAgentAsync(
         this AgentsClient agentsClient,
         AgentDefinition agentDefinition,
         string? model = null,
         string? name = null,
         AgentCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
@@ -386,7 +475,7 @@ public static class AgentsClientExtensions
         }
 
         AgentRecord agentRecord = await agentsClient.CreateAgentAsync(name, agentDefinition, creationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -412,9 +501,10 @@ public static class AgentsClientExtensions
     /// <param name="structuredInputs">The structured inputs for the agent.</param>
     /// <param name="metadata">The metadata for the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains a <see cref="AIAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    public static async Task<AIAgent> CreateAIAgentAsync(
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    public static async Task<ChatClientAgent> CreateAIAgentAsync(
         this AgentsClient agentsClient,
         string model,
         string? name = null,
@@ -428,16 +518,17 @@ public static class AgentsClientExtensions
         IDictionary<string, StructuredInputDefinition>? structuredInputs = null,
         IReadOnlyDictionary<string, string>? metadata = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNull(model);
 
-        var (promptAgentDefinition, creationOptions) = CreatePromptAgentDefinitionAndOptions(
+        var (promptAgentDefinition, versionCreationOptions) = CreatePromptAgentDefinitionAndOptions(
             model, instructions, temperature, topP, raiConfig, reasoningOptions, textOptions, tools, structuredInputs, metadata);
 
-        AgentRecord agentRecord = await agentsClient.CreateAgentAsync(name, promptAgentDefinition, creationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
+        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, promptAgentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, model, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -449,7 +540,7 @@ public static class AgentsClientExtensions
 
     #region Private
 
-    private static (PromptAgentDefinition, AgentCreationOptions?) CreatePromptAgentDefinitionAndOptions(
+    private static (PromptAgentDefinition, AgentVersionCreationOptions?) CreatePromptAgentDefinitionAndOptions(
         string model,
         string? instructions,
         float? temperature,
@@ -472,7 +563,7 @@ public static class AgentsClientExtensions
             TextOptions = textOptions,
         };
 
-        AgentCreationOptions? creationOptions = null;
+        AgentVersionCreationOptions? creationOptions = null;
         if (metadata is not null)
         {
             creationOptions = new();
@@ -507,6 +598,9 @@ public static class AgentsClientExtensions
 
         return (promptAgentDefinition, creationOptions);
     }
+
+    private static string GetAgentId(AgentVersion agentVersion)
+        => $"{agentVersion.Name}:{agentVersion.Id}";
 
     #endregion
 
