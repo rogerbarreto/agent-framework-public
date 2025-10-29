@@ -20,264 +20,203 @@ namespace Azure.AI.Agents;
 /// </summary>
 public static class AgentsClientExtensions
 {
-    /*
     /// <summary>
-    /// Gets a runnable agent instance from the provided response containing persistent agent metadata.
+    /// Gets a runnable agent instance from the provided agent record.
     /// </summary>
-    /// <param name="client">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
-    /// <param name="persistentAgentResponse">The response containing the persistent agent to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentRecord">The agent record to be converted. Cannot be <see langword="null"/>.</param>
     /// <param name="chatOptions">The default <see cref="ChatOptions"/> to use when interacting with the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    public static ChatClientAgent GetAIAgent(this AgentsClient client, Response<PersistentAgent> persistentAgentResponse, ChatOptions? chatOptions = null, Func<IChatClient, IChatClient>? clientFactory = null)
-    {
-        if (persistentAgentResponse is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentResponse));
-        }
-
-        return GetAIAgent(client, persistentAgentResponse.Value, chatOptions, clientFactory);
-    }
-
-    /// <summary>
-    /// Gets a runnable agent instance from a <see cref="PersistentAgent"/> containing metadata about a persistent agent.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
-    /// <param name="persistentAgentMetadata">The persistent agent metadata to be converted. Cannot be <see langword="null"/>.</param>
-    /// <param name="chatOptions">The default <see cref="ChatOptions"/> to use when interacting with the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    public static ChatClientAgent GetAIAgent(this PersistentAgentsClient persistentAgentsClient, PersistentAgent persistentAgentMetadata, ChatOptions? chatOptions = null, Func<IChatClient, IChatClient>? clientFactory = null)
-    {
-        if (persistentAgentMetadata is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentMetadata));
-        }
-
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        var chatClient = persistentAgentsClient.AsIChatClient(persistentAgentMetadata.Id);
-
-        if (clientFactory is not null)
-        {
-            chatClient = clientFactory(chatClient);
-        }
-
-        return new ChatClientAgent(chatClient, options: new()
-        {
-            Id = persistentAgentMetadata.Id,
-            Name = persistentAgentMetadata.Name,
-            Description = persistentAgentMetadata.Description,
-            Instructions = persistentAgentMetadata.Instructions,
-            ChatOptions = chatOptions
-        });
-    }
-
-    /// <summary>
-    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="PersistentAgentsClient"/>.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> for the persistent agent.</returns>
-    /// <param name="agentId"> The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
-    /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
     public static ChatClientAgent GetAIAgent(
-        this PersistentAgentsClient persistentAgentsClient,
-        string agentId,
+        this AgentsClient agentsClient,
+        string model,
+        AgentRecord agentRecord,
         ChatOptions? chatOptions = null,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        CancellationToken cancellationToken = default)
+        Func<IChatClient, IChatClient>? clientFactory = null)
     {
-        if (persistentAgentsClient is null)
+        Throw.IfNull(agentsClient);
+        Throw.IfNull(model);
+        Throw.IfNull(agentRecord);
+
+        if (model is null)
         {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
+            throw new ArgumentException("When not using a PromptAgent the model needs to be provided in the ChatOptions.ModelId property");
         }
 
-        if (string.IsNullOrWhiteSpace(agentId))
-        {
-            throw new ArgumentException($"{nameof(agentId)} should not be null or whitespace.", nameof(agentId));
-        }
-
-        var persistentAgentResponse = persistentAgentsClient.Administration.GetAgent(agentId, cancellationToken);
-        return persistentAgentsClient.GetAIAgent(persistentAgentResponse, chatOptions, clientFactory);
+        return GetAIAgent(agentsClient, model, agentRecord, new ChatClientAgentOptions() { ChatOptions = chatOptions }, clientFactory);
     }
 
     /// <summary>
-    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="PersistentAgentsClient"/>.
+    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentsClient"/>.
+    /// </summary>
+    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> for the Azure AI Agent.</returns>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentName"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
+    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
+    public static ChatClientAgent GetAIAgent(
+        this AgentsClient agentsClient,
+        string model,
+        string agentName,
+        ChatOptions? chatOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNullOrWhitespace(agentName);
+
+        var agentRecord = agentsClient.GetAgent(agentName);
+        if (agentRecord is null)
+        {
+            throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
+        }
+
+        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory);
+    }
+
+    /// <summary>
+    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentsClient"/>.
     /// </summary>
     /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
     /// <returns>A <see cref="ChatClientAgent"/> for the persistent agent.</returns>
-    /// <param name="name"> The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentName"> The name of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="chatOptions">Options that should apply to all runs of the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
         this AgentsClient agentsClient,
-        string name,
+        string model,
+        string agentName,
         ChatOptions? chatOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentsClient);
-        Throw.IfNullOrWhitespace(name);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNullOrWhitespace(agentName);
 
-        var agent = await agentsClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
-        if (agent is null)
+        var agentRecord = await agentsClient.GetAgentAsync(agentName, cancellationToken).ConfigureAwait(false);
+        if (agentRecord is null)
         {
-            agent.ver
-            throw new InvalidOperationException($"Agent with name '{name}' not found.");
+            throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
         }
 
-        var persistentAgentResponse = await agentsClient.Administration.GetAgentAsync(name, cancellationToken).ConfigureAwait(false);
-        return agentsClient.GetAIAgent(persistentAgentResponse, chatOptions, clientFactory);
+        return GetAIAgent(agentsClient, model, agentRecord, chatOptions, clientFactory);
     }
 
     /// <summary>
-    /// Gets a runnable agent instance from the provided response containing persistent agent metadata.
+    /// Gets a runnable agent instance from a <see cref="AgentVersion"/> containing metadata about an Azure AI Agent.
     /// </summary>
-    /// <param name="persistentAgentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
-    /// <param name="persistentAgentResponse">The response containing the persistent agent to be converted. Cannot be <see langword="null"/>.</param>
+    /// <param name="agentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentRecord">The persistent agent metadata to be converted. Cannot be <see langword="null"/>.</param>
     /// <param name="options">Full set of options to configure the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentResponse"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    public static ChatClientAgent GetAIAgent(this PersistentAgentsClient persistentAgentsClient, Response<PersistentAgent> persistentAgentResponse, ChatClientAgentOptions options, Func<IChatClient, IChatClient>? clientFactory = null)
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, <paramref name="agentRecord"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    public static ChatClientAgent GetAIAgent(this AgentsClient agentsClient, string model, AgentRecord agentRecord, ChatClientAgentOptions? options = null, Func<IChatClient, IChatClient>? clientFactory = null)
     {
-        if (persistentAgentResponse is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentResponse));
-        }
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNull(agentRecord);
+        Throw.IfNull(options);
 
-        return GetAIAgent(persistentAgentsClient, persistentAgentResponse.Value, options, clientFactory);
-    }
-
-    /// <summary>
-    /// Gets a runnable agent instance from a <see cref="PersistentAgent"/> containing metadata about a persistent agent.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The client used to interact with persistent agents. Cannot be <see langword="null"/>.</param>
-    /// <param name="persistentAgentMetadata">The persistent agent metadata to be converted. Cannot be <see langword="null"/>.</param>
-    /// <param name="options">Full set of options to configure the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentMetadata"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    public static ChatClientAgent GetAIAgent(this PersistentAgentsClient persistentAgentsClient, PersistentAgent persistentAgentMetadata, ChatClientAgentOptions options, Func<IChatClient, IChatClient>? clientFactory = null)
-    {
-        if (persistentAgentMetadata is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentMetadata));
-        }
-
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        if (options is null)
-        {
-            throw new ArgumentNullException(nameof(options));
-        }
-
-        var chatClient = persistentAgentsClient.AsIChatClient(persistentAgentMetadata.Id);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        var agentOptions = new ChatClientAgentOptions()
+        ChatClientAgentOptions? agentOptions;
+
+        // If options are null, populate from agentRecord definition
+        var version = agentRecord.Versions.Latest;
+
+        if (options is null)
         {
-            Id = persistentAgentMetadata.Id,
-            Name = options.Name ?? persistentAgentMetadata.Name,
-            Description = options.Description ?? persistentAgentMetadata.Description,
-            Instructions = options.Instructions ?? persistentAgentMetadata.Instructions,
-            ChatOptions = options.ChatOptions,
-            AIContextProviderFactory = options.AIContextProviderFactory,
-            ChatMessageStoreFactory = options.ChatMessageStoreFactory,
-            UseProvidedChatClientAsIs = options.UseProvidedChatClientAsIs
-        };
+            agentOptions = new();
+            agentOptions.Id = agentRecord.Id;
+            agentOptions.Name = agentRecord.Name;
+
+            agentOptions.Description = version.Description;
+
+            if (version.Definition is PromptAgentDefinition promptDef && promptDef.Tools is { Count: > 0 })
+            {
+                agentOptions.ChatOptions = new ChatOptions();
+                agentOptions.ChatOptions.Tools = [];
+                agentOptions.Instructions = promptDef.Instructions;
+
+                foreach (var tool in promptDef.Tools)
+                {
+                    agentOptions.ChatOptions.Tools.Add(tool);
+                }
+            }
+        }
+        else
+        {
+            // When agent options it is used when available otherwise fallback to the agent definition used for the agent record.
+            agentOptions = new ChatClientAgentOptions()
+            {
+                Id = options.Id ?? agentRecord.Id,
+                Name = options.Name ?? agentRecord.Name,
+                Description = options.Description ?? version.Description,
+                Instructions = options.Instructions ?? options.ChatOptions?.Instructions ?? (version.Definition as PromptAgentDefinition)?.Instructions,
+                ChatOptions = options.ChatOptions,
+                AIContextProviderFactory = options.AIContextProviderFactory,
+                ChatMessageStoreFactory = options.ChatMessageStoreFactory,
+                UseProvidedChatClientAsIs = options.UseProvidedChatClientAsIs
+            };
+
+            // If no tools were provided in options, but exist in the agent definition, use those.
+            if (agentOptions.ChatOptions?.Tools is null or { Count: 0 } && version.Definition is PromptAgentDefinition promptDef && promptDef.Tools is { Count: > 0 })
+            {
+                agentOptions.ChatOptions ??= new ChatOptions();
+                agentOptions.ChatOptions.Tools ??= [];
+
+                foreach (var tool in promptDef.Tools)
+                {
+                    agentOptions.ChatOptions.Tools.Add(tool);
+                }
+            }
+        }
 
         return new ChatClientAgent(chatClient, agentOptions);
     }
 
     /// <summary>
-    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="PersistentAgentsClient"/>.
+    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentsClient"/>.
     /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
-    /// <param name="agentId">The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
+    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
+    /// <param name="model">The model to be used by the agent.</param>
+    /// <param name="agentName">The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
     /// <param name="options">Full set of options to configure the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="agentId"/> is empty or whitespace.</exception>
-    public static ChatClientAgent GetAIAgent(
-        this PersistentAgentsClient persistentAgentsClient,
-        string agentId,
-        ChatClientAgentOptions options,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
-
-        if (string.IsNullOrWhiteSpace(agentId))
-        {
-            throw new ArgumentException($"{nameof(agentId)} should not be null or whitespace.", nameof(agentId));
-        }
-
-        if (options is null)
-        {
-            throw new ArgumentNullException(nameof(options));
-        }
-
-        var persistentAgentResponse = persistentAgentsClient.Administration.GetAgent(agentId, cancellationToken);
-        return persistentAgentsClient.GetAIAgent(persistentAgentResponse, options, clientFactory);
-    }
-
-    /// <summary>
-    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="PersistentAgentsClient"/>.
-    /// </summary>
-    /// <param name="persistentAgentsClient">The <see cref="PersistentAgentsClient"/> to create the <see cref="ChatClientAgent"/> with.</param>
-    /// <param name="agentId">The ID of the server side agent to create a <see cref="ChatClientAgent"/> for.</param>
-    /// <param name="options">Full set of options to configure the agent.</param>
-    /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the persistent agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="persistentAgentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="agentId"/> is empty or whitespace.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="agentName"/> is empty or whitespace.</exception>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
-        this PersistentAgentsClient persistentAgentsClient,
-        string agentId,
+        this AgentsClient agentsClient,
+        string model,
+        string agentName,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
         CancellationToken cancellationToken = default)
     {
-        if (persistentAgentsClient is null)
-        {
-            throw new ArgumentNullException(nameof(persistentAgentsClient));
-        }
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(agentName);
+        Throw.IfNull(options);
 
-        if (string.IsNullOrWhiteSpace(agentId))
-        {
-            throw new ArgumentException($"{nameof(agentId)} should not be null or whitespace.", nameof(agentId));
-        }
-
-        if (options is null)
-        {
-            throw new ArgumentNullException(nameof(options));
-        }
-
-        var persistentAgentResponse = await persistentAgentsClient.Administration.GetAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
-        return persistentAgentsClient.GetAIAgent(persistentAgentResponse, options, clientFactory);
-    }*/
+        var agentRecord = await agentsClient.GetAgentAsync(agentName, cancellationToken).ConfigureAwait(false);
+        return agentsClient.GetAIAgent(model, agentRecord, options, clientFactory);
+    }
 
     /// <summary>
     /// Creates a new server side agent using the provided <see cref="AgentsClient"/>.
@@ -404,9 +343,7 @@ public static class AgentsClientExtensions
             }
         }
 
-        AgentCreationOptions creationOptions = new();
-
-        AgentRecord agentRecord = agentsClient.CreateAgent(options.Name, promptAgentDefinition, creationOptions);
+        AgentRecord agentRecord = agentsClient.CreateAgent(options.Name, promptAgentDefinition, new() { Description = options.Description });
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, model);
 
         if (clientFactory is not null)
@@ -570,6 +507,13 @@ public static class AgentsClientExtensions
 
         return (promptAgentDefinition, creationOptions);
     }
+
+    #endregion
+
+    #region Polyfill from MEAI.OpenAI for AITool -> ResponseTool conversion
+
+    // This code will be removed and replaced by the utility tool made public in the PR below for Microsoft.Extensions.AI.OpenAI package
+    // PR https://github.com/dotnet/extensions/pull/6958
 
     /// <summary>Key into AdditionalProperties used to store a strict option.</summary>
     private const string StrictKey = "strictJsonSchema";

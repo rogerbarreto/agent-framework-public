@@ -54,17 +54,17 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <inheritdoc/>
     public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var conversation = await this.GetConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        this.SetChatOptionsFactory(options, conversation);
+        var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
-        return await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        return await base.GetResponseAsync(messages, conversationOptions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public async override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var conversation = await this.GetConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        this.SetChatOptionsFactory(options, conversation);
+        var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        this.GetConversationEnabledChatOptions(options, conversation);
 
         await foreach (var chunk in base.GetStreamingResponseAsync(messages, options, cancellationToken).ConfigureAwait(false))
         {
@@ -72,52 +72,18 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         }
     }
 
-    private async Task<AgentConversation> GetConversationAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken)
+    private async Task<AgentConversation> GetOrCreateConversationAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken)
+        => string.IsNullOrWhiteSpace(options?.ConversationId)
+            ? await this._agentsClient.GetConversationsClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false)
+            : await this._agentsClient.GetConversationsClient().GetConversationAsync(options.ConversationId, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    private ChatOptions GetConversationEnabledChatOptions(ChatOptions? chatOptions, AgentConversation agentConversation)
     {
-        AgentConversation conversation;
-        if (string.IsNullOrWhiteSpace(options?.ConversationId))
+        var conversationChatOptions = chatOptions is null ? new ChatOptions() : chatOptions.Clone();
+
+        conversationChatOptions.RawRepresentationFactory = (client) =>
         {
-            var creationOptions = new AgentConversationCreationOptions();
-            if (creationOptions.Items is List<ResponseItem> itemsList)
-            {
-                itemsList.AddRange(messages.AsOpenAIResponseItems());
-            }
-            else
-            {
-                foreach (var item in messages.AsOpenAIResponseItems())
-                {
-                    creationOptions.Items.Add(item);
-                }
-            }
-
-            conversation = await this._agentsClient.GetConversationsClient().CreateConversationAsync(creationOptions, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            conversation = await this._agentsClient.GetConversationsClient().GetConversationAsync(options!.ConversationId, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-
-        return conversation;
-    }
-
-    private void SetChatOptionsFactory(ChatOptions? chatOptions, AgentConversation agentConversation)
-    {
-        chatOptions ??= new ChatOptions();
-        chatOptions.RawRepresentationFactory = (client) =>
-        {
-            var rawRepresentationFactory = chatOptions.RawRepresentationFactory;
-            ResponseCreationOptions? responseCreationOptions = null;
-
-            if (rawRepresentationFactory is not null)
-            {
-                responseCreationOptions = rawRepresentationFactory.Invoke(this) as ResponseCreationOptions;
-
-                if (responseCreationOptions is null)
-                {
-                    throw new InvalidOperationException("The provided ChatOptions RawRepresentationFactory did not return a valid ResponseCreationOptions instance.");
-                }
-            }
-            else
+            if (conversationChatOptions.RawRepresentationFactory?.Invoke(this) is not ResponseCreationOptions responseCreationOptions)
             {
                 responseCreationOptions = new ResponseCreationOptions();
             }
@@ -127,5 +93,10 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
 
             return responseCreationOptions;
         };
+
+        // Clear out the conversation ID to prevent the inner client from attempting to use it as a PreviousResponseId
+        conversationChatOptions.ConversationId = null;
+
+        return conversationChatOptions;
     }
 }
