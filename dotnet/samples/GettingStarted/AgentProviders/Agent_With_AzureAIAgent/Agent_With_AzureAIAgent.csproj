@@ -6,6 +6,7 @@
 
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);IDE0059</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
