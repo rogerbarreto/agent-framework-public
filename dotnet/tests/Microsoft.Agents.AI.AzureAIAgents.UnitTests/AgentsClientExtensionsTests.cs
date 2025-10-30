@@ -33,60 +33,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            client!.GetAIAgent("model", agentRecord, chatOptions: null));
+            client!.GetAIAgent(agentRecord, chatOptions: null));
 
         Assert.Equal("agentsClient", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgent throws ArgumentNullException when model is null.
-    /// </summary>
-    [Fact]
-    public void GetAIAgent_WithAgentRecord_WithNullModel_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-        AgentRecord agentRecord = this.CreateTestAgentRecord();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent(null!, agentRecord, chatOptions: null));
-
-        Assert.Equal("model", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgent throws ArgumentException when model is empty.
-    /// </summary>
-    [Fact]
-    public void GetAIAgent_WithAgentRecord_WithEmptyModel_ThrowsArgumentException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-        AgentRecord agentRecord = this.CreateTestAgentRecord();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentException>(() =>
-            mockClient.Object.GetAIAgent(string.Empty, agentRecord, chatOptions: null));
-
-        Assert.Equal("model", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgent throws ArgumentException when model is whitespace.
-    /// </summary>
-    [Fact]
-    public void GetAIAgent_WithAgentRecord_WithWhitespaceModel_ThrowsArgumentException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-        AgentRecord agentRecord = this.CreateTestAgentRecord();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentException>(() =>
-            mockClient.Object.GetAIAgent("   ", agentRecord, chatOptions: null));
-
-        Assert.Equal("model", exception.ParamName);
     }
 
     /// <summary>
@@ -100,7 +49,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent("model", (AgentRecord)null!, chatOptions: null));
+            mockClient.Object.GetAIAgent((AgentRecord)null!, chatOptions: null));
 
         Assert.Equal("agentRecord", exception.ParamName);
     }
@@ -116,7 +65,7 @@ public sealed class AgentsClientExtensionsTests
         AgentRecord agentRecord = this.CreateTestAgentRecord();
 
         // Act
-        var agent = client.GetAIAgent("test-model", agentRecord, chatOptions: null);
+        var agent = client.GetAIAgent(agentRecord, chatOptions: null);
 
         // Assert
         Assert.NotNull(agent);
@@ -136,7 +85,6 @@ public sealed class AgentsClientExtensionsTests
 
         // Act
         var agent = client.GetAIAgent(
-            "test-model",
             agentRecord,
             chatOptions: null,
             clientFactory: (innerClient) => testChatClient = new TestChatClient(innerClient));
@@ -164,26 +112,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            client!.GetAIAgent("model", agentVersion, chatOptions: null));
+            client!.GetAIAgent(agentVersion, chatOptions: null));
 
         Assert.Equal("agentsClient", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgent throws ArgumentNullException when model is null.
-    /// </summary>
-    [Fact]
-    public void GetAIAgent_WithAgentVersion_WithNullModel_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-        AgentVersion agentVersion = this.CreateTestAgentVersion();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent(null!, agentVersion, chatOptions: null));
-
-        Assert.Equal("model", exception.ParamName);
     }
 
     /// <summary>
@@ -197,7 +128,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent("model", (AgentVersion)null!, chatOptions: null));
+            mockClient.Object.GetAIAgent((AgentVersion)null!, chatOptions: null));
 
         Assert.Equal("agentVersion", exception.ParamName);
     }
@@ -213,7 +144,7 @@ public sealed class AgentsClientExtensionsTests
         AgentVersion agentVersion = this.CreateTestAgentVersion();
 
         // Act
-        var agent = client.GetAIAgent("test-model", agentVersion, chatOptions: null);
+        var agent = client.GetAIAgent(agentVersion, chatOptions: null);
 
         // Assert
         Assert.NotNull(agent);
@@ -233,7 +164,6 @@ public sealed class AgentsClientExtensionsTests
 
         // Act
         var agent = client.GetAIAgent(
-            "test-model",
             agentVersion,
             chatOptions: null,
             clientFactory: (innerClient) => testChatClient = new TestChatClient(innerClient));
@@ -247,7 +177,7 @@ public sealed class AgentsClientExtensionsTests
 
     #endregion
 
-    #region GetAIAgent(AgentsClient, string, string) Tests
+    #region GetAIAgent(AgentsClient, string) Tests
 
     /// <summary>
     /// Verify that GetAIAgent throws ArgumentNullException when agentsClient is null.
@@ -260,25 +190,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            client!.GetAIAgent("model", "test-agent", chatOptions: null));
+            client!.GetAIAgent("test-agent", chatOptions: null));
 
         Assert.Equal("agentsClient", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgent throws ArgumentNullException when model is null.
-    /// </summary>
-    [Fact]
-    public void GetAIAgent_ByName_WithNullModel_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent(null!, "test-agent", chatOptions: null));
-
-        Assert.Equal("model", exception.ParamName);
     }
 
     /// <summary>
@@ -292,7 +206,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgent("model", (string)null!, chatOptions: null));
+            mockClient.Object.GetAIAgent((string)null!, chatOptions: null));
 
         Assert.Equal("name", exception.ParamName);
     }
@@ -308,7 +222,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentException>(() =>
-            mockClient.Object.GetAIAgent("model", string.Empty, chatOptions: null));
+            mockClient.Object.GetAIAgent(string.Empty, chatOptions: null));
 
         Assert.Equal("name", exception.ParamName);
     }
@@ -326,14 +240,14 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            mockClient.Object.GetAIAgent("model", "non-existent-agent", chatOptions: null));
+            mockClient.Object.GetAIAgent("non-existent-agent", chatOptions: null));
 
         Assert.Contains("not found", exception.Message);
     }
 
     #endregion
 
-    #region GetAIAgentAsync(AgentsClient, string, string) Tests
+    #region GetAIAgentAsync(AgentsClient, string) Tests
 
     /// <summary>
     /// Verify that GetAIAgentAsync throws ArgumentNullException when agentsClient is null.
@@ -346,25 +260,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            client!.GetAIAgentAsync("model", "test-agent"));
+            client!.GetAIAgentAsync("test-agent"));
 
         Assert.Equal("agentsClient", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that GetAIAgentAsync throws ArgumentNullException when model is null.
-    /// </summary>
-    [Fact]
-    public async Task GetAIAgentAsync_ByName_WithNullModel_ThrowsArgumentNullExceptionAsync()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-
-        // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgentAsync(null!, "test-agent"));
-
-        Assert.Equal("model", exception.ParamName);
     }
 
     /// <summary>
@@ -378,7 +276,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgentAsync("model", null!));
+            mockClient.Object.GetAIAgentAsync(null!));
 
         Assert.Equal("name", exception.ParamName);
     }
@@ -396,14 +294,14 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            mockClient.Object.GetAIAgentAsync("model", "non-existent-agent"));
+            mockClient.Object.GetAIAgentAsync("non-existent-agent"));
 
         Assert.Contains("not found", exception.Message);
     }
 
     #endregion
 
-    #region GetAIAgent(AgentsClient, string, AgentRecord, ChatClientAgentOptions) Tests
+    #region GetAIAgent(AgentsClient, AgentRecord, ChatClientAgentOptions) Tests
 
     /// <summary>
     /// Verify that GetAIAgent with options uses provided options correctly.
@@ -422,7 +320,7 @@ public sealed class AgentsClientExtensionsTests
         };
 
         // Act
-        var agent = client.GetAIAgent("test-model", agentRecord, options);
+        var agent = client.GetAIAgent(agentRecord, options);
 
         // Assert
         Assert.NotNull(agent);
@@ -442,7 +340,7 @@ public sealed class AgentsClientExtensionsTests
         AgentRecord agentRecord = this.CreateTestAgentRecord();
 
         // Act
-        var agent = client.GetAIAgent("test-model", agentRecord, options: null);
+        var agent = client.GetAIAgent(agentRecord, options: null);
 
         // Assert
         Assert.NotNull(agent);
@@ -451,7 +349,7 @@ public sealed class AgentsClientExtensionsTests
 
     #endregion
 
-    #region GetAIAgentAsync(AgentsClient, string, string, ChatClientAgentOptions) Tests
+    #region GetAIAgentAsync(AgentsClient, string, ChatClientAgentOptions) Tests
 
     /// <summary>
     /// Verify that GetAIAgentAsync throws ArgumentNullException when options is null.
@@ -464,7 +362,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgentAsync("model", "test-agent", (ChatClientAgentOptions)null!));
+            mockClient.Object.GetAIAgentAsync("test-agent", (ChatClientAgentOptions)null!));
 
         Assert.Equal("options", exception.ParamName);
     }
@@ -484,25 +382,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            client!.CreateAIAgent("model", "test-agent"));
+            client!.CreateAIAgent("test-agent", "model"));
 
         Assert.Equal("agentsClient", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that CreateAIAgent throws ArgumentNullException when model is null.
-    /// </summary>
-    [Fact]
-    public void CreateAIAgent_WithBasicParams_WithNullModel_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgent(null!, "test-agent"));
-
-        Assert.Equal("model", exception.ParamName);
     }
 
     /// <summary>
@@ -516,7 +398,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgent("model", (string)null!));
+            mockClient.Object.CreateAIAgent((string)null!, "model"));
 
         Assert.Equal("name", exception.ParamName);
     }
@@ -575,26 +457,9 @@ public sealed class AgentsClientExtensionsTests
         Assert.Equal("agentDefinition", exception.ParamName);
     }
 
-    /// <summary>
-    /// Verify that CreateAIAgent throws ArgumentException when model is not provided.
-    /// </summary>
-    [Fact]
-    public void CreateAIAgent_WithAgentDefinition_WithoutModel_ThrowsArgumentNullException()
-    {
-        // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
-        var definition = new PromptAgentDefinition("");
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentException>(() =>
-            client.CreateAIAgent("test-agent", definition, model: null));
-
-        Assert.Contains("Model must be provided", exception.Message);
-    }
-
     #endregion
 
-    #region CreateAIAgent(AgentsClient, string, ChatClientAgentOptions) Tests
+    #region CreateAIAgent(AgentsClient, ChatClientAgentOptions, string) Tests
 
     /// <summary>
     /// Verify that CreateAIAgent throws ArgumentNullException when agentsClient is null.
@@ -608,9 +473,25 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            client!.CreateAIAgent("model", options));
+            client!.CreateAIAgent(options, "model"));
 
         Assert.Equal("agentsClient", exception.ParamName);
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgent throws ArgumentNullException when options is null.
+    /// </summary>
+    [Fact]
+    public void CreateAIAgent_WithOptions_WithNullOptions_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var mockClient = new Mock<AgentsClient>();
+
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            mockClient.Object.CreateAIAgent((ChatClientAgentOptions)null!, "model"));
+
+        Assert.Equal("options", exception.ParamName);
     }
 
     /// <summary>
@@ -625,25 +506,9 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgent(null!, options));
+            mockClient.Object.CreateAIAgent(options, null!));
 
         Assert.Equal("model", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that CreateAIAgent throws ArgumentNullException when options is null.
-    /// </summary>
-    [Fact]
-    public void CreateAIAgent_WithOptions_WithNullOptions_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var mockClient = new Mock<AgentsClient>();
-
-        // Act & Assert
-        var exception = Assert.Throws<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgent("model", (ChatClientAgentOptions)null!));
-
-        Assert.Equal("options", exception.ParamName);
     }
 
     /// <summary>
@@ -658,7 +523,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = Assert.Throws<ArgumentException>(() =>
-            client.CreateAIAgent("test-model", options));
+            client.CreateAIAgent(options, "test-model"));
 
         Assert.Contains("Agent name must be provided", exception.Message);
     }
@@ -698,23 +563,6 @@ public sealed class AgentsClientExtensionsTests
             mockClient.Object.CreateAIAgentAsync(null!));
 
         Assert.Equal("agentDefinition", exception.ParamName);
-    }
-
-    /// <summary>
-    /// Verify that CreateAIAgentAsync throws ArgumentException when model is not provided.
-    /// </summary>
-    [Fact]
-    public async Task CreateAIAgentAsync_WithAgentDefinition_WithoutModel_ThrowsExceptionAsync()
-    {
-        // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
-        var definition = new PromptAgentDefinition("");
-
-        // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
-            client.CreateAIAgentAsync(definition, model: null));
-
-        Assert.Contains("Model must be provided", exception.Message);
     }
 
     #endregion
