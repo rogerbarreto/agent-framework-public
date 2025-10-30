@@ -551,6 +551,10 @@ public static class AgentsClientExtensions
 
     #region Private
 
+    /// <summary>
+    /// The usage of a no-op model is a necessary change to avoid OpenAIClients to throw exceptions when
+    /// used with Azure AI Agents as the model used is now defined at the agent creation time.
+    /// </summary>
     private const string NoOpModel = "no-op";
 
     private static (PromptAgentDefinition, AgentVersionCreationOptions?, ChatClientAgentOptions) CreatePromptAgentDefinitionAndOptions(
