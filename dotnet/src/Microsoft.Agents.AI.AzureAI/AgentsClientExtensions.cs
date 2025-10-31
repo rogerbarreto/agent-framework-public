@@ -215,6 +215,76 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
+    /// Creates a new Prompt AI agent using the specified configuration parameters.
+    /// </summary>
+    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="name">The name for the agent.</param>
+    /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="instructions">The instructions that guide the agent's behavior. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
+    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> or <paramref name="instructions"/> is empty or whitespace.</exception>"
+    /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
+    public static ChatClientAgent CreateAIAgent(
+        this AgentsClient agentsClient,
+        string name,
+        string model,
+        string instructions,
+        IList<AITool>? tools = null,
+        AgentCreationOptions? creationOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(name);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNullOrWhitespace(instructions);
+
+        return CreateAIAgent(agentsClient, name, new PromptAgentDefinition(model) { Instructions = instructions }, tools, creationOptions, clientFactory, openAIClientOptions, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates a new Prompt AI agent using the specified configuration parameters.
+    /// </summary>
+    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="name">The name for the agent.</param>
+    /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="instructions">The instructions that guide the agent's behavior. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
+    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
+    /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
+    /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> or <paramref name="instructions"/> is empty or whitespace.</exception>"
+    /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
+    public static Task<ChatClientAgent> CreateAIAgentAsync(
+        this AgentsClient agentsClient,
+        string name,
+        string model,
+        string instructions,
+        IList<AITool>? tools = null,
+        AgentVersionCreationOptions? creationOptions = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        OpenAIClientOptions? openAIClientOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(agentsClient);
+        Throw.IfNullOrWhitespace(name);
+        Throw.IfNullOrWhitespace(model);
+        Throw.IfNullOrWhitespace(instructions);
+
+        return CreateAIAgentAsync(agentsClient, name, new PromptAgentDefinition(model) { Instructions = instructions }, tools, creationOptions, clientFactory, openAIClientOptions, cancellationToken);
+    }
+
+    /// <summary>
     /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
     /// </summary>
     /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>

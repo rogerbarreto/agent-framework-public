@@ -19,17 +19,17 @@ var agentsClient = new AgentsClient(new Uri(endpoint), new AzureCliCredential())
 var agentDefinition = new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions };
 
 // You can create a server side agent with the Azure.AI.Agents SDK.
-var agentVersion = agentsClient.CreateAgentVersion(agentName: JokerName, definition: agentDefinition).Value;
+var agentVersion = await agentsClient.CreateAgentVersionAsync(agentName: JokerName, definition: agentDefinition);
 
 // You can retrieve an already created server side agent as an AIAgent.
-AIAgent existingAgent = await agentsClient.GetAIAgentAsync(agentVersion.Name);
+AIAgent existingAgent = agentsClient.GetAIAgent(agentVersion);
 
 // You can also create a server side persistent agent and return it as an AIAgent directly.
-var createdAgent = agentsClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: JokerInstructions);
+var createdAgent = await agentsClient.CreateAIAgentAsync(name: JokerName, model: deploymentName, instructions: JokerInstructions);
 
 // You can then invoke the agent like any other AIAgent.
 AgentThread thread = existingAgent.GetNewThread();
 Console.WriteLine(await existingAgent.RunAsync("Tell me a joke about a pirate.", thread));
 
 // Cleanup by agent name (removes both agent versions created by existingAgent + createdAgent).
-await agentsClient.DeleteAgentAsync(agentVersion.Name);
+await agentsClient.DeleteAgentAsync(agentVersion.Value.Name);
