@@ -544,7 +544,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            client!.CreateAIAgentAsync(definition));
+            client!.CreateAIAgentAsync("agent-name", definition));
 
         Assert.Equal("agentsClient", exception.ParamName);
     }
@@ -560,7 +560,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgentAsync(null!));
+            mockClient.Object.CreateAIAgentAsync("agent-name", (AgentDefinition)null!));
 
         Assert.Equal("agentDefinition", exception.ParamName);
     }
