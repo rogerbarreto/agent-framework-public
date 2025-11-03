@@ -204,14 +204,39 @@ public static class AgentsClientExtensions
         ApplyToolsToAgentDefinition(agentDefinition, tools);
 
         AgentRecord agentRecord = agentsClient.CreateAgent(name, agentDefinition, creationOptions, cancellationToken);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentRecord, tools, openAIClientOptions);
+        AgentVersion agentVersion = agentRecord.Versions.Latest;
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, tools, openAIClientOptions);
 
         if (clientFactory is not null)
         {
             chatClient = clientFactory(chatClient);
         }
 
-        return new ChatClientAgent(chatClient);
+        var agentOptions = new ChatClientAgentOptions()
+        {
+            Id = agentVersion.Id,
+            Name = agentVersion.Name,
+            Description = agentVersion.Description,
+        };
+
+        if (agentDefinition is PromptAgentDefinition promptAgentDefinition)
+        {
+            agentOptions.Instructions = promptAgentDefinition.Instructions;
+            agentOptions.ChatOptions = new()
+            {
+                Temperature = promptAgentDefinition.Temperature,
+                TopP = promptAgentDefinition.TopP,
+                Instructions = promptAgentDefinition.Instructions,
+            };
+        }
+
+        if (tools is { Count: > 0 } aiTools)
+        {
+            agentOptions.ChatOptions ??= new ChatOptions();
+            agentOptions.ChatOptions.Tools = aiTools;
+        }
+
+        return new ChatClientAgent(chatClient, agentOptions);
     }
 
     /// <summary>
@@ -442,7 +467,14 @@ public static class AgentsClientExtensions
 
             foreach (var tool in tools)
             {
-                promptAgentDefinition.Tools.Add(ToResponseTool(tool));
+                // Ensure that any AIFunctions provided are In-Proc ready, not just the declarations.
+                if (tool is AIFunctionDeclaration and not AIFunction)
+                {
+                    throw new InvalidOperationException("When providing function avoid converting FunctionTools to AITools, use AIFunctionFactory instead.");
+                }
+
+                // If this is a converted ResponseTool as AITool, we can directly retrieve the ResponseTool instance from GetService.
+                promptAgentDefinition.Tools.Add(tool.GetService<ResponseTool>() ?? ToResponseTool(tool));
             }
         }
     }

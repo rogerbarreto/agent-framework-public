@@ -20,6 +20,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     private readonly ChatClientMetadata? _metadata;
     private readonly AgentsClient _agentsClient;
     private readonly AgentVersion _agentVersion;
+    private readonly IList<AITool>? _tools;
 
     /// <summary>
     /// The usage of a no-op model is a necessary change to avoid OpenAIClients to throw exceptions when
@@ -52,34 +53,37 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         this._agentVersion = Throw.IfNull(agentVersion);
         this._metadata = new ChatClientMetadata("azure.ai.agents");
 
-        this.EnsureToolsAvailable(tools);
+        this.EnsureInProcToolsAvailable(tools);
+        this._tools = tools;
     }
 
     /// <summary>
-    /// This method validates if all tools provided at the chat client creation match the requirement of the agent definition.
+    /// This method validates if all in-proc tools are provided at the chat client creation matches the requirement of the agent definition.
     /// </summary>
     /// <param name="tools">Chat client provided tools.</param>
     /// <exception cref="InvalidOperationException">Agent definition requires tools that were not provided.</exception>
     /// <exception cref="InvalidOperationException"><see cref="FunctionInvokingChatClient"/> is not available in the client stack.</exception>
-    private void EnsureToolsAvailable(IList<AITool>? tools)
+    private void EnsureInProcToolsAvailable(IList<AITool>? tools)
     {
         if (this._agentVersion.Definition is PromptAgentDefinition definition && definition.Tools is { Count: > 0 })
         {
-            // The chat client was instantiated with no tools while the agent definition requires them.
-            if (tools is null or { Count: 0 })
+            // The chat client was instantiated with no tools while the agent definition requires in-proc tools.
+            if (tools is null or { Count: 0 } && definition.Tools.Any(t => t is FunctionTool))
             {
-                throw new InvalidOperationException("The agent definition requires tools but none were provided.");
+                throw new InvalidOperationException("The agent definition requires in-process tools but none were provided.");
             }
 
             // Validate that all required tools are provided.
             List<string> missingTools = [];
-            foreach (AITool definitionAITool in definition.Tools.Select(t => t.AsAITool()))
+
+            // Check function tools
+            foreach (FunctionTool functionTool in definition.Tools.Where(t => t is FunctionTool))
             {
                 // Check if a tool with the same type and name exists in the provided tools.
-                var matchingTool = tools.FirstOrDefault(t => definitionAITool.GetType().IsInstanceOfType(t) && t.Name == definitionAITool.Name);
+                var matchingTool = tools?.FirstOrDefault(t => t is AIFunction tf && functionTool.FunctionName == tf.Name);
                 if (matchingTool is null)
                 {
-                    missingTools.Add(definitionAITool.Name);
+                    missingTools.Add($"Function tool: {functionTool.FunctionName}");
                 }
             }
 
@@ -87,12 +91,6 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
             {
                 throw new InvalidOperationException($"The following prompt agent definition required tools were not provided: {string.Join(", ", missingTools)}");
             }
-
-            // Add the tools to the FICC.
-            var ficc = this.GetService<FunctionInvokingChatClient>()
-                ?? throw new InvalidOperationException("To use tools the FunctionInvokingChatClient is required in the client stack.");
-
-            ficc.AdditionalTools = tools;
         }
     }
 
@@ -111,6 +109,9 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <inheritdoc/>
     public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
+        // Add the tools to the FICC.
+        this.AddToolsOnceToFunctionInvokingChatClient();
+
         var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
         var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
@@ -120,6 +121,9 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <inheritdoc/>
     public async override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // Add the tools to the FICC.
+        this.AddToolsOnceToFunctionInvokingChatClient();
+
         var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
         var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
@@ -127,6 +131,20 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         {
             yield return chunk;
         }
+    }
+
+    /// <summary>
+    /// Attempt to adds the tools provided at construction time to the FunctionInvokingChatClient provided in the client stack if it doesn't already have.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">To use tools the FunctionInvokingChatClient is required in the client stack.</exception>
+    private void AddToolsOnceToFunctionInvokingChatClient()
+    {
+        var ficc = this.InnerClient.GetService<FunctionInvokingChatClient>()
+            ?? throw new InvalidOperationException("To use tools the FunctionInvokingChatClient is required in the client stack.");
+
+        // This implementation 
+        // Only set the tools if they were not already set.
+        ficc.AdditionalTools ??= this._tools;
     }
 
     private async Task<AgentConversation> GetOrCreateConversationAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken)
