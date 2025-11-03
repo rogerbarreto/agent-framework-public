@@ -710,7 +710,6 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithMixedTools_CreatesAgentSuccessfully()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
         var tools = new List<AITool>
         {
@@ -718,6 +717,85 @@ public sealed class AgentsClientExtensionsTests
             new HostedWebSearchTool(),
             new HostedFileSearchTool(),
         };
+
+        // Simulate agent definition response with the tools
+        var definitionResponse = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
+        foreach (var tool in tools)
+        {
+            definitionResponse.Tools.Add(tool.GetService<ResponseTool>() ?? tool.AsOpenAIResponseTool());
+        }
+
+        AgentsClient client = this.CreateTestAgentsClient(agentDefinitionResponse: definitionResponse);
+
+        // Act
+        var agent = client.CreateAIAgent("test-agent", definition, tools: tools);
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.IsType<ChatClientAgent>(agent);
+        var agentVersion = agent.GetService<AgentVersion>();
+        Assert.NotNull(agentVersion);
+        if (agentVersion.Definition is PromptAgentDefinition promptDef)
+        {
+            Assert.NotEmpty(promptDef.Tools);
+            Assert.Equal(3, promptDef.Tools.Count);
+        }
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgent with parameter tools creates an agent successfully.
+    /// </summary>
+    [Fact]
+    public void CreateAIAgent_WithResponseToolsAsAITools_CreatesAgentSuccessfully()
+    {
+        // Arrange
+        var definition = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
+
+        var bringGroundingToolList = new ToolProjectConnectionList();
+        bringGroundingToolList.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
+
+        var fabricParameters = new FabricDataAgentToolParameters();
+        fabricParameters.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
+
+        var sharepointParameters = new SharepointGroundingToolParameters();
+        sharepointParameters.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
+
+        var structuredOutputs = new StructuredOutputDefinition(new Dictionary<string, BinaryData>()
+        {
+            ["structured-1"] = BinaryData.FromString(AIJsonUtilities.CreateJsonSchema(new { id = "test" }.GetType()).ToString())
+        });
+
+        var azureAISearchTool = AgentTool.CreateAzureAISearchTool();
+        azureAISearchTool.AzureAiSearch = new AzureAISearchToolResource();
+        azureAISearchTool.AzureAiSearch.IndexList.Add(new AISearchIndexResource("project-connection-id") { Filter = "filter", IndexAssetId = "asset-id", QueryType = AzureAISearchQueryType.VectorSimpleHybrid, TopK = 0, IndexName = "index-name" });
+
+        var agentTool = azureAISearchTool;
+
+        var openAIResponseTool = (ResponseTool)agentTool;
+
+        var tools = new List<AITool>
+        {
+            AIFunctionFactory.Create(() => "result", "create_tool", "A tool for creation"),
+            ((ResponseTool)AgentTool.CreateAzureAISearchTool()).AsAITool(),
+            //((ResponseTool)AgentTool.CreateBingCustomSearchTool(new BingCustomSearchToolParameters([new BingCustomSearchConfiguration("connection-id", "instance-name")]))).AsAITool(),
+            //((ResponseTool)AgentTool.CreateBrowserAutomationTool(new BrowserAutomationToolParameters(new BrowserAutomationToolConnectionParameters("id")))).AsAITool(),
+            //AgentTool.CreateA2ATool(new Uri("baseUri")).AsAITool(),
+            //((ResponseTool)AgentTool.CreateBingGroundingTool(new BingGroundingSearchToolParameters(bringGroundingToolList, [new BingGroundingSearchConfiguration("connection-id")]))).AsAITool(),
+            //((ResponseTool)AgentTool.CreateCaptureSemanticEventsTool(new Dictionary<string, SemanticEventDefinition>() { ["event1"] = new SemanticEventDefinition("Description for event 1") })).AsAITool(),
+            //((ResponseTool)AgentTool.CreateMicrosoftFabricTool(fabricParameters)).AsAITool(),
+            //((ResponseTool)AgentTool.CreateOpenApiTool(new OpenApiFunctionDefinition("name", BinaryData.FromString(""), new OpenApiAnonymousAuthDetails()))).AsAITool(),
+            //((ResponseTool)AgentTool.CreateSharepointTool(sharepointParameters)).AsAITool(),
+            //((ResponseTool)AgentTool.CreateStructuredOutputsTool(new Dictionary<string, StructuredOutputDefinition>() { ["structured-1"] = structuredOutputs })).AsAITool(),
+        };
+
+        // Simulate agent definition response with the tools
+        var definitionResponse = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
+        foreach (var tool in tools)
+        {
+            definitionResponse.Tools.Add(tool.GetService<ResponseTool>() ?? tool.AsOpenAIResponseTool());
+        }
+
+        AgentsClient client = this.CreateTestAgentsClient(agentDefinitionResponse: definitionResponse);
 
         // Act
         var agent = client.CreateAIAgent("test-agent", definition, tools: tools);
@@ -904,10 +982,10 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithClientFactory_PreservesAgentProperties()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         const string AgentName = "test-agent";
         const string Model = "test-model";
         const string Instructions = "Test instructions";
+        AgentsClient client = this.CreateTestAgentsClient(AgentName, Instructions);
 
         // Act
         var agent = client.CreateAIAgent(
@@ -965,9 +1043,9 @@ public sealed class AgentsClientExtensionsTests
     /// <summary>
     /// Creates a test AgentsClient with fake behavior.
     /// </summary>
-    private FakeAgentsClient CreateTestAgentsClient()
+    private FakeAgentsClient CreateTestAgentsClient(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
     {
-        return new FakeAgentsClient();
+        return new FakeAgentsClient(agentName, instructions, description, agentDefinitionResponse);
     }
 
     /// <summary>
@@ -978,7 +1056,16 @@ public sealed class AgentsClientExtensionsTests
         return ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(AgentTestJsonObject))!;
     }
 
-    private const string AgentTestJsonObject = """
+    private const string AgentDefinitionPlaceholder = """
+        {
+            "kind": "prompt",
+            "model": "gpt-5-mini",
+            "instructions": "You are a storytelling agent. You craft engaging one-line stories based on user prompts and context.",
+            "tools": []
+        }
+        """;
+
+    private const string AgentTestJsonObject = $$"""
             {
               "object": "agent",
               "id": "agent_abc123",
@@ -992,17 +1079,13 @@ public sealed class AgentsClientExtensionsTests
                   "version": "1",
                   "description": "",
                   "created_at": 1761771936,
-                  "definition": {
-                    "kind": "prompt",
-                    "model": "gpt-5-mini",
-                    "instructions": "You are a storytelling agent. You craft engaging one-line stories based on user prompts and context."
-                  }
+                  "definition": {{AgentDefinitionPlaceholder}}
                 }
               }
             }
             """;
 
-    private const string AgentVersionTestJsonObject = """
+    private const string AgentVersionTestJsonObject = $$"""
             {
               "object": "agent.version",
               "id": "agent_abc123:1",
@@ -1010,12 +1093,7 @@ public sealed class AgentsClientExtensionsTests
               "version": "1",
               "description": "",
               "created_at": 1761771936,
-              "definition": {
-                "kind": "prompt",
-                "model": "gpt-5-mini",
-                "instructions": "You are a storytelling agent. You craft engaging one-line stories based on user prompts and context.",
-                "tools": []
-              }
+              "definition": {{AgentDefinitionPlaceholder}}
             }
             """;
 
@@ -1032,8 +1110,17 @@ public sealed class AgentsClientExtensionsTests
     /// </summary>
     private sealed class FakeAgentsClient : AgentsClient
     {
-        public FakeAgentsClient()
+        private readonly string? _agentName;
+        private readonly string? _instructions;
+        private readonly string? _description;
+        private readonly AgentDefinition? _agentDefinition;
+
+        public FakeAgentsClient(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
         {
+            this._agentName = agentName;
+            this._instructions = instructions;
+            this._description = description;
+            this._agentDefinition = agentDefinitionResponse;
         }
 
         public override OpenAIClient GetOpenAIClient(OpenAIClientOptions? options = null)
@@ -1043,22 +1130,68 @@ public sealed class AgentsClientExtensionsTests
 
         public override ClientResult<AgentRecord> GetAgent(string agentName, CancellationToken cancellationToken = default)
         {
-            return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(AgentTestJsonObject))!, new MockPipelineResponse(200));
+            return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200));
         }
 
         public override Task<ClientResult<AgentRecord>> GetAgentAsync(string agentName, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(AgentTestJsonObject))!, new MockPipelineResponse(200)));
+            return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200)));
         }
 
         public override ClientResult<AgentVersion> CreateAgentVersion(string agentName, AgentDefinition definition, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
         {
-            return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(AgentVersionTestJsonObject))!, new MockPipelineResponse(200));
+            return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))!, new MockPipelineResponse(200));
         }
 
         public override Task<ClientResult<AgentVersion>> CreateAgentVersionAsync(string agentName, AgentDefinition definition, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(AgentVersionTestJsonObject))!, new MockPipelineResponse(200)));
+            return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))!, new MockPipelineResponse(200)));
+        }
+
+        private static string TryApplyAgentDefinition(string json, AgentDefinition? definition)
+        {
+            if (definition is not null)
+            {
+                json = json.Replace(AgentDefinitionPlaceholder, ModelReaderWriter.Write(definition).ToString());
+            }
+            return json;
+        }
+
+        private static string TryApplyAgentName(string json, string? agentName)
+        {
+            if (!string.IsNullOrEmpty(agentName))
+            {
+                return json.Replace("\"agent_abc123\"", $"\"{agentName}\"");
+            }
+            return json;
+        }
+
+        private static string TryApplyInstructions(string json, string? instructions)
+        {
+            if (!string.IsNullOrEmpty(instructions))
+            {
+                return json.Replace("You are a storytelling agent. You craft engaging one-line stories based on user prompts and context.", instructions);
+            }
+            return json;
+        }
+
+        private static string TryApplyDescription(string json, string? description)
+        {
+            if (!string.IsNullOrEmpty(description))
+            {
+                return json.Replace("\"description\": \"\"", $"\"description\": \"{description}\"");
+            }
+            return json;
+        }
+
+        private string ApplyResponseChanges(string json)
+        {
+            var modifiedJson = TryApplyAgentName(json, this._agentName);
+            modifiedJson = TryApplyAgentDefinition(modifiedJson, this._agentDefinition);
+            modifiedJson = TryApplyInstructions(modifiedJson, this._instructions);
+            modifiedJson = TryApplyDescription(modifiedJson, this._description);
+
+            return modifiedJson;
         }
 
         public override ClientResult<AgentRecord> CreateAgent(string name, AgentDefinition definition, AgentCreationOptions? options = null, CancellationToken cancellationToken = default)

@@ -52,46 +52,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         this._agentsClient = Throw.IfNull(agentsClient);
         this._agentVersion = Throw.IfNull(agentVersion);
         this._metadata = new ChatClientMetadata("azure.ai.agents");
-
-        this.EnsureInProcToolsAvailable(tools);
         this._tools = tools;
-    }
-
-    /// <summary>
-    /// This method validates if all in-proc tools are provided at the chat client creation matches the requirement of the agent definition.
-    /// </summary>
-    /// <param name="tools">Chat client provided tools.</param>
-    /// <exception cref="InvalidOperationException">Agent definition requires tools that were not provided.</exception>
-    /// <exception cref="InvalidOperationException"><see cref="FunctionInvokingChatClient"/> is not available in the client stack.</exception>
-    private void EnsureInProcToolsAvailable(IList<AITool>? tools)
-    {
-        if (this._agentVersion.Definition is PromptAgentDefinition definition && definition.Tools is { Count: > 0 })
-        {
-            // The chat client was instantiated with no tools while the agent definition requires in-proc tools.
-            if (tools is null or { Count: 0 } && definition.Tools.Any(t => t is FunctionTool))
-            {
-                throw new InvalidOperationException("The agent definition requires in-process tools but none were provided.");
-            }
-
-            // Validate that all required tools are provided.
-            List<string> missingTools = [];
-
-            // Check function tools
-            foreach (FunctionTool functionTool in definition.Tools.Where(t => t is FunctionTool))
-            {
-                // Check if a tool with the same type and name exists in the provided tools.
-                var matchingTool = tools?.FirstOrDefault(t => t is AIFunction tf && functionTool.FunctionName == tf.Name);
-                if (matchingTool is null)
-                {
-                    missingTools.Add($"Function tool: {functionTool.FunctionName}");
-                }
-            }
-
-            if (missingTools.Count > 0)
-            {
-                throw new InvalidOperationException($"The following prompt agent definition required tools were not provided: {string.Join(", ", missingTools)}");
-            }
-        }
     }
 
     /// <inheritdoc/>
