@@ -134,7 +134,7 @@ public static class AgentsClientExtensions
 
         ValidateToolsToAgentDefinition(agentVersion.Definition, tools);
 
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, tools, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -261,7 +261,7 @@ public static class AgentsClientExtensions
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(options.Name, agentDefinition, versionCreationOptions, cancellationToken).Value;
 
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, options.ChatOptions?.Tools, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -306,7 +306,7 @@ public static class AgentsClientExtensions
         ApplyToolsToAgentDefinition(agentDefinition, tools);
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, creationOptions, cancellationToken).Value;
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, tools, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -351,7 +351,7 @@ public static class AgentsClientExtensions
         ApplyToolsToAgentDefinition(agentDefinition, tools);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, agentVersionCreationOptions, cancellationToken).ConfigureAwait(false);
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, tools, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, openAIClientOptions);
 
         if (clientFactory is not null)
         {
