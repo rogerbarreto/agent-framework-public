@@ -412,7 +412,7 @@ public static class AgentsClientExtensions
         List<AITool>? agentTools = null;
         if (agentDefinition is PromptAgentDefinition { Tools: { Count: > 0 } definitionTools })
         {
-            // The no tools were provided while the agent definition requires in-proc tools.
+            // Check if no tools were provided while the agent definition requires in-proc tools.
             if (tools is null or { Count: 0 } && definitionTools.Any(t => t is FunctionTool))
             {
                 throw new ArgumentException("The agent definition in-process tools must be provided in the extension method tools parameter.");
