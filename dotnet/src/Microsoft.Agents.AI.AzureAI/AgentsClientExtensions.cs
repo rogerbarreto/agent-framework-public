@@ -497,7 +497,7 @@ public static class AgentsClientExtensions
     /// </remarks>
     private static void ValidateUsingToolsParameter(AgentVersion agentVersion, IList<AITool>? tools)
     {
-        if (agentVersion.Definition is PromptAgentDefinition { Tools.Count: > 0 } && tools is { Count: 0 })
+        if (agentVersion.Definition is PromptAgentDefinition { Tools.Count: > 0 } && tools is null or { Count: 0 })
         {
             throw new ArgumentException("When retrieving prompt agents with tools the tools parameter needs to be provided with the necessary tools.", nameof(tools));
         }
@@ -517,7 +517,7 @@ public static class AgentsClientExtensions
                 // Ensure that any AIFunctions provided are In-Proc, not just the declarations.
                 if (tool is AIFunctionDeclaration and not AIFunction)
                 {
-                    throw new InvalidOperationException("When providing function avoid converting FunctionTools to AITools, use AIFunctionFactory instead.");
+                    throw new InvalidOperationException("When providing functions, avoid converting FunctionTools to AITools; use AIFunctionFactory instead.");
                 }
 
                 promptAgentDefinition.Tools.Add(
