@@ -768,12 +768,6 @@ public sealed class AgentsClientExtensionsTests
             ["structured-1"] = BinaryData.FromString(AIJsonUtilities.CreateJsonSchema(new { id = "test" }.GetType()).ToString())
         }, false);
 
-        var azureAISearchTool = AgentTool.CreateAzureAISearchTool();
-        azureAISearchTool.AzureAiSearch = new AzureAISearchToolResource();
-        azureAISearchTool.AzureAiSearch.Indexes.Add(new AISearchIndexResource("project-connection-id") { Filter = "filter", IndexAssetId = "asset-id", QueryType = AzureAISearchQueryType.VectorSimpleHybrid, TopK = 0, IndexName = "index-name" });
-
-        var agentTool = azureAISearchTool;
-
         ResponseTool openAIResponseTool = (ResponseTool)new AzureAISearchAgentTool(new());
 
         var tools = new List<AITool>
@@ -787,12 +781,12 @@ public sealed class AgentsClientExtensionsTests
             ((ResponseTool)AgentTool.CreateOpenApiTool(new OpenApiFunctionDefinition("name", BinaryData.FromString(OpenAPISpec), new OpenApiAnonymousAuthDetails()))).AsAITool(),
             ((ResponseTool)AgentTool.CreateSharepointTool(sharepointParameters)).AsAITool(),
             ((ResponseTool)AgentTool.CreateStructuredOutputsTool(structuredOutputs)).AsAITool(),
-        };
 
-        // Workaround the bug with the AgentTool.CreateAzureAISearchTool() extension
-        // Using the extension method AgentTool.CreateAzureAISearchTool() fails serialization, 
-        // TODO: Revert back once Bugfix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
-        tools.Add(((ResponseTool)new AzureAISearchAgentTool(new())).AsAITool());
+            // Workaround the bug with the AgentTool.CreateAzureAISearchTool() extension
+            // Using the extension method AgentTool.CreateAzureAISearchTool() fails serialization, 
+            // TODO: Revert back once Bugfix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
+            ((ResponseTool)new AzureAISearchAgentTool(new())).AsAITool()
+        };
 
         // Generate agent definition response with the tools
         var definitionResponse = GeneratePromptDefinitionResponse(definition, tools);

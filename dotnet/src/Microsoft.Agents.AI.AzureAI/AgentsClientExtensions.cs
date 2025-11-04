@@ -276,7 +276,6 @@ public static class AgentsClientExtensions
 
         PromptAgentDefinition agentDefinition = new(model)
         {
-            Model = model,
             Instructions = options.Instructions,
         };
 

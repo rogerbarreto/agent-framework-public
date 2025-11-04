@@ -42,6 +42,9 @@ Console.WriteLine($"Latest agent version id: {latestVersion.Id}");
 AgentThread thread = jokerAgentLatest.GetNewThread();
 Console.WriteLine(await jokerAgentLatest.RunAsync("Tell me a joke about a pirate.", thread));
 
+// This will use the same thread to continue the conversation.
+Console.WriteLine(await jokerAgentLatest.RunAsync("Now tell me a joke about a cat and a dog using last joke as the anchor.", thread));
+
 // Cleanup by agent name removes both agent versions created (jokerAgentV1 + jokerAgentV2).
 agentsClient.DeleteAgent(jokerAgentV1.Name);
 

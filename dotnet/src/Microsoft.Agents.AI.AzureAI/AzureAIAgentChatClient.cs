@@ -69,8 +69,8 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <inheritdoc/>
     public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        var conversationChatOptions = this.GetConversationEnabledChatOptions(options, conversation);
+        var conversationId = await this.GetOrCreateConversationAsync(options, cancellationToken).ConfigureAwait(false);
+        var conversationChatOptions = this.GetConversationEnabledChatOptions(options, conversationId);
 
         return await base.GetResponseAsync(messages, conversationChatOptions, cancellationToken).ConfigureAwait(false);
     }
@@ -78,7 +78,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <inheritdoc/>
     public async override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var conversation = await this.GetOrCreateConversationAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        var conversation = await this.GetOrCreateConversationAsync(options, cancellationToken).ConfigureAwait(false);
         var conversationOptions = this.GetConversationEnabledChatOptions(options, conversation);
 
         await foreach (var chunk in base.GetStreamingResponseAsync(messages, conversationOptions, cancellationToken).ConfigureAwait(false))
@@ -87,12 +87,12 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         }
     }
 
-    private async Task<AgentConversation> GetOrCreateConversationAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken)
+    private async Task<string> GetOrCreateConversationAsync(ChatOptions? options, CancellationToken cancellationToken)
         => string.IsNullOrWhiteSpace(options?.ConversationId)
-            ? await this._agentsClient.GetConversationClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false)
-            : await this._agentsClient.GetConversationClient().GetConversationAsync(options.ConversationId, cancellationToken: cancellationToken).ConfigureAwait(false);
+            ? (await this._agentsClient.GetConversationClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value.Id
+            : options.ConversationId;
 
-    private ChatOptions GetConversationEnabledChatOptions(ChatOptions? chatOptions, AgentConversation agentConversation)
+    private ChatOptions GetConversationEnabledChatOptions(ChatOptions? chatOptions, string conversationId)
     {
         // Ignore all the chatOptions provided as agents options can't be set per-request basis.
         var conversationChatOptions = new ChatOptions();
@@ -108,7 +108,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
             }
 
             SetAgentReference(responseCreationOptions, this._agentVersion);
-            SetConversationReference(responseCreationOptions, agentConversation);
+            SetConversationReference(responseCreationOptions, conversationId);
 
             return responseCreationOptions;
         };
@@ -133,9 +133,9 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         responseCreationOptions.Patch.Remove([.. "$."u8, .. Encoding.UTF8.GetBytes("model")]);
     }
 
-    private static void SetConversationReference(ResponseCreationOptions responseCreationOptions, AgentConversation agentConversation)
+    private static void SetConversationReference(ResponseCreationOptions responseCreationOptions, string conversationId)
     {
-        SetAdditionalProperty<BinaryData>(responseCreationOptions, "conversation", BinaryData.FromString($"\"{agentConversation.Id}\""));
+        SetAdditionalProperty<BinaryData>(responseCreationOptions, "conversation", BinaryData.FromString($"\"{conversationId}\""));
     }
 #pragma warning restore SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 }
