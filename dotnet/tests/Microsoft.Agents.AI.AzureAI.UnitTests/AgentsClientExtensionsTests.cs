@@ -642,7 +642,7 @@ public sealed class AgentsClientExtensionsTests
         var exception = Assert.Throws<ArgumentException>(() =>
             client.GetAIAgent(agentVersion));
 
-        Assert.Contains("dedicated tools parameter", exception.Message);
+        Assert.Contains("tools parameter", exception.Message);
     }
 
     #endregion
