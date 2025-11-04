@@ -476,7 +476,7 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>When creating agents, validates the <paramref name="tools"/> parameter is used instead of providing via <see cref="PromptAgentDefinition"/>.</summary>
-    /// <exception cref="ArgumentException"><see cref="PromptAgentDefinition.Tools"/> cannot be used. The <paramref name="tools"/> parameter should be used instead.</exception>
+    /// <exception cref="ArgumentException">The <paramref name="tools"/> parameter should be used instead of <see cref="PromptAgentDefinition.Tools"/>.</exception>
     /// <remarks>
     /// Because <see cref="PromptAgentDefinition.Tools"/> doesn't support in-proc tools (only declarative/definitions),
     /// the <paramref name="tools"/> parameter needs to be the single source of truth for tools, and must be provided when using tools.
@@ -485,7 +485,7 @@ public static class AgentsClientExtensions
     {
         if (agentDefinition is PromptAgentDefinition { Tools.Count: > 0 })
         {
-            throw new ArgumentException("When creating agents with prompt agent definitions use the dedicated tools parameter to provide the necessary tools instead.", nameof(tools));
+            throw new ArgumentException("When creating agents with prompt agent definitions use the dedicated tools parameter to provide the necessary tools instead of PromptAgentDefinition.Tools.", nameof(tools));
         }
     }
 
