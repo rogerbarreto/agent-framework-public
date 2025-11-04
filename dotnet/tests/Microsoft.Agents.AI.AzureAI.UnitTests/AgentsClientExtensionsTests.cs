@@ -275,7 +275,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.GetAIAgentAsync(null!));
+            mockClient.Object.GetAIAgentAsync(name: null!));
 
         Assert.Equal("name", exception.ParamName);
     }
@@ -564,7 +564,7 @@ public sealed class AgentsClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgentAsync("agent-name", null!));
+            mockClient.Object.CreateAIAgentAsync(name: "agent-name", null!));
 
         Assert.Equal("agentDefinition", exception.ParamName);
     }
@@ -784,7 +784,7 @@ public sealed class AgentsClientExtensionsTests
 
             // Workaround the bug with the AgentTool.CreateAzureAISearchTool() extension
             // Using the extension method AgentTool.CreateAzureAISearchTool() fails serialization, 
-            // TODO: Revert back once Bugfix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
+            // TODO: Revert back once bug fix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
             ((ResponseTool)new AzureAISearchAgentTool(new())).AsAITool()
         };
 
