@@ -710,7 +710,7 @@ public sealed class AgentsClientExtensionsTests
     }
 
     /// <summary>
-    /// Verify that CreateAIAgent with parameter tools creates an agent successfully.
+    /// Verify that CreateAIAgent creates an agent successfully when provided with a mix of custom and hosted tools.
     /// </summary>
     [Fact]
     public void CreateAIAgent_WithMixedTools_CreatesAgentSuccessfully()
