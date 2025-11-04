@@ -789,7 +789,7 @@ public sealed class AgentsClientExtensionsTests
             ((ResponseTool)AgentTool.CreateStructuredOutputsTool(structuredOutputs)).AsAITool(),
         };
 
-        // Workarounf the bug with the AgentTool.CreateAzureAISearchTool() extension
+        // Workaround the bug with the AgentTool.CreateAzureAISearchTool() extension
         // Using the extension method AgentTool.CreateAzureAISearchTool() fails serialization, 
         // TODO: Revert back once Bugfix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
         tools.Add(((ResponseTool)new AzureAISearchAgentTool(new())).AsAITool());

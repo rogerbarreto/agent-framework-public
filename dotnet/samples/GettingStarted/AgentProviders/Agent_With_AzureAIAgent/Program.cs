@@ -18,18 +18,32 @@ var agentsClient = new AgentsClient(new Uri(endpoint), new AzureCliCredential())
 // Define the agent you want to create.
 var agentDefinition = new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions };
 
-// You can create a server side agent with the Azure.AI.Agents SDK.
-var agentVersion = await agentsClient.CreateAgentVersionAsync(agentName: JokerName, definition: agentDefinition);
+// You can create a server side agent with the Azure.AI.Agents SDK Version.
+var agentVersion = agentsClient.CreateAgentVersion(agentName: JokerName, definition: agentDefinition);
+// Note:
+//      agentVersion.Id = "<agentName>:<versionNumber>",
+//      agentVersion.Version = <versionNumber>,
+//      agentVersion.Name = <agentName>
 
-// You can retrieve an already created server side agent as an AIAgent.
-AIAgent existingAgent = agentsClient.GetAIAgent(agentVersion);
+// You can retrieve an AIAgent for a already created server side agent version.
+AIAgent jokerAgentV1 = agentsClient.GetAIAgent(agentVersion);
 
-// You can also create a server side persistent agent and return it as an AIAgent directly.
-var createdAgent = await agentsClient.CreateAIAgentAsync(name: JokerName, model: deploymentName, instructions: JokerInstructions);
+// You can also create another AIAgent version (V2) of by providing the same name with a different definition.
+AIAgent jokerAgentV2 = agentsClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: JokerInstructions + "V2");
 
-// You can then invoke the agent like any other AIAgent.
-AgentThread thread = existingAgent.GetNewThread();
-Console.WriteLine(await existingAgent.RunAsync("Tell me a joke about a pirate.", thread));
+// You can also get the AIAgent latest version just providing its name.
+AIAgent jokerAgentLatest = agentsClient.GetAIAgent(name: JokerName);
+var latestVersion = jokerAgentLatest.GetService<AgentVersion>()!;
 
-// Cleanup by agent name (removes both agent versions created by existingAgent + createdAgent).
-await agentsClient.DeleteAgentAsync(agentVersion.Value.Name);
+// The AIAgent version can be accessed via the GetService method.
+Console.WriteLine($"Latest agent version id: {latestVersion.Id}");
+
+// Once you have the AIAgent, you can invoke it like any other AIAgent.
+AgentThread thread = jokerAgentLatest.GetNewThread();
+Console.WriteLine(await jokerAgentLatest.RunAsync("Tell me a joke about a pirate.", thread));
+
+// Cleanup by agent name removes both agent versions created (jokerAgentV1 + jokerAgentV2).
+agentsClient.DeleteAgent(jokerAgentV1.Name);
+
+// It is also possible delete just a specific agent version by the composition (name + version number).
+// agentsClient.DeleteAgentVersion(latestVersion.Name, latestVersion.Version);
