@@ -517,7 +517,7 @@ public static class AgentsClientExtensions
                 // Ensure that any AIFunctions provided are In-Proc, not just the declarations.
                 if (tool is AIFunctionDeclaration and not AIFunction)
                 {
-                    throw new InvalidOperationException("When providing functions, avoid converting FunctionTools to AITools; use AIFunctionFactory instead.");
+                    throw new InvalidOperationException("When providing functions, they need to be invokable AIFunctions and not non-invokable AIFunctionDeclarations. AIFunctions can be created correctly using AIFunctionFactory.Create");
                 }
 
                 promptAgentDefinition.Tools.Add(

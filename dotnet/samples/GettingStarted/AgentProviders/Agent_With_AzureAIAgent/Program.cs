@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// This sample shows how to create and use a simple AI agent with Azure Foundry Agents as the backend.
+// This sample shows how to create and use a AI agents with Azure Foundry Agents as the backend.
 
 using Azure.AI.Agents;
 using Azure.Identity;
@@ -12,14 +12,16 @@ var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_D
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
 
-// Get a client to create/retrieve server side agents with.
+// Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
 var agentsClient = new AgentsClient(new Uri(endpoint), new AzureCliCredential());
 
-// Define the agent you want to create.
+// Define the agent you want to create. (Prompt Agent in this case)
 var agentDefinition = new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions };
 
-// You can create a server side agent with the Azure.AI.Agents SDK Version.
+// Azure.AI.Agents SDK creates and manages agent by name and versions.
+// You can create a server side agent version with the Azure.AI.Agents SDK client below.
 var agentVersion = agentsClient.CreateAgentVersion(agentName: JokerName, definition: agentDefinition);
+
 // Note:
 //      agentVersion.Id = "<agentName>:<versionNumber>",
 //      agentVersion.Version = <versionNumber>,
@@ -28,7 +30,7 @@ var agentVersion = agentsClient.CreateAgentVersion(agentName: JokerName, definit
 // You can retrieve an AIAgent for a already created server side agent version.
 AIAgent jokerAgentV1 = agentsClient.GetAIAgent(agentVersion);
 
-// You can also create another AIAgent version (V2) of by providing the same name with a different definition.
+// You can also create another AIAgent version (V2) by providing the same name with a different definition.
 AIAgent jokerAgentV2 = agentsClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: JokerInstructions + "V2");
 
 // You can also get the AIAgent latest version just providing its name.
