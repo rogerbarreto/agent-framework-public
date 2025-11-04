@@ -116,7 +116,9 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         return conversationChatOptions;
     }
 
-    // While Azure.AI.Agents is not yet supporting OpenAI 2.6.0 we need to use those APIs directly.
+    // Since the SetAdditionalProperty/SetAgentReference/SetConversationReference extensions in Azure.AI.Agents is not yet supporting the recent updates in OpenAI 2.6.0
+    // The methods below are copied and adapted to the new OpenAI SDK 2.6.0 structure where the Patch property is now exposed directly on ResponseCreationOptions and
+    // may be removed once the Azure.AI.Agents package is updated to support OpenAI SDK 2.6+.
 #pragma warning disable SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
     private static void SetAdditionalProperty<T>(ResponseCreationOptions responseCreationOptions, string key, BinaryData value)
     {

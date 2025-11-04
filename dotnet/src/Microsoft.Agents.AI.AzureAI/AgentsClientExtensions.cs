@@ -150,7 +150,7 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(agentVersion);
 
-        ValidateUsingToolsParameterOnly(agentVersion.Definition, tools);
+        ValidateUsingToolsParameter(agentVersion, tools);
 
         IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, openAIClientOptions);
 
@@ -336,7 +336,7 @@ public static class AgentsClientExtensions
         Throw.IfNullOrWhitespace(name);
         Throw.IfNull(agentDefinition);
 
-        ValidateUsingToolsParameterOnly(agentDefinition, tools);
+        ValidateUsingToolsParameter(agentDefinition, tools);
         ApplyToolsToAgentDefinition(agentDefinition, tools);
 
         AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, creationOptions, cancellationToken).Value;
@@ -381,7 +381,7 @@ public static class AgentsClientExtensions
         Throw.IfNull(agentsClient);
         Throw.IfNull(agentDefinition);
 
-        ValidateUsingToolsParameterOnly(agentDefinition, tools);
+        ValidateUsingToolsParameter(agentDefinition, tools);
         ApplyToolsToAgentDefinition(agentDefinition, tools);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, agentVersionCreationOptions, cancellationToken).ConfigureAwait(false);
@@ -481,16 +481,31 @@ public static class AgentsClientExtensions
         return agentOptions;
     }
 
-    /// <summary>
+    /// <summary>When creating agents, validates the <paramref name="tools"/> parameter is used instead of providing via <see cref="PromptAgentDefinition"/>.</summary>
+    /// <exception cref="ArgumentException"><see cref="PromptAgentDefinition.Tools"/> cannot be used. The <paramref name="tools"/> parameter should be used instead.</exception>
+    /// <remarks>
     /// Because <see cref="PromptAgentDefinition.Tools"/> doesn't support in-proc tools (only declarative/definitions),
     /// the <paramref name="tools"/> parameter needs to be the single source of truth for tools, and must be provided when using tools.
-    /// </summary>
-    /// <exception cref="ArgumentException"><see cref="PromptAgentDefinition.Tools"/> cannot be used. The <paramref name="tools"/> parameter should be used instead.</exception>
-    private static void ValidateUsingToolsParameterOnly(AgentDefinition agentDefinition, IList<AITool>? tools)
+    /// </remarks>
+    private static void ValidateUsingToolsParameter(AgentDefinition agentDefinition, IList<AITool>? tools)
     {
         if (agentDefinition is PromptAgentDefinition { Tools.Count: > 0 })
         {
             throw new ArgumentException("When creating agents with prompt agent definitions use the dedicated tools parameter to provide the necessary tools instead.", nameof(tools));
+        }
+    }
+
+    /// <summary>For already created agent versions, retrieve the definition and validate the tools parameter.</summary>
+    /// <exception cref="ArgumentException"><see cref="PromptAgentDefinition.Tools"/> cannot be used. The <paramref name="tools"/> parameter should be used instead.</exception>
+    /// <remarks>
+    /// Because <see cref="PromptAgentDefinition.Tools"/> doesn't support in-proc tools (only declarative/definitions),
+    /// the <paramref name="tools"/> parameter needs to be the single source of truth for tools, and must be provided when using tools.
+    /// </remarks>
+    private static void ValidateUsingToolsParameter(AgentVersion agentVersion, IList<AITool>? tools)
+    {
+        if (agentVersion.Definition is PromptAgentDefinition { Tools.Count: > 0 } && tools is { Count: 0 })
+        {
+            throw new ArgumentException("When retrieving prompt agents with tools the tools parameter needs to be provided with the necessary tools.", nameof(tools));
         }
     }
 
