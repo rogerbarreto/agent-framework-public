@@ -598,12 +598,14 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithToolsParameter_AppliesToolsToDefinition()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         var definition = new PromptAgentDefinition("test-model");
         var tools = new List<AITool>
         {
             AIFunctionFactory.Create(() => "test", "test_function", "A test function")
         };
+
+        var agentDefinitionResponse = GeneratePromptDefinitionResponse(definition, tools);
+        AgentsClient client = this.CreateTestAgentsClient(agentName: "test-agent", agentDefinitionResponse: agentDefinitionResponse);
 
         // Act
         var agent = client.CreateAIAgent("test-agent", definition, tools: tools);
@@ -681,12 +683,16 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithParameterTools_CreatesAgentSuccessfully()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
         var tools = new List<AITool>
         {
             AIFunctionFactory.Create(() => "result", "create_tool", "A tool for creation")
         };
+
+        // Simulate agent definition response with the tools
+        var definitionResponse = GeneratePromptDefinitionResponse(definition, tools);
+
+        AgentsClient client = this.CreateTestAgentsClient(agentDefinitionResponse: definitionResponse);
 
         // Act
         var agent = client.CreateAIAgent("test-agent", definition, tools: tools);
@@ -751,49 +757,45 @@ public sealed class AgentsClientExtensionsTests
         // Arrange
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
 
-        var bringGroundingToolList = new ToolProjectConnectionList();
-        bringGroundingToolList.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
-
         var fabricParameters = new FabricDataAgentToolParameters();
         fabricParameters.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
 
         var sharepointParameters = new SharepointGroundingToolParameters();
         sharepointParameters.ProjectConnections.Add(new ToolProjectConnection("connection-id"));
 
-        var structuredOutputs = new StructuredOutputDefinition(new Dictionary<string, BinaryData>()
+        var structuredOutputs = new StructuredOutputDefinition("name", "description", new Dictionary<string, BinaryData>()
         {
             ["structured-1"] = BinaryData.FromString(AIJsonUtilities.CreateJsonSchema(new { id = "test" }.GetType()).ToString())
-        });
+        }, false);
 
         var azureAISearchTool = AgentTool.CreateAzureAISearchTool();
         azureAISearchTool.AzureAiSearch = new AzureAISearchToolResource();
-        azureAISearchTool.AzureAiSearch.IndexList.Add(new AISearchIndexResource("project-connection-id") { Filter = "filter", IndexAssetId = "asset-id", QueryType = AzureAISearchQueryType.VectorSimpleHybrid, TopK = 0, IndexName = "index-name" });
+        azureAISearchTool.AzureAiSearch.Indexes.Add(new AISearchIndexResource("project-connection-id") { Filter = "filter", IndexAssetId = "asset-id", QueryType = AzureAISearchQueryType.VectorSimpleHybrid, TopK = 0, IndexName = "index-name" });
 
         var agentTool = azureAISearchTool;
 
-        var openAIResponseTool = (ResponseTool)agentTool;
+        ResponseTool openAIResponseTool = (ResponseTool)new AzureAISearchAgentTool(new());
 
         var tools = new List<AITool>
         {
             AIFunctionFactory.Create(() => "result", "create_tool", "A tool for creation"),
-            ((ResponseTool)AgentTool.CreateAzureAISearchTool()).AsAITool(),
-            //((ResponseTool)AgentTool.CreateBingCustomSearchTool(new BingCustomSearchToolParameters([new BingCustomSearchConfiguration("connection-id", "instance-name")]))).AsAITool(),
-            //((ResponseTool)AgentTool.CreateBrowserAutomationTool(new BrowserAutomationToolParameters(new BrowserAutomationToolConnectionParameters("id")))).AsAITool(),
-            //AgentTool.CreateA2ATool(new Uri("baseUri")).AsAITool(),
-            //((ResponseTool)AgentTool.CreateBingGroundingTool(new BingGroundingSearchToolParameters(bringGroundingToolList, [new BingGroundingSearchConfiguration("connection-id")]))).AsAITool(),
-            //((ResponseTool)AgentTool.CreateCaptureSemanticEventsTool(new Dictionary<string, SemanticEventDefinition>() { ["event1"] = new SemanticEventDefinition("Description for event 1") })).AsAITool(),
-            //((ResponseTool)AgentTool.CreateMicrosoftFabricTool(fabricParameters)).AsAITool(),
-            //((ResponseTool)AgentTool.CreateOpenApiTool(new OpenApiFunctionDefinition("name", BinaryData.FromString(""), new OpenApiAnonymousAuthDetails()))).AsAITool(),
-            //((ResponseTool)AgentTool.CreateSharepointTool(sharepointParameters)).AsAITool(),
-            //((ResponseTool)AgentTool.CreateStructuredOutputsTool(new Dictionary<string, StructuredOutputDefinition>() { ["structured-1"] = structuredOutputs })).AsAITool(),
+            ((ResponseTool)AgentTool.CreateBingCustomSearchTool(new BingCustomSearchToolParameters([new BingCustomSearchConfiguration("connection-id", "instance-name")]))).AsAITool(),
+            ((ResponseTool)AgentTool.CreateBrowserAutomationTool(new BrowserAutomationToolParameters(new BrowserAutomationToolConnectionParameters("id")))).AsAITool(),
+            AgentTool.CreateA2ATool(new Uri("https://test-uri.microsoft.com")).AsAITool(),
+            ((ResponseTool)AgentTool.CreateBingGroundingTool(new BingGroundingSearchToolParameters([new BingGroundingSearchConfiguration("connection-id")]))).AsAITool(),
+            ((ResponseTool)AgentTool.CreateMicrosoftFabricTool(fabricParameters)).AsAITool(),
+            ((ResponseTool)AgentTool.CreateOpenApiTool(new OpenApiFunctionDefinition("name", BinaryData.FromString(OpenAPISpec), new OpenApiAnonymousAuthDetails()))).AsAITool(),
+            ((ResponseTool)AgentTool.CreateSharepointTool(sharepointParameters)).AsAITool(),
+            ((ResponseTool)AgentTool.CreateStructuredOutputsTool(structuredOutputs)).AsAITool(),
         };
 
-        // Simulate agent definition response with the tools
-        var definitionResponse = new PromptAgentDefinition("test-model") { Instructions = "Test instructions" };
-        foreach (var tool in tools)
-        {
-            definitionResponse.Tools.Add(tool.GetService<ResponseTool>() ?? tool.AsOpenAIResponseTool());
-        }
+        // Workarounf the bug with the AgentTool.CreateAzureAISearchTool() extension
+        // Using the extension method AgentTool.CreateAzureAISearchTool() fails serialization, 
+        // TODO: Revert back once Bugfix is applied: https://github.com/Azure/azure-sdk-for-net/pull/53656
+        tools.Add(((ResponseTool)new AzureAISearchAgentTool(new())).AsAITool());
+
+        // Generate agent definition response with the tools
+        var definitionResponse = GeneratePromptDefinitionResponse(definition, tools);
 
         AgentsClient client = this.CreateTestAgentsClient(agentDefinitionResponse: definitionResponse);
 
@@ -808,7 +810,7 @@ public sealed class AgentsClientExtensionsTests
         if (agentVersion.Definition is PromptAgentDefinition promptDef)
         {
             Assert.NotEmpty(promptDef.Tools);
-            Assert.Equal(3, promptDef.Tools.Count);
+            Assert.Equal(10, promptDef.Tools.Count);
         }
     }
 
@@ -819,11 +821,14 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithStringParamsAndTools_CreatesAgent()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         var tools = new List<AITool>
         {
             AIFunctionFactory.Create(() => "weather", "string_param_tool", "Tool from string params")
         };
+
+        var definitionResponse = GeneratePromptDefinitionResponse(new PromptAgentDefinition("test-model") { Instructions = "Test instructions" }, tools);
+
+        AgentsClient client = this.CreateTestAgentsClient(agentName: "test-agent", agentDefinitionResponse: definitionResponse);
 
         // Act
         var agent = client.CreateAIAgent(
@@ -1009,12 +1014,14 @@ public sealed class AgentsClientExtensionsTests
     public void CreateAIAgent_WithToolsAndClientFactory_CreatesAgentSuccessfully()
     {
         // Arrange
-        AgentsClient client = this.CreateTestAgentsClient();
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
         var tools = new List<AITool>
         {
             AIFunctionFactory.Create(() => "test", "test_tool", "A test tool")
         };
+
+        var agentDefinitionResponse = GeneratePromptDefinitionResponse(definition, tools);
+        AgentsClient client = this.CreateTestAgentsClient(agentName: "test-agent", agentDefinitionResponse: agentDefinitionResponse);
 
         // Act
         var agent = client.CreateAIAgent(
@@ -1096,6 +1103,36 @@ public sealed class AgentsClientExtensionsTests
               "definition": {{AgentDefinitionPlaceholder}}
             }
             """;
+
+    private const string OpenAPISpec = """
+        {
+          "openapi": "3.0.3",
+          "info": { "title": "Tiny Test API", "version": "1.0.0" },
+          "paths": {
+            "/ping": {
+              "get": {
+                "summary": "Health check",
+                "operationId": "getPing",
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "type": "object",
+                          "properties": { "message": { "type": "string" } },
+                          "required": ["message"]
+                        },
+                        "example": { "message": "pong" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """;
 
     /// <summary>
     /// Creates a test AgentVersion for testing.
@@ -1233,6 +1270,17 @@ public sealed class AgentsClientExtensionsTests
 
             return Task.FromResult(ClientResult.FromValue(agentRecord, new MockPipelineResponse(200)));
         }
+    }
+
+    private static PromptAgentDefinition GeneratePromptDefinitionResponse(PromptAgentDefinition inputDefinition, List<AITool> tools)
+    {
+        var definitionResponse = new PromptAgentDefinition(inputDefinition.Model) { Instructions = inputDefinition.Instructions };
+        foreach (var tool in tools)
+        {
+            definitionResponse.Tools.Add(tool.GetService<ResponseTool>() ?? tool.AsOpenAIResponseTool());
+        }
+
+        return definitionResponse;
     }
 
     /// <summary>

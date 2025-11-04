@@ -468,14 +468,18 @@ public static class AgentsClientExtensions
 
             foreach (var tool in tools)
             {
-                // Ensure that any AIFunctions provided are In-Proc ready, not just the declarations.
+                // Ensure that any AIFunctions provided are In-Proc, not just the declarations.
                 if (tool is AIFunctionDeclaration and not AIFunction)
                 {
                     throw new InvalidOperationException("When providing function avoid converting FunctionTools to AITools, use AIFunctionFactory instead.");
                 }
 
-                // If this is a converted ResponseTool as AITool, we can directly retrieve the ResponseTool instance from GetService.
-                promptAgentDefinition.Tools.Add(tool.GetService<ResponseTool>() ?? tool.AsOpenAIResponseTool());
+                promptAgentDefinition.Tools.Add(
+                    // If this is a converted ResponseTool as AITool, we can directly retrieve the ResponseTool instance from GetService.
+                    tool.GetService<ResponseTool>()
+                    // Otherwise we should be able to convert existing MEAI Tool abstractions into OpenAI ResponseTools
+                    ?? tool.AsOpenAIResponseTool()
+                    ?? throw new InvalidOperationException("The provided AITool could not be converted to a ResponseTool, ensure that the AITool was created using responseTool.AsAITool() extension."));
             }
         }
     }
