@@ -749,7 +749,7 @@ public sealed class AgentsClientExtensionsTests
     }
 
     /// <summary>
-    /// Verify that CreateAIAgent with parameter tools creates an agent successfully.
+    /// Verifies that CreateAIAgent accepts tools provided as ResponseTool instances and correctly converts them to AITool instances, resulting in successful agent creation.
     /// </summary>
     [Fact]
     public void CreateAIAgent_WithResponseToolsAsAITools_CreatesAgentSuccessfully()
