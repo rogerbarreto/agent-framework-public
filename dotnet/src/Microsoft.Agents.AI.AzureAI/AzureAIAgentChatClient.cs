@@ -120,7 +120,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     // The methods below are copied and adapted to the new OpenAI SDK 2.6.0 structure where the Patch property is now exposed directly on ResponseCreationOptions and
     // may be removed once the Azure.AI.Agents package is updated to support OpenAI SDK 2.6+.
 #pragma warning disable SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-    private static void SetAdditionalProperty<T>(ResponseCreationOptions responseCreationOptions, string key, BinaryData value)
+    private static void SetAdditionalProperty(ResponseCreationOptions responseCreationOptions, string key, BinaryData value)
     {
         responseCreationOptions.Patch.Set([.. "$."u8, .. Encoding.UTF8.GetBytes(key)], value);
     }
@@ -129,13 +129,13 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     {
         var agentReference = new AgentReference(agentVersion.Name) { Version = agentVersion.Version };
 
-        SetAdditionalProperty<BinaryData>(responseCreationOptions, "agent", ModelReaderWriter.Write(agentReference, new ModelReaderWriterOptions("W"), AzureAIAgentsContext.Default));
+        SetAdditionalProperty(responseCreationOptions, "agent", ModelReaderWriter.Write(agentReference, new ModelReaderWriterOptions("W"), AzureAIAgentsContext.Default));
         responseCreationOptions.Patch.Remove([.. "$."u8, .. Encoding.UTF8.GetBytes("model")]);
     }
 
     private static void SetConversationReference(ResponseCreationOptions responseCreationOptions, string conversationId)
     {
-        SetAdditionalProperty<BinaryData>(responseCreationOptions, "conversation", BinaryData.FromString($"\"{conversationId}\""));
+        SetAdditionalProperty(responseCreationOptions, "conversation", BinaryData.FromString($"\"{conversationId}\""));
     }
 #pragma warning restore SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 }
