@@ -541,8 +541,8 @@ public static class AgentsClientExtensions
         AgentVersionCreationOptions? creationOptions,
         Func<IChatClient, IChatClient>? clientFactory,
         OpenAIClientOptions? openAIClientOptions,
-        bool requireInvocableTools = true,
-        CancellationToken cancellationToken = default)
+        bool requireInvocableTools,
+        CancellationToken cancellationToken)
     {
         Throw.IfNull(agentsClient);
         Throw.IfNullOrWhitespace(name);
@@ -568,11 +568,11 @@ public static class AgentsClientExtensions
         string name,
         IList<AITool>? tools,
         AgentDefinition agentDefinition,
-        AgentVersionCreationOptions? agentVersionCreationOptions = null,
-        Func<IChatClient, IChatClient>? clientFactory = null,
-        OpenAIClientOptions? openAIClientOptions = null,
-        bool requireInvocableTools = true,
-        CancellationToken cancellationToken = default)
+        AgentVersionCreationOptions? agentVersionCreationOptions,
+        Func<IChatClient, IChatClient>? clientFactory,
+        OpenAIClientOptions? openAIClientOptions,
+        bool requireInvocableTools,
+        CancellationToken cancellationToken)
     {
         Throw.IfNullOrWhitespace(name);
         Throw.IfNull(agentsClient);
@@ -580,7 +580,7 @@ public static class AgentsClientExtensions
 
         tools ??= (agentDefinition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
 
-        ApplyToolsToAgentDefinition(agentDefinition, tools, requireInvocableTools: false);
+        ApplyToolsToAgentDefinition(agentDefinition, tools, requireInvocableTools);
 
         AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, agentVersionCreationOptions, cancellationToken).ConfigureAwait(false);
 
@@ -590,7 +590,7 @@ public static class AgentsClientExtensions
             tools,
             clientFactory,
             openAIClientOptions,
-            requireInvocableTools: false);
+            requireInvocableTools);
     }
 
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with the specified ChatClientAgentOptions.</summary>
