@@ -1298,6 +1298,75 @@ public sealed class AgentsClientExtensionsTests
     }
 
     /// <summary>
+    /// Verify that CreateAIAgent accepts FunctionTools as declarative functions when requireInvocableTools=false.
+    /// </summary>
+    [Fact]
+    public void CreateAIAgent_WithFunctionToolsAsAIAtoolAndRequireInvocableFalse_AcceptsDeclarativeFunction()
+    {
+        // Arrange
+        var functionTool = ResponseTool.CreateFunctionTool(
+            functionName: "get_user_name",
+            functionParameters: BinaryData.FromString("{}"),
+            strictModeEnabled: false,
+            functionDescription: "Gets the user's name, as used for friendly address."
+        );
+
+        // Create a declarative function (not invocable) using AIFunctionFactory.CreateDeclaration
+
+        var tools = new List<AITool> { functionTool.AsAITool() };
+
+        var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
+
+        // Generate response with the declarative function
+        var definitionResponse = new PromptAgentDefinition("test-model") { Instructions = "Test" };
+        definitionResponse.Tools.Add(functionTool);
+
+        AgentsClient client = this.CreateTestAgentsClient(agentName: "test-agent", agentDefinitionResponse: definitionResponse);
+
+        // Act
+        var agent = client.CreateAIAgent("test-agent", definition, tools: tools, requireInvocableTools: false);
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.IsType<ChatClientAgent>(agent);
+        var definitionFromAgent = Assert.IsType<PromptAgentDefinition>(agent.GetService<AgentVersion>()?.Definition);
+        Assert.Single(definitionFromAgent.Tools);
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgent accepts FunctionTools as declarative functions when requireInvocableTools=false.
+    /// </summary>
+    [Fact]
+    public async Task CreateAIAgent_WithFunctionToolsAsAIAtoolAndRequireInvocableTrue_ThrowsInvalidOperationExceptionAsync()
+    {
+        // Arrange
+        var functionTool = ResponseTool.CreateFunctionTool(
+            functionName: "get_user_name",
+            functionParameters: BinaryData.FromString("{}"),
+            strictModeEnabled: false,
+            functionDescription: "Gets the user's name, as used for friendly address."
+        );
+
+        // Create a declarative function (not invocable) using AIFunctionFactory.CreateDeclaration
+
+        var tools = new List<AITool> { functionTool.AsAITool() };
+
+        var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
+
+        // Generate response with the declarative function
+        var definitionResponse = new PromptAgentDefinition("test-model") { Instructions = "Test" };
+        definitionResponse.Tools.Add(functionTool);
+
+        AgentsClient client = this.CreateTestAgentsClient(agentName: "test-agent", agentDefinitionResponse: definitionResponse);
+
+        // Act & Assert
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.CreateAIAgentAsync("test-agent", definition, tools: tools, requireInvocableTools: true));
+
+        Assert.Contains("invokable AIFunctions", exception.Message);
+    }
+
+    /// <summary>
     /// Verify that CreateAIAgentAsync throws InvalidOperationException when provided with non-invocable AIFunctionDeclaration when requireInvocableTools=true.
     /// </summary>
     [Fact]
