@@ -46,9 +46,9 @@ internal sealed class Program
 
     private static async Task CreateAgentAsync(Uri foundryEndpoint, IConfiguration configuration)
     {
-        AgentsClient agentsClient = new(foundryEndpoint, new AzureCliCredential());
+        AgentClient AgentClient = new(foundryEndpoint, new AzureCliCredential());
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "DocumentSearchAgent",
             agentDefinition: DefineSearchAgent(configuration),
             agentDescription: "Searches documents on Microsoft Learn");

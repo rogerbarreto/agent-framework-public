@@ -46,39 +46,39 @@ internal sealed class Program
 
     private static async Task CreateAgentsAsync(Uri foundryEndpoint, IConfiguration configuration)
     {
-        AgentsClient agentsClient = new(foundryEndpoint, new AzureCliCredential());
+        AgentClient AgentClient = new(foundryEndpoint, new AzureCliCredential());
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "ResearchAgent",
             agentDefinition: DefineResearchAgent(configuration),
             agentDescription: "Planner agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "PlannerAgent",
             agentDefinition: DefinePlannerAgent(configuration),
             agentDescription: "Planner agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "ManagerAgent",
             agentDefinition: DefineManagerAgent(configuration),
             agentDescription: "Manager agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "SummaryAgent",
             agentDefinition: DefineSummaryAgent(configuration),
             agentDescription: "Summary agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "KnowledgeAgent",
             agentDefinition: DefineKnowledgeAgent(configuration),
             agentDescription: "Research agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "CoderAgent",
             agentDefinition: DefineCoderAgent(configuration),
             agentDescription: "Coder agent for DeepResearch workflow");
 
-        await agentsClient.CreateAgentAsync(
+        await AgentClient.CreateAgentAsync(
             agentName: "WeatherAgent",
             agentDefinition: DefineWeatherAgent(configuration),
             agentDescription: "Weather agent for DeepResearch workflow");

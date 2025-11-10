@@ -20,7 +20,7 @@ namespace Microsoft.Agents.AI.AzureAI;
 internal sealed class AzureAIAgentChatClient : DelegatingChatClient
 {
     private readonly ChatClientMetadata? _metadata;
-    private readonly AgentsClient _agentsClient;
+    private readonly AgentClient _agentClient;
     private readonly AgentVersion _agentVersion;
     private readonly ChatOptions? _chatOptions;
 
@@ -33,25 +33,25 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <summary>
     /// Initializes a new instance of the <see cref="AzureAIAgentChatClient"/> class.
     /// </summary>
-    /// <param name="agentsClient">An instance of <see cref="AgentsClient"/> to interact with Azure AI Agents services.</param>
+    /// <param name="AgentClient">An instance of <see cref="AgentClient"/> to interact with Azure AI Agents services.</param>
     /// <param name="agentRecord">An instance of <see cref="AgentRecord"/> representing the specific agent to use.</param>
     /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <remarks>
     /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
     /// </remarks>
-    internal AzureAIAgentChatClient(AgentsClient agentsClient, AgentRecord agentRecord, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
-        : this(agentsClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions, openAIClientOptions)
+    internal AzureAIAgentChatClient(AgentClient AgentClient, AgentRecord agentRecord, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
+        : this(AgentClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions, openAIClientOptions)
     {
     }
 
-    internal AzureAIAgentChatClient(AgentsClient agentsClient, AgentVersion agentVersion, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
-        : base(agentsClient
+    internal AzureAIAgentChatClient(AgentClient AgentClient, AgentVersion agentVersion, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
+        : base(AgentClient
             .GetOpenAIClient(openAIClientOptions)
             .GetOpenAIResponseClient((agentVersion.Definition as PromptAgentDefinition)?.Model ?? NoOpModel)
             .AsIChatClient())
     {
-        this._agentsClient = Throw.IfNull(agentsClient);
+        this._agentClient = Throw.IfNull(AgentClient);
         this._agentVersion = Throw.IfNull(agentVersion);
         this._metadata = new ChatClientMetadata("azure.ai.agents");
         this._chatOptions = chatOptions;
@@ -62,8 +62,8 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     {
         return (serviceKey is null && serviceType == typeof(ChatClientMetadata))
             ? this._metadata
-            : (serviceKey is null && serviceType == typeof(AgentsClient))
-            ? this._agentsClient
+            : (serviceKey is null && serviceType == typeof(AgentClient))
+            ? this._agentClient
             : (serviceKey is null && serviceType == typeof(AgentVersion))
             ? this._agentVersion
             : base.GetService(serviceType, serviceKey);
@@ -92,7 +92,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
 
     private async Task<string> GetOrCreateConversationAsync(ChatOptions? options, CancellationToken cancellationToken)
         => string.IsNullOrWhiteSpace(options?.ConversationId)
-            ? (await this._agentsClient.GetConversationClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value.Id
+            ? (await this._agentClient.GetConversationClient().CreateConversationAsync(cancellationToken: cancellationToken).ConfigureAwait(false)).Value.Id
             : options.ConversationId;
 
     private ChatOptions GetConversationEnabledChatOptions(ChatOptions? chatOptions, string conversationId)

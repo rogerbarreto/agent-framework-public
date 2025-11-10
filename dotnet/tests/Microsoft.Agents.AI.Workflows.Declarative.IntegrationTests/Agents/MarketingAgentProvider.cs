@@ -13,22 +13,22 @@ internal sealed class MarketingAgentProvider(IConfiguration configuration) : Age
 {
     protected override async IAsyncEnumerable<AgentVersion> CreateAgentsAsync(Uri foundryEndpoint)
     {
-        AgentsClient agentsClient = new(foundryEndpoint, new AzureCliCredential());
+        AgentClient AgentClient = new(foundryEndpoint, new AzureCliCredential());
 
         yield return
-            await agentsClient.CreateAgentAsync(
+            await AgentClient.CreateAgentAsync(
                 agentName: "AnalystAgent",
                 agentDefinition: this.DefineAnalystAgent(),
                 agentDescription: "Analyst agent for Marketing workflow");
 
         yield return
-            await agentsClient.CreateAgentAsync(
+            await AgentClient.CreateAgentAsync(
                 agentName: "WriterAgent",
                 agentDefinition: this.DefineWriterAgent(),
                 agentDescription: "Writer agent for Marketing workflow");
 
         yield return
-            await agentsClient.CreateAgentAsync(
+            await AgentClient.CreateAgentAsync(
                 agentName: "EditorAgent",
                 agentDefinition: this.DefineEditorAgent(),
                 agentDescription: "Editor agent for Marketing workflow");
