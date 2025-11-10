@@ -2183,5 +2183,12 @@ public sealed class AgentClientExtensionsTests
             var response = assertion(request);
             return Task.FromResult(response);
         }
+
+#if NET
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return assertion(request);
+        }
+#endif
     }
 }
