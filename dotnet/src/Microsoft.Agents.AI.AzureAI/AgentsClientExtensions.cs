@@ -682,7 +682,7 @@ public static class AgentsClientExtensions
         if (agentDefinition is PromptAgentDefinition { Tools: { Count: > 0 } definitionTools })
         {
             // Check if no tools were provided while the agent definition requires in-proc tools.
-            if (requireInvocableTools && chatOptions?.Tools is null or { Count: 0 } && definitionTools.Any(t => t is FunctionTool))
+            if (requireInvocableTools && chatOptions?.Tools is not { Count: > 0 } && definitionTools.Any(t => t is FunctionTool))
             {
                 throw new ArgumentException("The agent definition in-process tools must be provided in the extension method tools parameter.");
             }

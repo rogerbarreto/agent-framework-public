@@ -35,7 +35,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// </summary>
     /// <param name="agentsClient">An instance of <see cref="AgentsClient"/> to interact with Azure AI Agents services.</param>
     /// <param name="agentRecord">An instance of <see cref="AgentRecord"/> representing the specific agent to use.</param>
-    /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined</param>
+    /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <remarks>
     /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
@@ -100,7 +100,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
         // Start with a clone of the base chat options defined for the agent, if any.
         ChatOptions conversationChatOptions = this._chatOptions?.Clone() ?? new();
 
-        // Ignore per-request all options that can't be overriden.
+        // Ignore per-request all options that can't be overridden.
         conversationChatOptions.Instructions = null;
         conversationChatOptions.Tools = null;
 
