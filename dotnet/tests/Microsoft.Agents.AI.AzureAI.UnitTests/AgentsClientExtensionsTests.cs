@@ -1788,7 +1788,7 @@ public sealed class AgentClientExtensionsTests
     }
 
     /// <summary>
-    /// Verify that CreateAIAgentAsync(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// Verifies that the user-agent header is added to both synchronous and asynchronous requests made by agent creation methods.
     /// </summary>
     [Fact]
     public async Task CreateAIAgent_UserAgentHeaderAddedToRequestsAsync()
@@ -1820,7 +1820,7 @@ public sealed class AgentClientExtensionsTests
     }
 
     /// <summary>
-    /// Verify that CreateAIAgentAsync(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// Verifies that the user-agent header is added to both synchronous and asynchronous GetAIAgent requests.
     /// </summary>
     [Fact]
     public async Task GetAIAgent_UserAgentHeaderAddedToRequestsAsync()
