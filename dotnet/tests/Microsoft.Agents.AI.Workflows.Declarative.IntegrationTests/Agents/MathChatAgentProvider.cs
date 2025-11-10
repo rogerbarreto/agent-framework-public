@@ -13,16 +13,16 @@ internal sealed class MathChatAgentProvider(IConfiguration configuration) : Agen
 {
     protected override async IAsyncEnumerable<AgentVersion> CreateAgentsAsync(Uri foundryEndpoint)
     {
-        AgentClient AgentClient = new(foundryEndpoint, new AzureCliCredential());
+        AgentClient agentClient = new(foundryEndpoint, new AzureCliCredential());
 
         yield return
-            await AgentClient.CreateAgentAsync(
+            await agentClient.CreateAgentAsync(
                 agentName: "StudentAgent",
                 agentDefinition: this.DefineStudentAgent(),
                 agentDescription: "Student agent for MathChat workflow");
 
         yield return
-            await AgentClient.CreateAgentAsync(
+            await agentClient.CreateAgentAsync(
                 agentName: "TeacherAgent",
                 agentDefinition: this.DefineTeacherAgent(),
                 agentDescription: "Teacher agent for MathChat workflow");

@@ -11,7 +11,7 @@ namespace Shared.Foundry;
 internal static class AgentFactory
 {
     public static async ValueTask<AgentVersion> CreateAgentAsync(
-        this AgentClient AgentClient,
+        this AgentClient agentClient,
         string agentName,
         PromptAgentDefinition agentDefinition,
         string agentDescription)
@@ -27,7 +27,7 @@ internal static class AgentFactory
                     },
             };
 
-        AgentVersion agentVersion = await AgentClient.CreateAgentVersionAsync(agentName, options).ConfigureAwait(false);
+        AgentVersion agentVersion = await agentClient.CreateAgentVersionAsync(agentName, options).ConfigureAwait(false);
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         try

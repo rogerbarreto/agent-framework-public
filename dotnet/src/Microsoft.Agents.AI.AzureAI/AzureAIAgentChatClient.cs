@@ -33,25 +33,25 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     /// <summary>
     /// Initializes a new instance of the <see cref="AzureAIAgentChatClient"/> class.
     /// </summary>
-    /// <param name="AgentClient">An instance of <see cref="AgentClient"/> to interact with Azure AI Agents services.</param>
+    /// <param name="agentClient">An instance of <see cref="AgentClient"/> to interact with Azure AI Agents services.</param>
     /// <param name="agentRecord">An instance of <see cref="AgentRecord"/> representing the specific agent to use.</param>
     /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <remarks>
     /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
     /// </remarks>
-    internal AzureAIAgentChatClient(AgentClient AgentClient, AgentRecord agentRecord, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
-        : this(AgentClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions, openAIClientOptions)
+    internal AzureAIAgentChatClient(AgentClient agentClient, AgentRecord agentRecord, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
+        : this(agentClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions, openAIClientOptions)
     {
     }
 
-    internal AzureAIAgentChatClient(AgentClient AgentClient, AgentVersion agentVersion, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
-        : base(AgentClient
+    internal AzureAIAgentChatClient(AgentClient agentClient, AgentVersion agentVersion, ChatOptions? chatOptions, OpenAIClientOptions? openAIClientOptions = null)
+        : base(agentClient
             .GetOpenAIClient(openAIClientOptions)
             .GetOpenAIResponseClient((agentVersion.Definition as PromptAgentDefinition)?.Model ?? NoOpModel)
             .AsIChatClient())
     {
-        this._agentClient = Throw.IfNull(AgentClient);
+        this._agentClient = Throw.IfNull(agentClient);
         this._agentVersion = Throw.IfNull(agentVersion);
         this._metadata = new ChatClientMetadata("azure.ai.agents");
         this._chatOptions = chatOptions;

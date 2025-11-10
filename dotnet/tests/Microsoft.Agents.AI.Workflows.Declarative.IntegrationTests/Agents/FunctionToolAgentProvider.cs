@@ -23,10 +23,10 @@ internal sealed class FunctionToolAgentProvider(IConfiguration configuration) : 
                 AIFunctionFactory.Create(menuPlugin.GetItemPrice),
             ];
 
-        AgentClient AgentClient = new(foundryEndpoint, new AzureCliCredential());
+        AgentClient agentClient = new(foundryEndpoint, new AzureCliCredential());
 
         yield return
-            await AgentClient.CreateAgentAsync(
+            await agentClient.CreateAgentAsync(
                 agentName: "MenuAgent",
                 agentDefinition: this.DefineMenuAgent(functions),
                 agentDescription: "Provides information about the restaurant menu");

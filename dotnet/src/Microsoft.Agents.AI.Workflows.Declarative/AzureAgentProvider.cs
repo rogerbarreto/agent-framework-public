@@ -29,7 +29,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
     private readonly Dictionary<string, AgentVersion> _versionCache = [];
     private readonly Dictionary<string, AIAgent> _agentCache = [];
 
-    private AgentClient? _AgentClient;
+    private AgentClient? _agentClient;
     private ConversationClient? _conversationClient;
 
     /// <inheritdoc/>
@@ -213,7 +213,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
 
     private AgentClient GetAgentClient()
     {
-        if (this._AgentClient is null)
+        if (this._agentClient is null)
         {
             AgentClientOptions clientOptions = new();
 
@@ -224,10 +224,10 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
 
             AgentClient newClient = new(projectEndpoint, projectCredentials, clientOptions);
 
-            Interlocked.CompareExchange(ref this._AgentClient, newClient, null);
+            Interlocked.CompareExchange(ref this._agentClient, newClient, null);
         }
 
-        return this._AgentClient;
+        return this._agentClient;
     }
 
     private ConversationClient GetConversationClient()
