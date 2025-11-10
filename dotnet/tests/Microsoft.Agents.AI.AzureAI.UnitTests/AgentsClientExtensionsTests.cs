@@ -861,7 +861,7 @@ public sealed class AgentClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgentAsync(name: "agent-name", null!));
+            mockClient.Object.CreateAIAgentAsync(name: "agent-name", (AgentVersionCreationOptions)null!));
 
         Assert.Equal("creationOptions", exception.ParamName);
     }
