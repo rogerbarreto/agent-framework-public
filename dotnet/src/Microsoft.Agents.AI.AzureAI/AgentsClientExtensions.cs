@@ -572,7 +572,7 @@ public static class AgentClientExtensions
     /// </summary>
     private static AgentVersion CreateAgentVersionWithProtocol(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
     {
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
+        using BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
         ClientResult protocolResponse = agentClient.CreateAgentVersion(agentName, protocolRequest, cancellationToken.ToRequestOptions(false));
         return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
     }
@@ -582,7 +582,7 @@ public static class AgentClientExtensions
     /// </summary>
     private static async Task<AgentVersion> CreateAgentVersionWithProtocolAsync(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
     {
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
+        using BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
         ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(agentName, protocolRequest, cancellationToken.ToRequestOptions(false)).ConfigureAwait(false);
         return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
     }

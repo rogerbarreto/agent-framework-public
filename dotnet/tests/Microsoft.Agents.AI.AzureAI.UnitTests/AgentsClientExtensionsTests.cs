@@ -1840,8 +1840,6 @@ public sealed class AgentClientExtensionsTests
         // Arrange
         var agentClient = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
-        var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
-
         // Act
         var agent1 = agentClient.GetAIAgent("test");
         var agent2 = await agentClient.GetAIAgentAsync("test");
