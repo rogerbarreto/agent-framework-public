@@ -7,7 +7,7 @@ namespace Microsoft.Agents.AI;
 
 internal static class RequestOptionsExtensions
 {
-    /// <summary>Creates a <see cref="RequestOptions"/> configured for use with OpenAI.</summary>
+    /// <summary>Creates a <see cref="RequestOptions"/> configured for use with Foundry Agents.</summary>
     public static RequestOptions ToRequestOptions(this CancellationToken cancellationToken, bool streaming)
     {
         RequestOptions requestOptions = new()
