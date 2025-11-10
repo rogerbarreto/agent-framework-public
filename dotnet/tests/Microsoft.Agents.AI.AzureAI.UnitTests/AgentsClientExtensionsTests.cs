@@ -38,7 +38,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.GetAIAgent(agentRecord));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -116,7 +116,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.GetAIAgent(agentVersion));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -234,7 +234,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.GetAIAgent(options));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -329,7 +329,7 @@ public sealed class AgentClientExtensionsTests
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
             client!.GetAIAgentAsync(options));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -383,7 +383,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.GetAIAgent("test-agent"));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -426,8 +426,11 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         var mockClient = new Mock<AgentClient>();
-        mockClient.Setup(c => c.GetAgent(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200)));
+        mockClient.Setup(c => c.GetAgent(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+            .Returns(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200, BinaryData.FromString("null"))));
+
+        mockClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -453,7 +456,7 @@ public sealed class AgentClientExtensionsTests
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
             client!.GetAIAgentAsync("test-agent"));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -480,8 +483,11 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         var mockClient = new Mock<AgentClient>();
-        mockClient.Setup(c => c.GetAgentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200)));
+        mockClient.Setup(c => c.GetAgentAsync(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+            .ReturnsAsync(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200, BinaryData.FromString("null"))));
+
+        mockClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -580,7 +586,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.CreateAIAgent("test-agent", "model", "instructions"));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -618,7 +624,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.CreateAIAgent("test-agent", options));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -673,7 +679,7 @@ public sealed class AgentClientExtensionsTests
         var exception = Assert.Throws<ArgumentNullException>(() =>
             client!.CreateAIAgent("model", options));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -847,7 +853,7 @@ public sealed class AgentClientExtensionsTests
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
             client!.CreateAIAgentAsync("agent-name", options));
 
-        Assert.Equal("AgentClient", exception.ParamName);
+        Assert.Equal("agentClient", exception.ParamName);
     }
 
     /// <summary>
@@ -861,7 +867,7 @@ public sealed class AgentClientExtensionsTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            mockClient.Object.CreateAIAgentAsync(name: "agent-name", (AgentVersionCreationOptions)null!));
+            mockClient.Object.CreateAIAgentAsync(name: "agent-name", null!));
 
         Assert.Equal("creationOptions", exception.ParamName);
     }
@@ -1672,6 +1678,114 @@ public sealed class AgentClientExtensionsTests
 
     #endregion
 
+    #region User-Agent Header Tests
+
+    /// <summary>
+    /// Verify that GetAIAgent(string name) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public void GetAIAgent_WithStringName_PassesRequestOptionsToProtocol()
+    {
+        // Arrange
+        RequestOptions? capturedRequestOptions = null;
+        var mockAgentClient = new Mock<AgentClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient
+            .Setup(x => x.GetAgent(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+            .Callback<string, RequestOptions>((name, options) => capturedRequestOptions = options)
+            .Returns(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(AgentTestJsonObject))));
+
+        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+
+        // Act
+        var agent = mockAgentClient.Object.GetAIAgent("test-agent");
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.NotNull(capturedRequestOptions);
+    }
+
+    /// <summary>
+    /// Verify that GetAIAgentAsync(string name) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public async Task GetAIAgentAsync_WithStringName_PassesRequestOptionsToProtocolAsync()
+    {
+        // Arrange
+        RequestOptions? capturedRequestOptions = null;
+        var mockAgentClient = new Mock<AgentClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient
+            .Setup(x => x.GetAgentAsync(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+            .Callback<string, RequestOptions>((name, options) => capturedRequestOptions = options)
+            .Returns(Task.FromResult(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(AgentTestJsonObject)))));
+
+        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+
+        // Act
+        var agent = await mockAgentClient.Object.GetAIAgentAsync("test-agent");
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.NotNull(capturedRequestOptions);
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgent(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public void CreateAIAgent_WithChatClientAgentOptions_PassesRequestOptionsToProtocol()
+    {
+        // Arrange
+        RequestOptions? capturedRequestOptions = null;
+        var mockAgentClient = new Mock<AgentClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient
+            .Setup(x => x.CreateAgentVersion(It.IsAny<string>(), It.IsAny<BinaryContent>(), It.IsAny<RequestOptions>()))
+            .Callback<string, BinaryContent, RequestOptions>((name, content, options) => capturedRequestOptions = options)
+            .Returns(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(AgentVersionTestJsonObject))));
+
+        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+
+        var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
+
+        // Act
+        var agent = mockAgentClient.Object.CreateAIAgent("gpt-4", agentOptions);
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.NotNull(capturedRequestOptions);
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgentAsync(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public async Task CreateAIAgentAsync_WithChatClientAgentOptions_PassesRequestOptionsToProtocolAsync()
+    {
+        // Arrange
+        RequestOptions? capturedRequestOptions = null;
+        var mockAgentClient = new Mock<AgentClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient
+            .Setup(x => x.CreateAgentVersionAsync(It.IsAny<string>(), It.IsAny<BinaryContent>(), It.IsAny<RequestOptions>()))
+            .Callback<string, BinaryContent, RequestOptions>((name, content, options) => capturedRequestOptions = options)
+            .Returns(Task.FromResult(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(AgentVersionTestJsonObject)))));
+
+        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
+            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+
+        var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
+
+        // Act
+        var agent = await mockAgentClient.Object.CreateAIAgentAsync("gpt-4", agentOptions);
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.NotNull(capturedRequestOptions);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>
@@ -1792,9 +1906,19 @@ public sealed class AgentClientExtensionsTests
             return new OpenAIClient(new ApiKeyCredential("test-key"), options);
         }
 
+        public override ClientResult GetAgent(string agentName, RequestOptions options)
+        {
+            return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200, BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject))));
+        }
+
         public override ClientResult<AgentRecord> GetAgent(string agentName, CancellationToken cancellationToken = default)
         {
             return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200));
+        }
+
+        public override Task<ClientResult> GetAgentAsync(string agentName, RequestOptions options)
+        {
+            return Task.FromResult<ClientResult>(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200, BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))));
         }
 
         public override Task<ClientResult<AgentRecord>> GetAgentAsync(string agentName, CancellationToken cancellationToken = default)
@@ -1802,9 +1926,19 @@ public sealed class AgentClientExtensionsTests
             return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(this.ApplyResponseChanges(AgentTestJsonObject)))!, new MockPipelineResponse(200)));
         }
 
+        public override ClientResult CreateAgentVersion(string agentName, BinaryContent content, RequestOptions? options = null)
+        {
+            return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))!, new MockPipelineResponse(200, BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject))));
+        }
+
         public override ClientResult<AgentVersion> CreateAgentVersion(string agentName, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
         {
             return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))!, new MockPipelineResponse(200));
+        }
+
+        public override Task<ClientResult> CreateAgentVersionAsync(string agentName, BinaryContent content, RequestOptions? options = null)
+        {
+            return Task.FromResult<ClientResult>(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))!, new MockPipelineResponse(200, BinaryData.FromString(this.ApplyResponseChanges(AgentVersionTestJsonObject)))));
         }
 
         public override Task<ClientResult<AgentVersion>> CreateAgentVersionAsync(string agentName, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
@@ -1889,10 +2023,14 @@ public sealed class AgentClientExtensionsTests
     private sealed class MockPipelineResponse : PipelineResponse
     {
         private readonly int _status;
+        private readonly BinaryData _content;
+        private readonly MockPipelineResponseHeaders _headers;
 
-        public MockPipelineResponse(int status)
+        public MockPipelineResponse(int status, BinaryData? content = null)
         {
             this._status = status;
+            this._content = content ?? BinaryData.Empty;
+            this._headers = new MockPipelineResponseHeaders();
         }
 
         public override int Status => this._status;
@@ -1905,9 +2043,9 @@ public sealed class AgentClientExtensionsTests
             set { }
         }
 
-        public override BinaryData Content => BinaryData.Empty;
+        public override BinaryData Content => this._content;
 
-        protected override PipelineResponseHeaders HeadersCore => new EmptyPipelineResponseHeaders();
+        protected override PipelineResponseHeaders HeadersCore => this._headers;
 
         public override BinaryData BufferContent(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Buffering content is not supported for mock responses.");
@@ -1919,26 +2057,56 @@ public sealed class AgentClientExtensionsTests
         {
         }
 
-        private sealed class EmptyPipelineResponseHeaders : PipelineResponseHeaders
+        private sealed class MockPipelineResponseHeaders : PipelineResponseHeaders
         {
+            private readonly Dictionary<string, string> _headers = new(StringComparer.OrdinalIgnoreCase)
+            {
+                { "Content-Type", "application/json" },
+                { "x-ms-request-id", "test-request-id" }
+            };
+
             public override bool TryGetValue(string name, out string? value)
             {
-                value = null;
-                return false;
+                return this._headers.TryGetValue(name, out value);
             }
 
             public override bool TryGetValues(string name, out IEnumerable<string>? values)
             {
+                if (this._headers.TryGetValue(name, out var value))
+                {
+                    values = new[] { value };
+                    return true;
+                }
+
                 values = null;
                 return false;
             }
 
             public override IEnumerator<KeyValuePair<string, string>> GetEnumerator()
             {
-                yield break;
+                return this._headers.GetEnumerator();
             }
         }
     }
 
+    private sealed class FakeAuthenticationTokenProvider : AuthenticationTokenProvider
+    {
+        public override GetTokenOptions? CreateTokenOptions(IReadOnlyDictionary<string, object> properties)
+        {
+            return new GetTokenOptions(new Dictionary<string, object>());
+        }
+
+        public override AuthenticationToken GetToken(GetTokenOptions options, CancellationToken cancellationToken)
+        {
+            return new AuthenticationToken("token-value", "token-type", DateTimeOffset.UtcNow.AddHours(1));
+        }
+
+        public override ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
+        {
+            return new ValueTask<AuthenticationToken>(this.GetToken(options, cancellationToken));
+        }
+    }
+
     #endregion
+
 }

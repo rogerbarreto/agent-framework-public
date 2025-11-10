@@ -47,10 +47,7 @@ public static class AgentClientExtensions
         Throw.IfNull(agentClient);
         Throw.IfNullOrWhitespace(name);
 
-        // Using protocol to add the User-Agent header
-        ClientResult protocolResponse = agentClient.GetAgent(name, GetRequestOptions(cancellationToken));
-        AgentRecord agentRecord = ClientResult.FromValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
-            ?? throw new InvalidOperationException($"Agent with name '{name}' not found.");
+        AgentRecord agentRecord = GetAgentRecordByName(agentClient, name, cancellationToken);
 
         return GetAIAgent(
             agentClient,
@@ -89,10 +86,7 @@ public static class AgentClientExtensions
         Throw.IfNull(agentClient);
         Throw.IfNullOrWhitespace(name);
 
-        // Using protocol to add the User-Agent header
-        ClientResult protocolResponse = await agentClient.GetAgentAsync(name, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
-        AgentRecord agentRecord = ClientResult.FromValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
-            ?? throw new InvalidOperationException($"Agent with name '{name}' not found.");
+        AgentRecord agentRecord = await GetAgentRecordByNameAsync(agentClient, name, cancellationToken).ConfigureAwait(false);
 
         return GetAIAgent(
             agentClient,
@@ -202,11 +196,7 @@ public static class AgentClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
-        // Using protocol to add the User-Agent header
-        ClientResult protocolResponse = agentClient.GetAgent(options.Name, GetRequestOptions(cancellationToken));
-        AgentRecord agentRecord = ClientResult.FromValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
-            ?? throw new InvalidOperationException($"Agent with name '{options.Name}' not found.");
-
+        AgentRecord agentRecord = GetAgentRecordByName(agentClient, options.Name, cancellationToken);
         var agentVersion = agentRecord.Versions.Latest;
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: true);
@@ -248,11 +238,7 @@ public static class AgentClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
-        // Using protocol to add the User-Agent header
-        ClientResult protocolResponse = await agentClient.GetAgentAsync(options.Name, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
-        AgentRecord agentRecord = ClientResult.FromValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
-            ?? throw new InvalidOperationException($"Agent with name '{options.Name}' not found.");
-
+        AgentRecord agentRecord = await GetAgentRecordByNameAsync(agentClient, options.Name, cancellationToken).ConfigureAwait(false);
         var agentVersion = agentRecord.Versions.Latest;
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: true);
@@ -404,10 +390,7 @@ public static class AgentClientExtensions
             creationOptions.Description = options.Description;
         }
 
-        // Using protocol to add the User-Agent header
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = agentClient.CreateAgentVersion(options.Name, protocolRequest, GetRequestOptions(cancellationToken));
-        AgentVersion agentVersion = ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+        AgentVersion agentVersion = CreateAgentVersionWithProtocol(agentClient, options.Name, creationOptions, cancellationToken);
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, RequireInvocableTools);
 
@@ -466,10 +449,7 @@ public static class AgentClientExtensions
             creationOptions.Description = options.Description;
         }
 
-        // Using protocol to add the User-Agent header
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(options.Name, protocolRequest, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
-        AgentVersion agentVersion = ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+        AgentVersion agentVersion = await CreateAgentVersionWithProtocolAsync(agentClient, options.Name, creationOptions, cancellationToken).ConfigureAwait(false);
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, RequireInvocableTools);
 
@@ -578,6 +558,46 @@ public static class AgentClientExtensions
         return options;
     }
 
+    /// <summary>
+    /// Retrieves an agent record by name using the Protocol method with user-agent header.
+    /// </summary>
+    private static AgentRecord GetAgentRecordByName(AgentClient agentClient, string agentName, CancellationToken cancellationToken)
+    {
+        ClientResult protocolResponse = agentClient.GetAgent(agentName, GetRequestOptions(cancellationToken));
+        return ClientResult.FromOptionalValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
+            ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
+    }
+
+    /// <summary>
+    /// Asynchronously retrieves an agent record by name using the Protocol method with user-agent header.
+    /// </summary>
+    private static async Task<AgentRecord> GetAgentRecordByNameAsync(AgentClient agentClient, string agentName, CancellationToken cancellationToken)
+    {
+        ClientResult protocolResponse = await agentClient.GetAgentAsync(agentName, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
+        return ClientResult.FromOptionalValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
+            ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
+    }
+
+    /// <summary>
+    /// Creates an agent version using the Protocol method with user-agent header.
+    /// </summary>
+    private static AgentVersion CreateAgentVersionWithProtocol(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
+    {
+        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
+        ClientResult protocolResponse = agentClient.CreateAgentVersion(agentName, protocolRequest, GetRequestOptions(cancellationToken));
+        return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+    }
+
+    /// <summary>
+    /// Asynchronously creates an agent version using the Protocol method with user-agent header.
+    /// </summary>
+    private static async Task<AgentVersion> CreateAgentVersionWithProtocolAsync(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
+    {
+        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
+        ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(agentName, protocolRequest, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
+        return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+    }
+
     private static string CreateUserAgentValue()
     {
         const string Name = "MEAI";
@@ -618,10 +638,7 @@ public static class AgentClientExtensions
 
         ApplyToolsToAgentDefinition(creationOptions.Definition, tools, requireInvocableTools);
 
-        // Using protocol to add the User-Agent header
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = agentClient.CreateAgentVersion(name, protocolRequest, GetRequestOptions(cancellationToken));
-        AgentVersion agentVersion = ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+        AgentVersion agentVersion = CreateAgentVersionWithProtocol(agentClient, name, creationOptions, cancellationToken);
 
         return CreateChatClientAgent(
             agentClient,
@@ -652,10 +669,7 @@ public static class AgentClientExtensions
 
         ApplyToolsToAgentDefinition(creationOptions.Definition, tools, requireInvocableTools);
 
-        // Using protocol to add the User-Agent header
-        BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(name, protocolRequest, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
-        AgentVersion agentVersion = ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
+        AgentVersion agentVersion = await CreateAgentVersionWithProtocolAsync(agentClient, name, creationOptions, cancellationToken).ConfigureAwait(false);
 
         return CreateChatClientAgent(
             agentClient,
@@ -669,7 +683,7 @@ public static class AgentClientExtensions
 
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with the specified ChatClientAgentOptions.</summary>
     private static ChatClientAgent CreateChatClientAgent(
-        AgentClient AgentClient,
+        AgentClient agentClient,
         AgentVersion agentVersion,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
@@ -677,7 +691,7 @@ public static class AgentClientExtensions
         bool requireInvocableTools,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(AgentClient, agentVersion, agentOptions.ChatOptions, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(agentClient, agentVersion, agentOptions.ChatOptions, openAIClientOptions);
 
         if (clientFactory is not null)
         {
