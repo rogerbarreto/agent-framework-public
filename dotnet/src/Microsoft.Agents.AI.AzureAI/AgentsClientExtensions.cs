@@ -13,14 +13,14 @@ using OpenAI.Responses;
 namespace Azure.AI.Agents;
 
 /// <summary>
-/// Provides extension methods for <see cref="AgentsClient"/>.
+/// Provides extension methods for <see cref="AgentClient"/>.
 /// </summary>
-public static class AgentsClientExtensions
+public static class AgentClientExtensions
 {
     /// <summary>
-    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentsClient"/>.
+    /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentClient"/>.
     /// </summary>
-    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The <see cref="AgentClient"/> to create the <see cref="ChatClientAgent"/> with. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name of the server side agent to create a <see cref="ChatClientAgent"/> for. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
@@ -28,12 +28,12 @@ public static class AgentsClientExtensions
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="name"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="name"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or whitespace, or when the agent with the specified name was not found.</exception>
     /// <exception cref="InvalidOperationException">The agent with the specified name was not found.</exception>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static ChatClientAgent GetAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -41,14 +41,14 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
 
-        var agentRecord = agentsClient.GetAgent(name, cancellationToken).Value
+        var agentRecord = AgentClient.GetAgent(name, cancellationToken).Value
             ?? throw new InvalidOperationException($"Agent with name '{name}' not found.");
 
         return GetAIAgent(
-            agentsClient,
+            AgentClient,
             agentRecord,
             tools,
             clientFactory,
@@ -58,9 +58,9 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
-    /// Asynchronously retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentsClient"/>.
+    /// Asynchronously retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentClient"/>.
     /// </summary>
-    /// <param name="agentsClient">The <see cref="AgentsClient"/> to create the <see cref="ChatClientAgent"/> with. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The <see cref="AgentClient"/> to create the <see cref="ChatClientAgent"/> with. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name of the server side agent to create a <see cref="ChatClientAgent"/> for. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
@@ -68,12 +68,12 @@ public static class AgentsClientExtensions
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="name"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="name"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or whitespace, or when the agent with the specified name was not found.</exception>
     /// <exception cref="InvalidOperationException">The agent with the specified name was not found.</exception>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -81,14 +81,14 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
 
-        var agentRecord = (await agentsClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false)).Value
+        var agentRecord = (await AgentClient.GetAgentAsync(name, cancellationToken).ConfigureAwait(false)).Value
             ?? throw new InvalidOperationException($"Agent with name '{name}' not found.");
 
         return GetAIAgent(
-            agentsClient,
+            AgentClient,
             agentRecord,
             tools,
             clientFactory,
@@ -100,7 +100,7 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Gets a runnable agent instance from the provided agent record.
     /// </summary>
-    /// <param name="agentsClient">The client used to interact with Azure AI Agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to interact with Azure AI Agents. Cannot be <see langword="null"/>.</param>
     /// <param name="agentRecord">The agent record to be converted. The latest version will be used. Cannot be <see langword="null"/>.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
@@ -110,7 +110,7 @@ public static class AgentsClientExtensions
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the Azure AI Agent.</returns>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static ChatClientAgent GetAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         AgentRecord agentRecord,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -118,11 +118,11 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(agentRecord);
 
         return GetAIAgent(
-            agentsClient,
+            AgentClient,
             agentRecord.Versions.Latest,
             tools,
             clientFactory,
@@ -134,7 +134,7 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Gets a runnable agent instance from a <see cref="AgentVersion"/> containing metadata about an Azure AI Agent.
     /// </summary>
-    /// <param name="agentsClient">The client used to interact with Azure AI Agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to interact with Azure AI Agents. Cannot be <see langword="null"/>.</param>
     /// <param name="agentVersion">The agent version to be converted. Cannot be <see langword="null"/>.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
@@ -142,10 +142,10 @@ public static class AgentsClientExtensions
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the provided version of the Azure AI Agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="agentVersion"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="agentVersion"/> is <see langword="null"/>.</exception>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static ChatClientAgent GetAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         AgentVersion agentVersion,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -153,13 +153,13 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(agentVersion);
 
         ValidateUsingToolsParameter(agentVersion, tools);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             tools,
             clientFactory,
@@ -169,25 +169,25 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
-    /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
+    /// Creates a new Prompt AI Agent using the provided <see cref="AgentClient"/> and options.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     public static ChatClientAgent GetAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(options);
 
         if (string.IsNullOrWhiteSpace(options.Name))
@@ -195,7 +195,7 @@ public static class AgentsClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
-        var agentRecord = agentsClient.GetAgent(options.Name, cancellationToken).Value
+        var agentRecord = AgentClient.GetAgent(options.Name, cancellationToken).Value
             ?? throw new InvalidOperationException($"Agent with name '{options.Name}' not found.");
 
         var agentVersion = agentRecord.Versions.Latest;
@@ -203,7 +203,7 @@ public static class AgentsClientExtensions
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: true);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             agentOptions,
             clientFactory,
@@ -213,25 +213,25 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
-    /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
+    /// Creates a new Prompt AI Agent using the provided <see cref="AgentClient"/> and options.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     public static async Task<ChatClientAgent> GetAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(options);
 
         if (string.IsNullOrWhiteSpace(options.Name))
@@ -239,7 +239,7 @@ public static class AgentsClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
-        var agentRecord = (await agentsClient.GetAgentAsync(options.Name, cancellationToken).ConfigureAwait(false)).Value
+        var agentRecord = (await AgentClient.GetAgentAsync(options.Name, cancellationToken).ConfigureAwait(false)).Value
             ?? throw new InvalidOperationException($"Agent with name '{options.Name}' not found.");
 
         var agentVersion = agentRecord.Versions.Latest;
@@ -247,7 +247,7 @@ public static class AgentsClientExtensions
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: true);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             agentOptions,
             clientFactory,
@@ -259,43 +259,42 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Creates a new Prompt AI agent using the specified configuration parameters.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name for the agent.</param>
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="instructions">The instructions that guide the agent's behavior. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
-    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> or <paramref name="instructions"/> is empty or whitespace.</exception>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static ChatClientAgent CreateAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         string model,
         string instructions,
+        string? description = null,
         IList<AITool>? tools = null,
-        AgentVersionCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
         Throw.IfNullOrWhitespace(model);
         Throw.IfNullOrWhitespace(instructions);
 
         return CreateAIAgent(
-            agentsClient,
+            AgentClient,
             name,
             tools,
-            new PromptAgentDefinition(model) { Instructions = instructions },
-            creationOptions,
+            new AgentVersionCreationOptions(new PromptAgentDefinition(model) { Instructions = instructions }) { Description = description },
             clientFactory,
             openAIClientOptions,
             requireInvocableTools: true,
@@ -306,43 +305,42 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Creates a new Prompt AI agent using the specified configuration parameters.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name for the agent.</param>
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="instructions">The instructions that guide the agent's behavior. Cannot be <see langword="null"/> or whitespace.</param>
+    /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
-    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/>, <paramref name="model"/>, or <paramref name="instructions"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> or <paramref name="instructions"/> is empty or whitespace.</exception>
     /// <remarks>When using prompt agent definitions with tools the parameter <paramref name="tools"/> needs to be provided.</remarks>
     public static Task<ChatClientAgent> CreateAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         string model,
         string instructions,
+        string? description = null,
         IList<AITool>? tools = null,
-        AgentVersionCreationOptions? creationOptions = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
         Throw.IfNullOrWhitespace(model);
         Throw.IfNullOrWhitespace(instructions);
 
         return CreateAIAgentAsync(
-            agentsClient,
+            AgentClient,
             name,
             tools,
-            new PromptAgentDefinition(model) { Instructions = instructions },
-            creationOptions,
+            new AgentVersionCreationOptions(new PromptAgentDefinition(model) { Instructions = instructions }) { Description = description },
             clientFactory,
             openAIClientOptions,
             requireInvocableTools: true,
@@ -351,9 +349,9 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
-    /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
+    /// Creates a new Prompt AI Agent using the provided <see cref="AgentClient"/> and options.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
@@ -361,10 +359,10 @@ public static class AgentsClientExtensions
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is empty or whitespace, or when the agent name is not provided in the options.</exception>
     public static ChatClientAgent CreateAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string model,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -372,7 +370,7 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(options);
         Throw.IfNullOrWhitespace(model);
         const bool RequireInvocableTools = true;
@@ -389,18 +387,18 @@ public static class AgentsClientExtensions
 
         ApplyToolsToAgentDefinition(agentDefinition, options.ChatOptions?.Tools, RequireInvocableTools);
 
-        AgentVersionCreationOptions? versionCreationOptions = null;
+        AgentVersionCreationOptions? versionCreationOptions = new(agentDefinition);
         if (!string.IsNullOrWhiteSpace(options.Description))
         {
-            (versionCreationOptions ??= new()).Description = options.Description;
+            versionCreationOptions.Description = options.Description;
         }
 
-        AgentVersion agentVersion = agentsClient.CreateAgentVersion(options.Name, agentDefinition, versionCreationOptions, cancellationToken).Value;
+        AgentVersion agentVersion = AgentClient.CreateAgentVersion(options.Name, versionCreationOptions, cancellationToken).Value;
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, RequireInvocableTools);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             agentOptions,
             clientFactory,
@@ -410,9 +408,9 @@ public static class AgentsClientExtensions
     }
 
     /// <summary>
-    /// Creates a new Prompt AI Agent using the provided <see cref="AgentsClient"/> and options.
+    /// Creates a new Prompt AI Agent using the provided <see cref="AgentClient"/> and options.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
@@ -420,10 +418,10 @@ public static class AgentsClientExtensions
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is empty or whitespace, or when the agent name is not provided in the options.</exception>
     public static async Task<ChatClientAgent> CreateAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string model,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
@@ -431,7 +429,7 @@ public static class AgentsClientExtensions
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNull(options);
         Throw.IfNullOrWhitespace(model);
         const bool RequireInvocableTools = true;
@@ -448,18 +446,18 @@ public static class AgentsClientExtensions
 
         ApplyToolsToAgentDefinition(agentDefinition, options.ChatOptions?.Tools, RequireInvocableTools);
 
-        AgentVersionCreationOptions? versionCreationOptions = null;
+        AgentVersionCreationOptions? versionCreationOptions = new(agentDefinition);
         if (!string.IsNullOrWhiteSpace(options.Description))
         {
-            (versionCreationOptions ??= new()).Description = options.Description;
+            versionCreationOptions.Description = options.Description;
         }
 
-        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(options.Name, agentDefinition, versionCreationOptions, cancellationToken).ConfigureAwait(false);
+        AgentVersion agentVersion = await AgentClient.CreateAgentVersionAsync(options.Name, versionCreationOptions, cancellationToken).ConfigureAwait(false);
 
         var agentOptions = CreateChatClientAgentOptions(agentVersion, options, RequireInvocableTools);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             agentOptions,
             clientFactory,
@@ -471,39 +469,36 @@ public static class AgentsClientExtensions
     /// <summary>
     /// Creates a new AI agent using the specified agent definition and optional configuration parameters.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name for the agent.</param>
-    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create. Cannot be <see langword="null"/>.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="agentDefinition"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="creationOptions"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// When using this extension method with a <see cref="PromptAgentDefinition"/> the tools are only declarative and not invocable.
     /// Invocation of any in-process tools will need to be handled manually.
     /// </remarks>
     public static ChatClientAgent CreateAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
-        AgentDefinition agentDefinition,
-        AgentVersionCreationOptions? creationOptions = null,
+        AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(agentDefinition);
+        Throw.IfNull(creationOptions);
 
-        var tools = (agentDefinition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
+        var tools = (creationOptions.Definition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
 
         return CreateAIAgent(
-            agentsClient,
+            AgentClient,
             name,
             tools,
-            agentDefinition,
             creationOptions,
             clientFactory,
             openAIClientOptions,
@@ -516,40 +511,37 @@ public static class AgentsClientExtensions
     /// Asynchronously creates a new AI agent using the specified agent definition and optional configuration
     /// parameters.
     /// </summary>
-    /// <param name="agentsClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
+    /// <param name="AgentClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="name">The name for the agent.</param>
-    /// <param name="agentDefinition">The definition that specifies the configuration and behavior of the agent to create. Cannot be <see langword="null"/>.</param>
-    /// <param name="agentVersionCreationOptions">Settings that control the creation of the agent.</param>
+    /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="agentsClient"/> or <paramref name="agentDefinition"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="AgentClient"/> or <paramref name="creationOptions"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// When using this extension method with a <see cref="PromptAgentDefinition"/> the tools are only declarative and not invocable.
     /// Invocation of any in-process tools will need to be handled manually.
     /// </remarks>
     public static Task<ChatClientAgent> CreateAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
-        AgentDefinition agentDefinition,
-        AgentVersionCreationOptions? agentVersionCreationOptions = null,
+        AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory = null,
         OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(agentsClient);
-        Throw.IfNull(agentDefinition);
+        Throw.IfNull(AgentClient);
+        Throw.IfNull(creationOptions);
 
-        var tools = (agentDefinition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
+        var tools = (creationOptions.Definition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
 
         return CreateAIAgentAsync(
-            agentsClient,
+            AgentClient,
             name,
             tools,
-            agentDefinition,
-            agentVersionCreationOptions,
+            creationOptions,
             clientFactory,
             openAIClientOptions,
             requireInvocableTools: false,
@@ -560,29 +552,28 @@ public static class AgentsClientExtensions
     #region Private
 
     private static ChatClientAgent CreateAIAgent(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         IList<AITool>? tools,
-        AgentDefinition agentDefinition,
-        AgentVersionCreationOptions? creationOptions,
+        AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory,
         OpenAIClientOptions? openAIClientOptions,
         bool requireInvocableTools,
         IServiceProvider? services,
         CancellationToken cancellationToken)
     {
-        Throw.IfNull(agentsClient);
+        Throw.IfNull(AgentClient);
         Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(agentDefinition);
+        Throw.IfNull(creationOptions);
 
-        tools ??= (agentDefinition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
+        tools ??= (creationOptions.Definition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
 
-        ApplyToolsToAgentDefinition(agentDefinition, tools, requireInvocableTools);
+        ApplyToolsToAgentDefinition(creationOptions.Definition, tools, requireInvocableTools);
 
-        AgentVersion agentVersion = agentsClient.CreateAgentVersion(name, agentDefinition, creationOptions, cancellationToken).Value;
+        AgentVersion agentVersion = AgentClient.CreateAgentVersion(name, creationOptions, cancellationToken).Value;
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             tools,
             clientFactory,
@@ -592,11 +583,10 @@ public static class AgentsClientExtensions
     }
 
     private static async Task<ChatClientAgent> CreateAIAgentAsync(
-        this AgentsClient agentsClient,
+        this AgentClient AgentClient,
         string name,
         IList<AITool>? tools,
-        AgentDefinition agentDefinition,
-        AgentVersionCreationOptions? agentVersionCreationOptions,
+        AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory,
         OpenAIClientOptions? openAIClientOptions,
         bool requireInvocableTools,
@@ -604,17 +594,17 @@ public static class AgentsClientExtensions
         CancellationToken cancellationToken)
     {
         Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(agentsClient);
-        Throw.IfNull(agentDefinition);
+        Throw.IfNull(AgentClient);
+        Throw.IfNull(creationOptions);
 
-        tools ??= (agentDefinition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
+        tools ??= (creationOptions.Definition as PromptAgentDefinition)?.Tools.Select(t => t.AsAITool()).ToList();
 
-        ApplyToolsToAgentDefinition(agentDefinition, tools, requireInvocableTools);
+        ApplyToolsToAgentDefinition(creationOptions.Definition, tools, requireInvocableTools);
 
-        AgentVersion agentVersion = await agentsClient.CreateAgentVersionAsync(name, agentDefinition, agentVersionCreationOptions, cancellationToken).ConfigureAwait(false);
+        AgentVersion agentVersion = await AgentClient.CreateAgentVersionAsync(name, creationOptions, cancellationToken).ConfigureAwait(false);
 
         return CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             tools,
             clientFactory,
@@ -625,7 +615,7 @@ public static class AgentsClientExtensions
 
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with the specified ChatClientAgentOptions.</summary>
     private static ChatClientAgent CreateChatClientAgent(
-        AgentsClient agentsClient,
+        AgentClient AgentClient,
         AgentVersion agentVersion,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
@@ -633,7 +623,7 @@ public static class AgentsClientExtensions
         bool requireInvocableTools,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(agentsClient, agentVersion, agentOptions.ChatOptions, openAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(AgentClient, agentVersion, agentOptions.ChatOptions, openAIClientOptions);
 
         if (clientFactory is not null)
         {
@@ -645,7 +635,7 @@ public static class AgentsClientExtensions
 
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with a auto-generated ChatClientAgentOptions from the specified configuration parameters.</summary>
     private static ChatClientAgent CreateChatClientAgent(
-        AgentsClient agentsClient,
+        AgentClient AgentClient,
         AgentVersion agentVersion,
         IList<AITool>? tools,
         Func<IChatClient, IChatClient>? clientFactory,
@@ -653,7 +643,7 @@ public static class AgentsClientExtensions
         bool requireInvocableTools,
         IServiceProvider? services)
         => CreateChatClientAgent(
-            agentsClient,
+            AgentClient,
             agentVersion,
             CreateChatClientAgentOptions(agentVersion, new ChatOptions() { Tools = tools }, requireInvocableTools),
             clientFactory,
