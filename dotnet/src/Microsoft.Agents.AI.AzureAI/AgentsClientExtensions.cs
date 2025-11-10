@@ -2,7 +2,6 @@
 
 using System.ClientModel;
 using System.ClientModel.Primitives;
-using System.Reflection;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.AzureAI;
 using Microsoft.Extensions.AI;
@@ -548,22 +547,12 @@ public static class AgentClientExtensions
 
     #region Private
 
-    private static readonly string s_userAgentValue = CreateUserAgentValue();
-
-    private static RequestOptions GetRequestOptions(CancellationToken cancellationToken)
-    {
-        RequestOptions options = new() { CancellationToken = cancellationToken };
-        options.AddHeader("User-Agent", s_userAgentValue);
-
-        return options;
-    }
-
     /// <summary>
     /// Retrieves an agent record by name using the Protocol method with user-agent header.
     /// </summary>
     private static AgentRecord GetAgentRecordByName(AgentClient agentClient, string agentName, CancellationToken cancellationToken)
     {
-        ClientResult protocolResponse = agentClient.GetAgent(agentName, GetRequestOptions(cancellationToken));
+        ClientResult protocolResponse = agentClient.GetAgent(agentName, cancellationToken.ToRequestOptions(false));
         return ClientResult.FromOptionalValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
             ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
     }
@@ -573,7 +562,7 @@ public static class AgentClientExtensions
     /// </summary>
     private static async Task<AgentRecord> GetAgentRecordByNameAsync(AgentClient agentClient, string agentName, CancellationToken cancellationToken)
     {
-        ClientResult protocolResponse = await agentClient.GetAgentAsync(agentName, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
+        ClientResult protocolResponse = await agentClient.GetAgentAsync(agentName, cancellationToken.ToRequestOptions(false)).ConfigureAwait(false);
         return ClientResult.FromOptionalValue((AgentRecord)protocolResponse, protocolResponse.GetRawResponse()).Value
             ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
     }
@@ -584,7 +573,7 @@ public static class AgentClientExtensions
     private static AgentVersion CreateAgentVersionWithProtocol(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
     {
         BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = agentClient.CreateAgentVersion(agentName, protocolRequest, GetRequestOptions(cancellationToken));
+        ClientResult protocolResponse = agentClient.CreateAgentVersion(agentName, protocolRequest, cancellationToken.ToRequestOptions(false));
         return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
     }
 
@@ -594,29 +583,8 @@ public static class AgentClientExtensions
     private static async Task<AgentVersion> CreateAgentVersionWithProtocolAsync(AgentClient agentClient, string agentName, AgentVersionCreationOptions creationOptions, CancellationToken cancellationToken)
     {
         BinaryContent protocolRequest = BinaryContent.Create(ModelReaderWriter.Write(creationOptions));
-        ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(agentName, protocolRequest, GetRequestOptions(cancellationToken)).ConfigureAwait(false);
+        ClientResult protocolResponse = await agentClient.CreateAgentVersionAsync(agentName, protocolRequest, cancellationToken.ToRequestOptions(false)).ConfigureAwait(false);
         return ClientResult.FromValue((AgentVersion)protocolResponse, protocolResponse.GetRawResponse()).Value;
-    }
-
-    private static string CreateUserAgentValue()
-    {
-        const string Name = "MEAI";
-
-        if (typeof(IChatClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion is string version)
-        {
-            int pos = version.IndexOf('+');
-            if (pos >= 0)
-            {
-                version = version.Substring(0, pos);
-            }
-
-            if (version.Length > 0)
-            {
-                return $"{Name}/{version}";
-            }
-        }
-
-        return Name;
     }
 
     private static ChatClientAgent CreateAIAgent(

@@ -6,6 +6,9 @@ using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1784,6 +1787,70 @@ public sealed class AgentClientExtensionsTests
         Assert.NotNull(capturedRequestOptions);
     }
 
+    /// <summary>
+    /// Verify that CreateAIAgentAsync(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public async Task CreateAIAgent_UserAgentHeaderAddedToRequestsAsync()
+    {
+        using var httpHandler = new HttpHandlerAssert(request =>
+        {
+            Assert.Equal("POST", request.Method.Method);
+            Assert.Contains("MEAI", request.Headers.UserAgent.ToString());
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AgentTestJsonObject, Encoding.UTF8, "application/json") };
+        });
+
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(httpHandler);
+#pragma warning restore CA5399
+
+        // Arrange
+        var agentClient = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+
+        var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
+
+        // Act
+        var agent1 = agentClient.CreateAIAgent("test", agentOptions);
+        var agent2 = await agentClient.CreateAIAgentAsync("test", agentOptions);
+
+        // Assert
+        Assert.NotNull(agent1);
+        Assert.NotNull(agent2);
+    }
+
+    /// <summary>
+    /// Verify that CreateAIAgentAsync(string model, ChatClientAgentOptions options) passes RequestOptions to the Protocol method.
+    /// </summary>
+    [Fact]
+    public async Task GetAIAgent_UserAgentHeaderAddedToRequestsAsync()
+    {
+        using var httpHandler = new HttpHandlerAssert(request =>
+        {
+            Assert.Equal("GET", request.Method.Method);
+            Assert.Contains("MEAI", request.Headers.UserAgent.ToString());
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AgentTestJsonObject, Encoding.UTF8, "application/json") };
+        });
+
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(httpHandler);
+#pragma warning restore CA5399
+
+        // Arrange
+        var agentClient = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+
+        var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
+
+        // Act
+        var agent1 = agentClient.GetAIAgent("test");
+        var agent2 = await agentClient.GetAIAgentAsync("test");
+
+        // Assert
+        Assert.NotNull(agent1);
+        Assert.NotNull(agent2);
+    }
+
     #endregion
 
     #region Helper Methods
@@ -2109,4 +2176,12 @@ public sealed class AgentClientExtensionsTests
 
     #endregion
 
+    private sealed class HttpHandlerAssert(Func<HttpRequestMessage, HttpResponseMessage> assertion) : HttpClientHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = assertion(request);
+            return Task.FromResult(response);
+        }
+    }
 }
