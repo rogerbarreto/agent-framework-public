@@ -790,12 +790,12 @@ public static class AgentClientExtensions
     }
 
     /// <summary>
-    /// Adds the specified AI tools to a prompt agent definition, ensuring that all tools are compatible and, if required, invocable.
+    /// Adds the specified AI tools to a prompt agent definition, while also ensuring that all invocable tools are provided.
     /// </summary>
     /// <param name="agentDefinition">The agent definition to which the tools will be applied. Must be a PromptAgentDefinition to support tools.</param>
     /// <param name="tools">A list of AI tools to add to the agent definition. If null or empty, no tools are added.</param>
-    /// <exception cref="ArgumentException">Thrown if <paramref name="agentDefinition"/> is not a <see cref="PromptAgentDefinition"/>.</exception>
-    /// <exception cref="InvalidOperationException">Thrown if a tool is an <see cref="AIFunctionDeclaration"/> that is not invocable, or if a tool cannot be converted to a <see cref="ResponseTool"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown if tools were provided but <paramref name="agentDefinition"/> is not a <see cref="PromptAgentDefinition"/>.</exception>
+    /// <exception cref="InvalidOperationException">When providing functions, they need to be invokable AIFunctions.</exception>
     private static void ApplyToolsToAgentDefinition(AgentDefinition agentDefinition, IList<AITool>? tools)
     {
         if (tools is { Count: > 0 })
@@ -806,7 +806,7 @@ public static class AgentClientExtensions
             }
 
             // When tools are provided, those should represent the complete set of tools for the agent definition.
-            // This is particularly important for existing agents so no duplication happens for what was already defined
+            // This is particularly important for existing agents so no duplication happens for what was already defined.
             promptAgentDefinition.Tools.Clear();
 
             foreach (var tool in tools)
