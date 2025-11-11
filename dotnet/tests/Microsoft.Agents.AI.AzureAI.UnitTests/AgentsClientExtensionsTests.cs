@@ -504,7 +504,7 @@ public sealed class AgentClientExtensionsTests
     #region GetAIAgent(AgentClient, AgentRecord) with tools Tests
 
     /// <summary>
-    /// Verify that GetAIAgent with tools parameter passes tools to the agent.
+    /// Verify that GetAIAgent with additional tools when the definition has no tools does not throw and results in an agent with no tools.
     /// </summary>
     [Fact]
     public void GetAIAgent_WithAgentRecordAndAdditionalTools_WhenDefinitionHasNoTools_ShouldNotThrow()
@@ -999,10 +999,10 @@ public sealed class AgentClientExtensionsTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        // Arrange
+
         var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
-        var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
+
 
         // Create a response definition with the same tool
 
@@ -1047,12 +1047,12 @@ public sealed class AgentClientExtensionsTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        // Arrange
+
         var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
-        var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
 
-        // Create a response definition with the same tool
+
+
 
         // Act
         var agent = client.CreateAIAgent(
