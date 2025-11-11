@@ -136,7 +136,7 @@ public static class AgentClientExtensions
     /// </summary>
     /// <param name="agentClient">The client used to interact with Azure AI Agents. Cannot be <see langword="null"/>.</param>
     /// <param name="agentVersion">The agent version to be converted. Cannot be <see langword="null"/>.</param>
-    /// <param name="tools">In-process invocable tools to be provided tools. If no tools are provided manual handling will be necessary to invoke in-process tools.</param>
+    /// <param name="tools">In-process invocable tools to be provided. If no tools are provided manual handling will be necessary to invoke in-process tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="openAIClientOptions">An optional <see cref="OpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
@@ -806,7 +806,7 @@ public static class AgentClientExtensions
             }
 
             // When tools are provided, those should represent the complete set of tools for the agent definition.
-            // This is particular important for existing agents so no duplication happens for what was already defined
+            // This is particularly important for existing agents so no duplication happens for what was already defined
             promptAgentDefinition.Tools.Clear();
 
             foreach (var tool in tools)

@@ -1005,9 +1005,7 @@ public sealed class AgentClientExtensionsTests
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
 
         // Create a response definition with the same tool
-        var definitionResponse = GeneratePromptDefinitionResponse(definition, definition.Tools.Select(t => t.AsAITool()).ToList());
 
-        var options = new AgentVersionCreationOptions(definition);
 
         // Act
         var agent = await client.CreateAIAgentAsync(
@@ -1021,7 +1019,7 @@ public sealed class AgentClientExtensionsTests
         Assert.IsType<ChatClientAgent>(agent);
         var agentVersion = agent.GetService<AgentVersion>();
         Assert.NotNull(agentVersion);
-        var promptDef = Assert.IsType<PromptAgentDefinition>(agentVersion.Definition);
+        Assert.IsType<PromptAgentDefinition>(agentVersion.Definition);
     }
 
     /// <summary>
@@ -1055,9 +1053,6 @@ public sealed class AgentClientExtensionsTests
         var definition = new PromptAgentDefinition("test-model") { Instructions = "Test" };
 
         // Create a response definition with the same tool
-        var definitionResponse = GeneratePromptDefinitionResponse(definition, definition.Tools.Select(t => t.AsAITool()).ToList());
-
-        var options = new AgentVersionCreationOptions(definition);
 
         // Act
         var agent = client.CreateAIAgent(
@@ -1071,7 +1066,7 @@ public sealed class AgentClientExtensionsTests
         Assert.IsType<ChatClientAgent>(agent);
         var agentVersion = agent.GetService<AgentVersion>();
         Assert.NotNull(agentVersion);
-        var promptDef = Assert.IsType<PromptAgentDefinition>(agentVersion.Definition);
+        Assert.IsType<PromptAgentDefinition>(agentVersion.Definition);
     }
 
     /// <summary>
@@ -1097,7 +1092,7 @@ public sealed class AgentClientExtensionsTests
     }
 
     /// <summary>
-    /// Verify that when providing AITools with GetAIAgent, any additional tool that doesnt match the tools in agent definition are ignored.
+    /// Verify that when providing AITools with GetAIAgent, any additional tool that doesn't match the tools in agent definition are ignored.
     /// </summary>
     [Fact]
     public void GetAIAgent_AdditionalAITools_WhenNotInTheDefinitionAreIgnored()
