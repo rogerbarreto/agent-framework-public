@@ -999,13 +999,7 @@ public sealed class AgentClientExtensionsTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-
         var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
-
-
-
-        // Create a response definition with the same tool
-
 
         // Act
         var agent = await client.CreateAIAgentAsync(
@@ -1047,12 +1041,7 @@ public sealed class AgentClientExtensionsTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-
         var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
-
-
-
-
 
         // Act
         var agent = client.CreateAIAgent(
