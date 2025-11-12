@@ -156,12 +156,15 @@ public static class AgentClientExtensions
         Throw.IfNull(agentClient);
         Throw.IfNull(agentRecord);
 
-        return GetAIAgent(
+        var allowDeclarativeMode = tools is not { Count: > 0 };
+
+        return CreateChatClientAgent(
             agentClient,
-            agentVersion: agentRecord.Versions.Latest,
+            agentRecord,
             tools,
             clientFactory,
             openAIClientOptions,
+            !allowDeclarativeMode,
             services);
     }
 
@@ -694,6 +697,25 @@ public static class AgentClientExtensions
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with the specified ChatClientAgentOptions.</summary>
     private static ChatClientAgent CreateChatClientAgent(
         AgentClient agentClient,
+        AgentRecord agentRecord,
+        ChatClientAgentOptions agentOptions,
+        Func<IChatClient, IChatClient>? clientFactory,
+        OpenAIClientOptions? openAIClientOptions,
+        IServiceProvider? services)
+    {
+        IChatClient chatClient = new AzureAIAgentChatClient(agentClient, agentRecord, agentOptions.ChatOptions, openAIClientOptions);
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
+        return new ChatClientAgent(chatClient, agentOptions, services: services);
+    }
+
+    /// <summary>This method creates an <see cref="ChatClientAgent"/> with the specified ChatClientAgentOptions.</summary>
+    private static ChatClientAgent CreateChatClientAgent(
+        AgentClient agentClient,
         AgentReference agentReference,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
@@ -723,6 +745,23 @@ public static class AgentClientExtensions
             AgentClient,
             agentVersion,
             CreateChatClientAgentOptions(agentVersion, new ChatOptions() { Tools = tools }, requireInvocableTools),
+            clientFactory,
+            openAIClientOptions,
+            services);
+
+    /// <summary>This method creates an <see cref="ChatClientAgent"/> with a auto-generated ChatClientAgentOptions from the specified configuration parameters.</summary>
+    private static ChatClientAgent CreateChatClientAgent(
+        AgentClient AgentClient,
+        AgentRecord agentRecord,
+        IList<AITool>? tools,
+        Func<IChatClient, IChatClient>? clientFactory,
+        OpenAIClientOptions? openAIClientOptions,
+        bool requireInvocableTools,
+        IServiceProvider? services)
+        => CreateChatClientAgent(
+            AgentClient,
+            agentRecord,
+            CreateChatClientAgentOptions(agentRecord.Versions.Latest, new ChatOptions() { Tools = tools }, requireInvocableTools),
             clientFactory,
             openAIClientOptions,
             services);
