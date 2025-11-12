@@ -65,7 +65,7 @@ internal static class TestDataUtil
         return json;
     }
 
-    internal static string ApplyAgentName(string json, string? agentName)
+    private static string ApplyAgentName(string json, string? agentName)
     {
         if (!string.IsNullOrEmpty(agentName))
         {
@@ -74,14 +74,14 @@ internal static class TestDataUtil
         return json;
     }
 
-    internal static string ApplyAgentDefinition(string json, AgentDefinition? definition)
+    private static string ApplyAgentDefinition(string json, AgentDefinition? definition)
     {
         return (definition is not null)
             ? json.Replace(AgentDefinitionPlaceholder, ModelReaderWriter.Write(definition).ToString())
             : json.Replace(AgentDefinitionPlaceholder, DefaultAgentDefinition);
     }
 
-    internal static string ApplyInstructions(string json, string? instructions)
+    private static string ApplyInstructions(string json, string? instructions)
     {
         if (!string.IsNullOrEmpty(instructions))
         {
@@ -90,7 +90,7 @@ internal static class TestDataUtil
         return json;
     }
 
-    internal static string ApplyDescription(string json, string? description)
+    private static string ApplyDescription(string json, string? description)
     {
         if (!string.IsNullOrEmpty(description))
         {
