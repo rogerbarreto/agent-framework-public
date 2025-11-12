@@ -55,7 +55,7 @@ public class AzureAIChatClientTests
 
         // Act
         var thread = agent.GetNewThread();
-        var response = await agent.RunAsync("Hello", thread);
+        await agent.RunAsync("Hello", thread);
 
         Assert.True(requestTriggered);
         var chatClientThread = Assert.IsType<ChatClientAgentThread>(thread);
@@ -63,7 +63,7 @@ public class AzureAIChatClientTests
     }
 
     /// <summary>
-    /// Verify that when the chat client doesn't have a default "conv_" conversation id, the chat client still uses conversation in the http requests via the chat client
+    /// Verify that when the chat client doesn't have a default "conv_" conversation id, the chat client still uses the conversation ID in HTTP requests.
     /// </summary>
     [Fact]
     public async Task ChatClient_UsesPerRequestConversationId_WhenNoDefaultConversationIdIsProvidedAsync()
@@ -104,7 +104,7 @@ public class AzureAIChatClientTests
 
         // Act
         var thread = agent.GetNewThread();
-        var response = await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "conv_12345" } });
+        await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "conv_12345" } });
 
         Assert.True(requestTriggered);
         var chatClientThread = Assert.IsType<ChatClientAgentThread>(thread);
@@ -112,7 +112,7 @@ public class AzureAIChatClientTests
     }
 
     /// <summary>
-    /// Verify that even when the chat client have a default conversation id, the chat client will prioritize the per-request conversation provided in the http requests via the chat client
+    /// Verify that even when the chat client has a default conversation id, the chat client will prioritize the per-request conversation id provided in HTTP requests.
     /// </summary>
     [Fact]
     public async Task ChatClient_UsesPerRequestConversationId_EvenWhenDefaultConversationIdIsProvidedAsync()
@@ -154,7 +154,7 @@ public class AzureAIChatClientTests
 
         // Act
         var thread = agent.GetNewThread();
-        var response = await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "conv_12345" } });
+        await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "conv_12345" } });
 
         Assert.True(requestTriggered);
         var chatClientThread = Assert.IsType<ChatClientAgentThread>(thread);
@@ -162,7 +162,7 @@ public class AzureAIChatClientTests
     }
 
     /// <summary>
-    /// Verify that when the chatclient is provided without a "conv_" prefixed conversation id, the chat client will work with the previous conversation id in the http requests via the chat client
+    /// Verify that when the chat client is provided without a "conv_" prefixed conversation ID, the chat client uses the previous conversation ID in HTTP requests.
     /// </summary>
     [Fact]
     public async Task ChatClient_UsesPreviousResponseId_WhenConversationIsNotPrefixedAsConvAsync()
@@ -203,7 +203,7 @@ public class AzureAIChatClientTests
 
         // Act
         var thread = agent.GetNewThread();
-        var response = await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "resp_0888a" } });
+        await agent.RunAsync("Hello", thread, options: new ChatClientAgentRunOptions() { ChatOptions = new() { ConversationId = "resp_0888a" } });
 
         Assert.True(requestTriggered);
         var chatClientThread = Assert.IsType<ChatClientAgentThread>(thread);
