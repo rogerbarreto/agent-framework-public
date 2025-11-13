@@ -22,7 +22,7 @@ await using var mcpClient = await McpClient.CreateAsync(new StdioClientTransport
 }));
 
 // Retrieve the list of tools available on the GitHub server
-var mcpTools = await mcpClient.ListToolsAsync().ConfigureAwait(false);
+IList<McpClientTool> mcpTools = await mcpClient.ListToolsAsync();
 string agentName = "AgentWithMCP";
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
 AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
