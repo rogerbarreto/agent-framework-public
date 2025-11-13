@@ -6,7 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using Azure.AI.Agents;
+using Azure.AI.Projects;
 
 namespace Microsoft.Agents.AI.AzureAI.UnitTests;
 
@@ -43,7 +43,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
@@ -93,7 +93,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
@@ -142,7 +142,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
@@ -192,7 +192,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions

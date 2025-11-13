@@ -30,10 +30,10 @@ public static class DurableTaskClientExtensions
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrEmpty(agentName);
 
-        DefaultDurableAgentClient agentClient = ActivatorUtilities.CreateInstance<DefaultDurableAgentClient>(
+        DefaultDurableAgentClient aiProjectClient = ActivatorUtilities.CreateInstance<DefaultDurableAgentClient>(
             context.InstanceServices,
             durableClient);
 
-        return new DurableAIAgentProxy(agentName, agentClient);
+        return new DurableAIAgentProxy(agentName, aiProjectClient);
     }
 }

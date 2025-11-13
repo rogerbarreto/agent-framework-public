@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.AI.Agents;
+using Azure.AI.Projects;
 using Azure.Core;
 using Microsoft.Extensions.AI;
 using OpenAI;
@@ -30,11 +30,11 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
     private readonly Dictionary<string, AgentVersion> _versionCache = [];
     private readonly Dictionary<string, AIAgent> _agentCache = [];
 
-    private AgentClient? _agentClient;
+    private AIProjectClient? _agentClient;
     private ConversationClient? _conversationClient;
 
     /// <summary>
-    /// Optional options used when creating the <see cref="AgentClient"/>.
+    /// Optional options used when creating the <see cref="AIProjectClient"/>.
     /// </summary>
     public AgentClientOptions? AgentClientOptions { get; init; }
 
@@ -138,7 +138,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
             return targetAgent;
         }
 
-        AgentClient client = this.GetAgentClient();
+        AIProjectClient client = this.GetAgentClient();
 
         if (string.IsNullOrEmpty(agentVersion))
         {
@@ -170,7 +170,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
             return agent;
         }
 
-        AgentClient client = this.GetAgentClient();
+        AIProjectClient client = this.GetAgentClient();
 
         agent = client.GetAIAgent(agentVersion, tools: null, clientFactory: null, this.OpenAIClientOptions, services: null);
 
@@ -228,7 +228,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
         }
     }
 
-    private AgentClient GetAgentClient()
+    private AIProjectClient GetAgentClient()
     {
         if (this._agentClient is null)
         {
@@ -239,7 +239,7 @@ public sealed class AzureAgentProvider(Uri projectEndpoint, TokenCredential proj
                 clientOptions.Transport = new HttpClientPipelineTransport(this.HttpClient);
             }
 
-            AgentClient newClient = new(projectEndpoint, projectCredentials, clientOptions);
+            AIProjectClient newClient = new(projectEndpoint, projectCredentials, clientOptions);
 
             Interlocked.CompareExchange(ref this._agentClient, newClient, null);
         }
