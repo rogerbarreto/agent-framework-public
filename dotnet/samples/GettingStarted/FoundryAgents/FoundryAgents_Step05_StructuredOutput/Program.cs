@@ -24,7 +24,13 @@ var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
 // Create ChatClientAgent directly
 ChatClientAgent agent = await agentClient.CreateAIAgentAsync(
     model: deploymentName,
-    new ChatClientAgentOptions(name: AssistantName, instructions: AssistantInstructions));
+    new ChatClientAgentOptions(name: AssistantName, instructions: AssistantInstructions)
+    {
+        ChatOptions = new()
+        {
+            ResponseFormat = Microsoft.Extensions.AI.ChatResponseFormat.ForJsonSchema<PersonInfo>()
+        }
+    });
 
 // Set PersonInfo as the type parameter of RunAsync method to specify the expected structured output from the agent and invoke the agent with some unstructured input.
 AgentRunResponse<PersonInfo> response = await agent.RunAsync<PersonInfo>("Please provide information about John Smith, who is a 35-year-old software engineer.");
@@ -36,13 +42,15 @@ Console.WriteLine($"Age: {response.Result.Age}");
 Console.WriteLine($"Occupation: {response.Result.Occupation}");
 
 // Create the ChatClientAgent with the specified name, instructions, and expected structured output the agent should produce.
-ChatClientAgent agentWithPersonInfo = agentClient.CreateAIAgent(model: deploymentName, new ChatClientAgentOptions(name: AssistantName, instructions: AssistantInstructions)
-{
-    ChatOptions = new()
+ChatClientAgent agentWithPersonInfo = agentClient.CreateAIAgent(
+    model: deploymentName,
+    new ChatClientAgentOptions(name: AssistantName, instructions: AssistantInstructions)
     {
-        ResponseFormat = Microsoft.Extensions.AI.ChatResponseFormat.ForJsonSchema<PersonInfo>()
-    }
-});
+        ChatOptions = new()
+        {
+            ResponseFormat = Microsoft.Extensions.AI.ChatResponseFormat.ForJsonSchema<PersonInfo>()
+        }
+    });
 
 // Invoke the agent with some unstructured input while streaming, to extract the structured information from.
 var updates = agentWithPersonInfo.RunStreamingAsync("Please provide information about John Smith, who is a 35-year-old software engineer.");
