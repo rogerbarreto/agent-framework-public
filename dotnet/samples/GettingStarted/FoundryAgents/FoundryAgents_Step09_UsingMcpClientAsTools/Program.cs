@@ -8,8 +8,8 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 Console.WriteLine("Starting MCP Stdio for @modelcontextprotocol/server-github ... ");
 
@@ -23,9 +23,9 @@ await using var mcpClient = await McpClient.CreateAsync(new StdioClientTransport
 
 // Retrieve the list of tools available on the GitHub server
 var mcpTools = await mcpClient.ListToolsAsync().ConfigureAwait(false);
-var agentName = "AgentWithMCP";
+string agentName = "AgentWithMCP";
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 Console.WriteLine($"Creating the agent '{agentName}' ...");
 
@@ -36,7 +36,7 @@ AIAgent agent = agentClient.CreateAIAgent(
     instructions: "You answer questions related to GitHub repositories only.",
     tools: [.. mcpTools.Cast<AITool>()]);
 
-var prompt = "Summarize the last four commits to the microsoft/semantic-kernel repository?";
+string prompt = "Summarize the last four commits to the microsoft/semantic-kernel repository?";
 
 Console.WriteLine($"Invoking agent '{agent.Name}' with prompt: {prompt} ...");
 

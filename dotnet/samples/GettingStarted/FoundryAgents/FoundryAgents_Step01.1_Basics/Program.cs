@@ -7,21 +7,21 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Define the agent you want to create. (Prompt Agent in this case)
-var options = new AgentVersionCreationOptions(new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions });
+AgentVersionCreationOptions options = new(new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions });
 
 // Azure.AI.Agents SDK creates and manages agent by name and versions.
 // You can create a server side agent version with the Azure.AI.Agents SDK client below.
-var agentVersion = agentClient.CreateAgentVersion(agentName: JokerName, options);
+AgentVersion agentVersion = agentClient.CreateAgentVersion(agentName: JokerName, options);
 
 // Note:
 //      agentVersion.Id = "<agentName>:<versionNumber>",
@@ -36,7 +36,7 @@ AIAgent jokerAgentV2 = agentClient.CreateAIAgent(name: JokerName, model: deploym
 
 // You can also get the AIAgent latest version just providing its name.
 AIAgent jokerAgentLatest = agentClient.GetAIAgent(name: JokerName);
-var latestVersion = jokerAgentLatest.GetService<AgentVersion>()!;
+AgentVersion latestVersion = jokerAgentLatest.GetService<AgentVersion>()!;
 
 // The AIAgent version can be accessed via the GetService method.
 Console.WriteLine($"Latest agent version id: {latestVersion.Id}");

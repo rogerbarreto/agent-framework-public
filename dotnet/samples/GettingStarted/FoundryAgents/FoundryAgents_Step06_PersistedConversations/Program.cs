@@ -7,14 +7,14 @@ using Azure.AI.Agents;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 AIAgent agent = await agentClient.CreateAIAgentAsync(name: JokerName, model: deploymentName, instructions: JokerInstructions);
 
@@ -32,7 +32,7 @@ string tempFilePath = Path.GetTempFileName();
 await File.WriteAllTextAsync(tempFilePath, JsonSerializer.Serialize(serializedThread));
 
 // Load the serialized thread from the temporary file (for demonstration purposes).
-JsonElement reloadedSerializedThread = JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(tempFilePath));
+JsonElement reloadedSerializedThread = JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(tempFilePath))!;
 
 // Deserialize the thread state after loading from storage.
 AgentThread resumedThread = agent.DeserializeThread(reloadedSerializedThread);

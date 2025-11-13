@@ -8,8 +8,8 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string WeatherInstructions = "You answer questions about the weather.";
 const string WeatherName = "WeatherAgent";
@@ -21,10 +21,10 @@ static string GetWeather([Description("The location to get the weather for.")] s
     => $"The weather in {location} is cloudy with a high of 15°C.";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Create the weather agent with function tools.
-var weatherTool = AIFunctionFactory.Create(GetWeather);
+AITool weatherTool = AIFunctionFactory.Create(GetWeather);
 AIAgent weatherAgent = agentClient.CreateAIAgent(
     name: WeatherName,
     model: deploymentName,

@@ -11,8 +11,8 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 // Create a sample function tool that the agent can use.
 [Description("Get the weather for a given location.")]
@@ -23,9 +23,9 @@ const string AssistantInstructions = "You are a helpful assistant that can get w
 const string AssistantName = "WeatherAssistant";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
-var approvalTool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(GetWeather));
+ApprovalRequiredAIFunction approvalTool = new(AIFunctionFactory.Create(GetWeather));
 
 // Create AIAgent directly
 AIAgent agent = await agentClient.CreateAIAgentAsync(name: AssistantName, model: deploymentName, instructions: AssistantInstructions, tools: [approvalTool]);
@@ -33,21 +33,21 @@ AIAgent agent = await agentClient.CreateAIAgentAsync(name: AssistantName, model:
 // Call the agent with approval-required function tools.
 // The agent will request approval before invoking the function.
 AgentThread thread = agent.GetNewThread();
-var response = await agent.RunAsync("What is the weather like in Amsterdam?", thread);
+AgentRunResponse response = await agent.RunAsync("What is the weather like in Amsterdam?", thread);
 
 // Check if there are any user input requests (approvals needed).
-var userInputRequests = response.UserInputRequests.ToList();
+List<UserInputRequestContent> userInputRequests = response.UserInputRequests.ToList();
 
 while (userInputRequests.Count > 0)
 {
     // Ask the user to approve each function call request.
     // For simplicity, we are assuming here that only function approval requests are being made.
-    var userInputMessages = userInputRequests
+    List<ChatMessage> userInputMessages = userInputRequests
         .OfType<FunctionApprovalRequestContent>()
         .Select(functionApprovalRequest =>
         {
             Console.WriteLine($"The agent would like to invoke the following function, please reply Y to approve: Name {functionApprovalRequest.FunctionCall.Name}");
-            var approved = Console.ReadLine()?.Equals("Y", StringComparison.OrdinalIgnoreCase) ?? false;
+            bool approved = Console.ReadLine()?.Equals("Y", StringComparison.OrdinalIgnoreCase) ?? false;
             return new ChatMessage(ChatRole.User, [functionApprovalRequest.CreateResponse(approved)]);
         })
         .ToList();

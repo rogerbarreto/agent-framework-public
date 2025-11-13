@@ -13,14 +13,14 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
 // Get Azure AI Foundry configuration from environment variables
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = System.Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o";
 
 const string AssistantInstructions = "You are an AI assistant that helps people find information.";
 const string AssistantName = "InformationAssistant";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 [Description("Get the weather for a given location.")]
 static string GetWeather([Description("The location to get the weather for.")] string location)
@@ -30,8 +30,8 @@ static string GetWeather([Description("The location to get the weather for.")] s
 static string GetDateTime()
     => DateTimeOffset.Now.ToString();
 
-var dateTimeTool = AIFunctionFactory.Create(GetDateTime, name: nameof(GetDateTime));
-var getWeatherTool = AIFunctionFactory.Create(GetWeather, name: nameof(GetWeather));
+AITool dateTimeTool = AIFunctionFactory.Create(GetDateTime, name: nameof(GetDateTime));
+AITool getWeatherTool = AIFunctionFactory.Create(GetWeather, name: nameof(GetWeather));
 
 // Define the agent you want to create. (Prompt Agent in this case)
 AIAgent originalAgent = agentClient.CreateAIAgent(
@@ -41,7 +41,7 @@ AIAgent originalAgent = agentClient.CreateAIAgent(
     tools: [getWeatherTool, dateTimeTool]);
 
 // Adding middleware to the agent level
-var middlewareEnabledAgent = originalAgent
+AIAgent middlewareEnabledAgent = originalAgent
     .AsBuilder()
     .Use(FunctionCallMiddleware)
     .Use(FunctionCallOverrideWeather)
@@ -49,21 +49,21 @@ var middlewareEnabledAgent = originalAgent
     .Use(GuardrailMiddleware, null)
     .Build();
 
-var thread = middlewareEnabledAgent.GetNewThread();
+AgentThread thread = middlewareEnabledAgent.GetNewThread();
 
 Console.WriteLine("\n\n=== Example 1: Wording Guardrail ===");
-var guardRailedResponse = await middlewareEnabledAgent.RunAsync("Tell me something harmful.");
+AgentRunResponse guardRailedResponse = await middlewareEnabledAgent.RunAsync("Tell me something harmful.");
 Console.WriteLine($"Guard railed response: {guardRailedResponse}");
 
 Console.WriteLine("\n\n=== Example 2: PII detection ===");
-var piiResponse = await middlewareEnabledAgent.RunAsync("My name is John Doe, call me at 123-456-7890 or email me at john@something.com");
+AgentRunResponse piiResponse = await middlewareEnabledAgent.RunAsync("My name is John Doe, call me at 123-456-7890 or email me at john@something.com");
 Console.WriteLine($"Pii filtered response: {piiResponse}");
 
 Console.WriteLine("\n\n=== Example 3: Agent function middleware ===");
 
 // Agent function middleware support is limited to agents that wraps a upstream ChatClientAgent or derived from it.
 
-var functionCallResponse = await middlewareEnabledAgent.RunAsync("What's the current time and the weather in Seattle?", thread);
+AgentRunResponse functionCallResponse = await middlewareEnabledAgent.RunAsync("What's the current time and the weather in Seattle?", thread);
 Console.WriteLine($"Function calling response: {functionCallResponse}");
 
 // Special per-request middleware agent.
@@ -78,7 +78,7 @@ AIAgent humamInTheLoopAgent = agentClient.CreateAIAgent(
     tools: [new ApprovalRequiredAIFunction(AIFunctionFactory.Create(GetWeather, name: nameof(GetWeather)))]);
 
 // Using the ConsolePromptingApprovalMiddleware for a specific request to handle user approval during function calls.
-var response = await humamInTheLoopAgent
+AgentRunResponse response = await humamInTheLoopAgent
     .AsBuilder()
     .Use(ConsolePromptingApprovalMiddleware, null)
     .Build()
@@ -191,9 +191,9 @@ async Task<AgentRunResponse> GuardrailMiddleware(IEnumerable<ChatMessage> messag
 // This middleware handles Human in the loop console interaction for any user approval required during function calling.
 async Task<AgentRunResponse> ConsolePromptingApprovalMiddleware(IEnumerable<ChatMessage> messages, AgentThread? thread, AgentRunOptions? options, AIAgent innerAgent, CancellationToken cancellationToken)
 {
-    var response = await innerAgent.RunAsync(messages, thread, options, cancellationToken);
+    AgentRunResponse response = await innerAgent.RunAsync(messages, thread, options, cancellationToken);
 
-    var userInputRequests = response.UserInputRequests.ToList();
+    List<UserInputRequestContent> userInputRequests = response.UserInputRequests.ToList();
 
     while (userInputRequests.Count > 0)
     {
@@ -206,7 +206,7 @@ async Task<AgentRunResponse> ConsolePromptingApprovalMiddleware(IEnumerable<Chat
             .Select(functionApprovalRequest =>
             {
                 Console.WriteLine($"The agent would like to invoke the following function, please reply Y to approve: Name {functionApprovalRequest.FunctionCall.Name}");
-                var approved = Console.ReadLine()?.Equals("Y", StringComparison.OrdinalIgnoreCase) ?? false;
+                bool approved = Console.ReadLine()?.Equals("Y", StringComparison.OrdinalIgnoreCase) ?? false;
                 return new ChatMessage(ChatRole.User, [functionApprovalRequest.CreateResponse(approved)]);
             })
             .ToList();

@@ -10,8 +10,8 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
@@ -57,7 +57,7 @@ internal sealed class SampleService(AgentClient client, AIAgent agent, IHostAppl
         {
             Console.WriteLine("\nAgent: Ask me to tell you a joke about a specific topic. To exit just press Ctrl+C or enter without any input.\n");
             Console.Write("> ");
-            var input = Console.ReadLine();
+            string? input = Console.ReadLine();
 
             // If the user enters no input, signal the application to shut down.
             if (string.IsNullOrWhiteSpace(input))
@@ -67,7 +67,7 @@ internal sealed class SampleService(AgentClient client, AIAgent agent, IHostAppl
             }
 
             // Stream the output to the console as it is generated.
-            await foreach (var update in agent.RunStreamingAsync(input, this._thread, cancellationToken: cancellationToken))
+            await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(input, this._thread, cancellationToken: cancellationToken))
             {
                 Console.Write(update);
             }

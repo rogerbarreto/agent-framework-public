@@ -6,21 +6,21 @@ using Azure.AI.Agents;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Define the agent you want to create. (Prompt Agent in this case)
-var options = new AgentVersionCreationOptions(new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions });
+AgentVersionCreationOptions options = new(new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions });
 
 // Azure.AI.Agents SDK creates and manages agent by name and versions.
 // You can create a server side agent version with the Azure.AI.Agents SDK client below.
-var agentVersion = agentClient.CreateAgentVersion(agentName: JokerName, options);
+AgentVersion agentVersion = agentClient.CreateAgentVersion(agentName: JokerName, options);
 
 // You can retrieve an AIAgent for a already created server side agent version.
 AIAgent jokerAgent = agentClient.GetAIAgent(agentVersion);
@@ -31,7 +31,7 @@ Console.WriteLine(await jokerAgent.RunAsync("Tell me a joke about a pirate.", th
 
 // Invoke the agent with streaming support.
 thread = jokerAgent.GetNewThread();
-await foreach (var update in jokerAgent.RunStreamingAsync("Tell me a joke about a pirate.", thread))
+await foreach (AgentRunResponseUpdate update in jokerAgent.RunStreamingAsync("Tell me a joke about a pirate.", thread))
 {
     Console.WriteLine(update);
 }

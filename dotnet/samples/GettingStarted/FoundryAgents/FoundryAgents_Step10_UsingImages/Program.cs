@@ -7,14 +7,14 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = System.Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o";
 
 const string VisionInstructions = "You are a helpful agent that can analyze images";
 const string VisionName = "VisionAgent";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Define the agent you want to create. (Prompt Agent in this case)
 AIAgent agent = agentClient.CreateAIAgent(name: VisionName, model: deploymentName, instructions: VisionInstructions);
@@ -24,9 +24,9 @@ ChatMessage message = new(ChatRole.User, [
     new UriContent("https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg", "image/jpeg")
 ]);
 
-var thread = agent.GetNewThread();
+AgentThread thread = agent.GetNewThread();
 
-await foreach (var update in agent.RunStreamingAsync(message, thread))
+await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync(message, thread))
 {
     Console.WriteLine(update);
 }

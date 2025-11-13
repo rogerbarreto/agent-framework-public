@@ -15,8 +15,8 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string AssistantInstructions = "You are a helpful assistant that helps people find information.";
 const string AssistantName = "PluginAssistant";
@@ -30,7 +30,7 @@ services.AddSingleton<AgentPlugin>(); // The plugin depends on WeatherProvider a
 IServiceProvider serviceProvider = services.BuildServiceProvider();
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Define the agent with plugin tools
 // Define the agent you want to create. (Prompt Agent in this case)
@@ -79,7 +79,7 @@ internal sealed class AgentPlugin(WeatherProvider weatherProvider)
     public DateTimeOffset GetCurrentTime(IServiceProvider sp, string location)
     {
         // Resolve the CurrentTimeProvider from the service provider
-        var currentTimeProvider = sp.GetRequiredService<CurrentTimeProvider>();
+        CurrentTimeProvider currentTimeProvider = sp.GetRequiredService<CurrentTimeProvider>();
 
         return currentTimeProvider.GetCurrentTime(location);
     }

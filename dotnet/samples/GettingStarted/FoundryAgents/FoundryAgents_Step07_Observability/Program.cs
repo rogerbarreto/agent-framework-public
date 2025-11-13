@@ -9,9 +9,9 @@ using Microsoft.Agents.AI;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
-var applicationInsightsConnectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
+string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+string? applicationInsightsConnectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
@@ -19,7 +19,7 @@ const string JokerName = "JokerAgent";
 // Create TracerProvider with console exporter
 // This will output the telemetry data to the console.
 string sourceName = Guid.NewGuid().ToString("N");
-var tracerProviderBuilder = Sdk.CreateTracerProviderBuilder()
+TracerProviderBuilder tracerProviderBuilder = Sdk.CreateTracerProviderBuilder()
     .AddSource(sourceName)
     .AddConsoleExporter();
 if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
@@ -29,7 +29,7 @@ if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
 using var tracerProvider = tracerProviderBuilder.Build();
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-var agentClient = new AgentClient(new Uri(endpoint), new AzureCliCredential());
+AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
 // Define the agent you want to create. (Prompt Agent in this case)
 AIAgent agent = agentClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: JokerInstructions)
@@ -43,7 +43,7 @@ Console.WriteLine(await agent.RunAsync("Tell me a joke about a pirate.", thread)
 
 // Invoke the agent with streaming support.
 thread = agent.GetNewThread();
-await foreach (var update in agent.RunStreamingAsync("Tell me a joke about a pirate.", thread))
+await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync("Tell me a joke about a pirate.", thread))
 {
     Console.WriteLine(update);
 }
