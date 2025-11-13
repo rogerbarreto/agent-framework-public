@@ -24,12 +24,9 @@ AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 // Create the server side agent version
 AIAgent agentOption1 = await agentClient.CreateAIAgentAsync(
     model: deploymentName,
-    options: new ChatClientAgentOptions()
-    {
-        Name = AgentNameMEAI,
-        Instructions = AgentInstructions,
-        ChatOptions = new() { Tools = [new HostedCodeInterpreterTool() { Inputs = [] }] }
-    });
+    name: AgentNameMEAI,
+    instructions: AgentInstructions,
+    tools: [new HostedCodeInterpreterTool() { Inputs = [] }]);
 
 // Option 2 - Using PromptAgentDefinition SDK native type
 // Create the server side agent version
