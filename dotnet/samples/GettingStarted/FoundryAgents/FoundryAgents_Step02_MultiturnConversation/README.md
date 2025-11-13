@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Multi-turn Conversation with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to implement multi-turn conversations with AI agents, where context is preserved across multiple agent runs using threads.
+
+## What this sample demonstrates
+
+- Creating an AI agent with instructions
+- Using threads to maintain conversation context
+- Running multi-turn conversations with text output
+- Running multi-turn conversations with streaming output
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,18 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step02_MultiturnConversation
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create an agent named "JokerAgent" with instructions to tell jokes
+2. Create a thread for conversation context
+3. Run the agent with a text prompt and display the response
+4. Send a follow-up message to the same thread, demonstrating context preservation
+5. Create a new thread and run the agent with streaming
+6. Send a follow-up streaming message to demonstrate multi-turn streaming
+7. Clean up resources by deleting the agent
+

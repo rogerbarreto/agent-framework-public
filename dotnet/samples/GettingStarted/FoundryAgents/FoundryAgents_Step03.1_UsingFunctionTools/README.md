@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Using Function Tools with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to use function tools with AI agents, allowing agents to call custom functions to retrieve information.
+
+## What this sample demonstrates
+
+- Creating function tools using AIFunctionFactory
+- Passing function tools to an AI agent
+- Running agents with function tools (text output)
+- Running agents with function tools (streaming output)
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,16 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step03.1_UsingFunctionTools
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create an agent named "WeatherAssistant" with a GetWeather function tool
+2. Run the agent with a text prompt asking about weather
+3. The agent will invoke the GetWeather function tool to retrieve weather information
+4. Run the agent again with streaming to display the response as it's generated
+5. Clean up resources by deleting the agent
+

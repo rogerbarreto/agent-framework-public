@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Using Function Tools from OpenAPI Specifications
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to create function tools from an OpenAPI specification and use them with AI agents.
+
+## What this sample demonstrates
+
+- Loading OpenAPI specifications from files
+- Converting OpenAPI specifications to Semantic Kernel plugins
+- Converting Semantic Kernel plugins to AI function tools
+- Using OpenAPI-based function tools with AI agents
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,17 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step03.2_UsingFunctionTools_FromOpenAPI
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Load the OpenAPI specification from OpenAPISpec.json (GitHub API)
+2. Convert the OpenAPI spec to Semantic Kernel plugins
+3. Create an agent named "GitHubAssistant" with the OpenAPI-based function tools
+4. Run the agent with a prompt to query GitHub repositories
+5. The agent will invoke the appropriate OpenAPI function tools to retrieve data
+6. Clean up resources by deleting the agent
+

@@ -1,9 +1,14 @@
-# Creating and Managing AI Agents with Versioning
+# Dependency Injection with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to use dependency injection to register and manage AI agents within a hosted service application.
+
+## What this sample demonstrates
+
+- Setting up dependency injection with HostApplicationBuilder
+- Registering AgentClient as a singleton service
+- Registering AIAgent as a singleton service
+- Using agents in hosted services
+- Interactive chat loop with streaming responses
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +34,18 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step08_DependencyInjection
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create a host with dependency injection configured
+2. Register AgentClient and AIAgent as services
+3. Create an agent named "JokerAgent" with instructions to tell jokes
+4. Start an interactive chat loop where you can ask the agent questions
+5. The agent will respond with streaming output
+6. Enter an empty line or press Ctrl+C to exit
+7. Clean up resources by deleting the agent
+

@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Persisted Conversations with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to serialize and persist agent conversation threads to storage, allowing conversations to be resumed later.
+
+## What this sample demonstrates
+
+- Serializing agent threads to JSON
+- Persisting thread state to disk
+- Loading and deserializing thread state from storage
+- Resuming conversations with persisted threads
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,18 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step06_PersistedConversations
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create an agent named "JokerAgent" with instructions to tell jokes
+2. Create a thread and run the agent with an initial prompt
+3. Serialize the thread state to JSON
+4. Save the serialized thread to a temporary file
+5. Load the thread from the file and deserialize it
+6. Resume the conversation with the same thread using a follow-up prompt
+7. Clean up resources by deleting the agent
+

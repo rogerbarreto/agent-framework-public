@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Using AI Agents as Function Tools (Nested Agents)
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to expose an AI agent as a function tool, enabling nested agent scenarios where one agent can invoke another agent as a tool.
+
+## What this sample demonstrates
+
+- Creating an AI agent that can be used as a function tool
+- Wrapping an agent as an AIFunction
+- Using nested agents where one agent calls another
+- Managing multiple agent instances
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,17 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step11_AsFunctionTool
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create a "JokerAgent" that tells jokes
+2. Wrap the JokerAgent as a function tool
+3. Create a "CoordinatorAgent" that has the JokerAgent as a function tool
+4. Run the CoordinatorAgent with a prompt that triggers it to call the JokerAgent
+5. The CoordinatorAgent will invoke the JokerAgent as a function tool
+6. Clean up resources by deleting both agents
+

@@ -1,19 +1,15 @@
-# Agent Middleware 
+# Agent Middleware
 
-This sample demonstrates how to add middleware to intercept:
-- Chat client calls (global and per‑request)
-- Agent runs (guardrails and PII filtering)
-- Function calling (logging/override)
+This sample demonstrates how to add middleware to intercept agent runs and function calls to implement cross-cutting concerns like logging, validation, and guardrails.
 
 ## What This Sample Shows
 
-1. Azure OpenAI integration via `AzureOpenAIClient` and `AzureCliCredential`
-2. Chat client middleware using `ChatClientBuilder.Use(...)`
-3. Agent run middleware (PII redaction and wording guardrails)
-4. Function invocation middleware (logging and overriding a tool result)
-5. Per‑request chat client middleware
-6. Per‑request function pipeline with approval
-7. Combining agent‑level and per‑request middleware
+1. Azure Foundry Agents integration via `AgentClient` and `AzureCliCredential`
+2. Agent run middleware (logging and monitoring)
+3. Function invocation middleware (logging and overriding tool results)
+4. Per-request agent run middleware
+5. Per-request function pipeline with approval
+6. Combining agent-level and per-request middleware
 
 ## Function Invocation Middleware
 
@@ -23,19 +19,27 @@ Attempting to use function middleware on agents that do not wrap a ChatClientAge
 
 ## Prerequisites
 
-1. Environment variables:
-   - `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint
-   - `AZURE_OPENAI_DEPLOYMENT_NAME`: Chat deployment name (optional; defaults to `gpt-4o`)
-2. Sign in with Azure CLI (PowerShell):
-   ```powershell
-   az login
-   ```
+Before you begin, ensure you have the following prerequisites:
+
+- .NET 8.0 SDK or later
+- Azure Foundry service endpoint and deployment configured
+- Azure CLI installed and authenticated (for Azure credential authentication)
+
+**Note**: This demo uses Azure CLI credentials for authentication. Make sure you're logged in with `az login` and have access to the Azure Foundry resource. For more information, see the [Azure CLI documentation](https://learn.microsoft.com/cli/azure/authenticate-azure-cli-interactively).
+
+Set the following environment variables:
+
+```powershell
+$env:AZURE_FOUNDRY_PROJECT_ENDPOINT="https://your-foundry-service.services.ai.azure.com/api/projects/your-foundry-project" # Replace with your Azure Foundry resource endpoint
+$env:AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME="gpt-4o-mini"  # Optional, defaults to gpt-4o-mini
+```
 
 ## Running the Sample
 
-Use PowerShell:
+Navigate to the FoundryAgents sample directory and run:
+
 ```powershell
-cd dotnet/samples/GettingStarted/Agents/Agent_Step14_Middleware
-dotnet run
+cd dotnet/samples/GettingStarted/FoundryAgents
+dotnet run --project .\FoundryAgents_Step12_Middleware
 ```
 

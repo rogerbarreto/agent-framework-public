@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Structured Output with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to configure AI agents to produce structured output in JSON format using JSON schemas.
+
+## What this sample demonstrates
+
+- Configuring agents with JSON schema response formats
+- Using generic RunAsync<T> method for structured output
+- Deserializing structured responses into typed objects
+- Running agents with streaming and structured output
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,17 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step05_StructuredOutput
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create an agent named "StructuredOutputAssistant" configured to produce JSON output
+2. Run the agent with a prompt to extract person information
+3. Deserialize the JSON response into a PersonInfo object
+4. Display the structured data (Name, Age, Occupation)
+5. Run the agent again with streaming and deserialize the streamed JSON response
+6. Clean up resources by deleting the agent
+

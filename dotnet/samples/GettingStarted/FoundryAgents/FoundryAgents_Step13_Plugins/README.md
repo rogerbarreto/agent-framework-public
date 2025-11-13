@@ -1,9 +1,13 @@
-# Creating and Managing AI Agents with Versioning
+# Using Plugins with AI Agents
 
-This sample demonstrates how to create and manage AI agents with Azure Foundry Agents, including:
-- Creating agents with different versions
-- Retrieving agents by version or latest version
-- Running multi-turn conversations with agents
+This sample demonstrates how to use plugins with AI agents, where plugins are services registered in dependency injection that expose methods as AI function tools.
+
+## What this sample demonstrates
+
+- Creating plugin services with methods to expose as tools
+- Using AsAITools() to selectively expose plugin methods
+- Registering plugins in dependency injection
+- Using plugins with AI agents
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -29,12 +33,17 @@ Navigate to the FoundryAgents sample directory and run:
 
 ```powershell
 cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step01.1_Basics
+dotnet run --project .\FoundryAgents_Step13_Plugins
 ```
 
-## What this sample demonstrates
+## Expected behavior
 
-1. **Creating agents with versions**: Shows how to create multiple versions of the same agent with different instructions
-2. **Retrieving agents**: Demonstrates retrieving agents by specific version or getting the latest version
-3. **Multi-turn conversations**: Shows how to use threads to maintain conversation context across multiple agent runs
-4. **Agent cleanup**: Demonstrates proper resource cleanup by deleting agents
+The sample will:
+
+1. Create a plugin service with methods to expose as tools
+2. Register the plugin in dependency injection
+3. Create an agent named "PluginAgent" with the plugin methods as function tools
+4. Run the agent with a prompt that triggers it to call plugin methods
+5. The agent will invoke the plugin methods to retrieve information
+6. Clean up resources by deleting the agent
+
