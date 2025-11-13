@@ -652,10 +652,6 @@ public static partial class AgentClientExtensions
         IServiceProvider? services,
         CancellationToken cancellationToken)
     {
-        Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(creationOptions);
-
         var allowDeclarativeMode = tools is not { Count: > 0 };
 
         if (!allowDeclarativeMode)
@@ -685,10 +681,6 @@ public static partial class AgentClientExtensions
         IServiceProvider? services,
         CancellationToken cancellationToken)
     {
-        Throw.IfNullOrWhitespace(name);
-        Throw.IfNull(agentClient);
-        Throw.IfNull(creationOptions);
-
         var allowDeclarativeMode = tools is not { Count: > 0 };
 
         if (!allowDeclarativeMode)
@@ -1069,14 +1061,14 @@ public static partial class AgentClientExtensions
     private static Regex AgentNameValidationRegex() => new("^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$");
 #endif
 
-    private static string ThrowIfInvalidAgentName(string? agentName)
+    private static string ThrowIfInvalidAgentName(string? name)
     {
-        Throw.IfNullOrWhitespace(agentName);
-        if (!AgentNameValidationRegex().IsMatch(agentName))
+        Throw.IfNullOrWhitespace(name);
+        if (!AgentNameValidationRegex().IsMatch(name))
         {
-            throw new ArgumentException("Agent name must be 1-63 characters long, start and end with an alphanumeric character, and can only contain alphanumeric characters or hyphens.", nameof(agentName));
+            throw new ArgumentException("Agent name must be 1-63 characters long, start and end with an alphanumeric character, and can only contain alphanumeric characters or hyphens.", nameof(name));
         }
-        return agentName;
+        return name;
     }
 }
 
