@@ -13,7 +13,7 @@ using OpenAI.Responses;
 string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
 string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
-const string AgentInstructions = "You are a helpful agent that can help fetch data from files you know about.";
+const string AgentInstructions = "You are a personal math tutor. When asked a math question, write and run code using the python tool to answer the question.";
 const string AgentNameMEAI = "CoderAgent-MEAI";
 const string AgentNameNative = "CoderAgent-NATIVE";
 
@@ -24,12 +24,9 @@ AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 // Create the server side agent version
 AIAgent agentOption1 = await agentClient.CreateAIAgentAsync(
     model: deploymentName,
-    options: new ChatClientAgentOptions()
-    {
-        Name = AgentNameMEAI,
-        Instructions = AgentInstructions,
-        ChatOptions = new() { Tools = [new HostedCodeInterpreterTool() { Inputs = [] }] }
-    });
+    name: AgentNameMEAI,
+    instructions: AgentInstructions,
+    tools: [new HostedCodeInterpreterTool() { Inputs = [] }]);
 
 // Option 2 - Using PromptAgentDefinition SDK native type
 // Create the server side agent version
