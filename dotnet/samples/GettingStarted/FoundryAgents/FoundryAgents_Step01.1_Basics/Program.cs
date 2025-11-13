@@ -28,13 +28,13 @@ AgentVersion agentVersion = agentClient.CreateAgentVersion(agentName: JokerName,
 //      agentVersion.Version = <versionNumber>,
 //      agentVersion.Name = <agentName>
 
-// You can retrieve an AIAgent for a already created server side agent version.
+// You can retrieve an AIAgent for an already created server side agent version.
 AIAgent jokerAgentV1 = agentClient.GetAIAgent(agentVersion);
 
 // You can also create another AIAgent version (V2) by providing the same name with a different definition.
 AIAgent jokerAgentV2 = agentClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: JokerInstructions + "V2");
 
-// You can also get the AIAgent latest version just providing its name.
+// You can also get the AIAgent latest version by just providing its name.
 AIAgent jokerAgentLatest = agentClient.GetAIAgent(name: JokerName);
 AgentVersion latestVersion = jokerAgentLatest.GetService<AgentVersion>()!;
 
