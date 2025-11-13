@@ -114,6 +114,7 @@
     <Project Path="samples/GettingStarted/FoundryAgents/FoundryAgents_Step11_AsFunctionTool/FoundryAgents_Step11_AsFunctionTool.csproj" />
     <Project Path="samples/GettingStarted/FoundryAgents/FoundryAgents_Step12_Middleware/FoundryAgents_Step12_Middleware.csproj" />
     <Project Path="samples/GettingStarted/FoundryAgents/FoundryAgents_Step13_Plugins/FoundryAgents_Step13_Plugins.csproj" />
+    <Project Path="samples/GettingStarted/FoundryAgents/FoundryAgents_Step14_CodeInterpreter/FoundryAgents_Step14_CodeInterpreter.csproj" />
   </Folder>
   <Folder Name="/Samples/GettingStarted/ModelContextProtocol/">
     <File Path="samples/GettingStarted/ModelContextProtocol/README.md" />

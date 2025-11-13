@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.AzureAI;
 using Microsoft.Extensions.AI;
@@ -22,7 +23,7 @@ namespace Azure.AI.Agents;
 /// <summary>
 /// Provides extension methods for <see cref="AgentClient"/>.
 /// </summary>
-public static class AgentClientExtensions
+public static partial class AgentClientExtensions
 {
     /// <summary>
     /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AgentClient"/>.
@@ -50,6 +51,7 @@ public static class AgentClientExtensions
     {
         Throw.IfNull(agentClient);
         Throw.IfNull(agentReference);
+        ThrowIfInvalidAgentName(agentReference.Name);
 
         return CreateChatClientAgent(
             agentClient,
@@ -89,7 +91,7 @@ public static class AgentClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
+        ThrowIfInvalidAgentName(name);
 
         AgentRecord agentRecord = GetAgentRecordByName(agentClient, name, cancellationToken);
 
@@ -126,7 +128,7 @@ public static class AgentClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
+        ThrowIfInvalidAgentName(name);
 
         AgentRecord agentRecord = await GetAgentRecordByNameAsync(agentClient, name, cancellationToken).ConfigureAwait(false);
 
@@ -234,6 +236,8 @@ public static class AgentClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
+        ThrowIfInvalidAgentName(options.Name);
+
         AgentRecord agentRecord = GetAgentRecordByName(agentClient, options.Name, cancellationToken);
         var agentVersion = agentRecord.Versions.Latest;
 
@@ -274,6 +278,8 @@ public static class AgentClientExtensions
         {
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
+
+        ThrowIfInvalidAgentName(options.Name);
 
         AgentRecord agentRecord = await GetAgentRecordByNameAsync(agentClient, options.Name, cancellationToken).ConfigureAwait(false);
         var agentVersion = agentRecord.Versions.Latest;
@@ -319,7 +325,7 @@ public static class AgentClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
+        ThrowIfInvalidAgentName(name);
         Throw.IfNullOrWhitespace(model);
         Throw.IfNullOrWhitespace(instructions);
 
@@ -364,7 +370,7 @@ public static class AgentClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
+        ThrowIfInvalidAgentName(name);
         Throw.IfNullOrWhitespace(model);
         Throw.IfNullOrWhitespace(instructions);
 
@@ -410,6 +416,8 @@ public static class AgentClientExtensions
         {
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
+
+        ThrowIfInvalidAgentName(options.Name);
 
         PromptAgentDefinition agentDefinition = new(model)
         {
@@ -478,6 +486,8 @@ public static class AgentClientExtensions
             throw new ArgumentException("Agent name must be provided in the options.Name property", nameof(options));
         }
 
+        ThrowIfInvalidAgentName(options.Name);
+
         PromptAgentDefinition agentDefinition = new(model)
         {
             Instructions = options.Instructions,
@@ -537,7 +547,7 @@ public static class AgentClientExtensions
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agentClient);
-        Throw.IfNullOrWhitespace(name);
+        ThrowIfInvalidAgentName(name);
         Throw.IfNull(creationOptions);
 
         return CreateAIAgent(
@@ -575,8 +585,8 @@ public static class AgentClientExtensions
         OpenAIClientOptions? openAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
-        Throw.IfNullOrWhitespace(name);
         Throw.IfNull(agentClient);
+        ThrowIfInvalidAgentName(name);
         Throw.IfNull(creationOptions);
 
         return CreateAIAgentAsync(
@@ -1051,6 +1061,23 @@ public static class AgentClientExtensions
         }
     }
     #endregion
+
+#if NET
+    [GeneratedRegex("^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")]
+    private static partial Regex AgentNameValidationRegex();
+#else
+    private static Regex AgentNameValidationRegex() => new("^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$");
+#endif
+
+    private static string ThrowIfInvalidAgentName(string? agentName)
+    {
+        Throw.IfNullOrWhitespace(agentName);
+        if (!AgentNameValidationRegex().IsMatch(agentName))
+        {
+            throw new ArgumentException("Agent name must be 1-63 characters long, start and end with an alphanumeric character, and can only contain alphanumeric characters or hyphens.", nameof(agentName));
+        }
+        return agentName;
+    }
 }
 
 [JsonSerializable(typeof(JsonElement))]
