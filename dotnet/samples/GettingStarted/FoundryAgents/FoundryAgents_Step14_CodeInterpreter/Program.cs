@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// This sample shows how to create and use a simple AI agent with Azure Foundry Agents as the backend.
+// This sample shows how to use Code Interpreter Tool with AI Agents.
 
 using System.Text;
 using Azure.AI.Agents;
@@ -20,41 +20,47 @@ const string AgentNameNative = "CoderAgent-NATIVE";
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
 AgentClient agentClient = new(new Uri(endpoint), new AzureCliCredential());
 
-// Option 1 - Using HostedCodeInterpreterTool MEAI abstraction
-ChatClientAgentOptions agentOptions = new()
-{
-    Name = AgentNameMEAI,
-    Instructions = AgentInstructions,
-    ChatOptions = new() { Tools = [new HostedCodeInterpreterTool() { Inputs = [] }] }
-};
-
-AIAgent agentOption1 = await agentClient.CreateAIAgentAsync(model: deploymentName, agentOptions);
+// Option 1 - Using HostedCodeInterpreterTool + AgentOptions (MEAI + AgentFramework)
+// Create the server side agent version
+AIAgent agentOption1 = await agentClient.CreateAIAgentAsync(
+    model: deploymentName,
+    options: new ChatClientAgentOptions()
+    {
+        Name = AgentNameMEAI,
+        Instructions = AgentInstructions,
+        ChatOptions = new() { Tools = [new HostedCodeInterpreterTool() { Inputs = [] }] }
+    });
 
 // Option 2 - Using PromptAgentDefinition SDK native type
-AgentVersionCreationOptions options = new(new PromptAgentDefinition(model: deploymentName)
-{
-    Instructions = AgentInstructions,
-    Tools = {
+// Create the server side agent version
+AIAgent agentOption2 = await agentClient.CreateAIAgentAsync(
+    name: AgentNameNative,
+    creationOptions: new AgentVersionCreationOptions(
+        new PromptAgentDefinition(model: deploymentName)
+        {
+            Instructions = AgentInstructions,
+            Tools = {
                 ResponseTool.CreateCodeInterpreterTool(
                     new CodeInterpreterToolContainer(
                         CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration(fileIds: [])
                     )
                 ),
             }
-});
-
-// You create the server side agent version.
-AIAgent agentOption2 = await agentClient.CreateAIAgentAsync(name: AgentNameNative, options);
+        })
+);
 
 // Either invoke option1 or option2 agent, should have same result
-var response = await agentOption1.RunAsync("I need to solve the equation sin(x) + x^2 = 42");
-// var response = await agentOption2.RunAsync("I need to solve the equation sin(x) + x^2 = 42");
+// Option 1
+AgentRunResponse response = await agentOption1.RunAsync("I need to solve the equation sin(x) + x^2 = 42");
+
+// Option 2
+// AgentRunResponse response = await agentOption2.RunAsync("I need to solve the equation sin(x) + x^2 = 42");
 
 // Get the CodeInterpreterToolCallContent
-var toolCallContent = response.Messages.SelectMany(m => m.Contents).OfType<CodeInterpreterToolCallContent>().SingleOrDefault();
+CodeInterpreterToolCallContent? toolCallContent = response.Messages.SelectMany(m => m.Contents).OfType<CodeInterpreterToolCallContent>().SingleOrDefault();
 if (toolCallContent?.Inputs is not null)
 {
-    var codeInput = toolCallContent.Inputs.OfType<DataContent>().FirstOrDefault();
+    DataContent? codeInput = toolCallContent.Inputs.OfType<DataContent>().FirstOrDefault();
     if (codeInput?.HasTopLevelMediaType("text") ?? false)
     {
         Console.WriteLine($"Code Input: {Encoding.UTF8.GetString(codeInput.Data.ToArray()) ?? "Not available"}");
@@ -62,7 +68,7 @@ if (toolCallContent?.Inputs is not null)
 }
 
 // Get the CodeInterpreterToolResultContent
-var toolResultContent = response.Messages.SelectMany(m => m.Contents).OfType<CodeInterpreterToolResultContent>().FirstOrDefault();
+CodeInterpreterToolResultContent? toolResultContent = response.Messages.SelectMany(m => m.Contents).OfType<CodeInterpreterToolResultContent>().FirstOrDefault();
 if (toolResultContent?.Outputs is not null && toolResultContent.Outputs.OfType<TextContent>().FirstOrDefault() is { } resultOutput)
 {
     Console.WriteLine($"Code Tool Result: {resultOutput.Text}");
