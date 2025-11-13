@@ -13,7 +13,7 @@ using OpenAI.Responses;
 string endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
 string deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
-const string AgentInstructions = "You are a helpful agent that can help fetch data from files you know about.";
+const string AgentInstructions = "You are a personal math tutor. When asked a math question, write and run code using the python tool to answer the question.";
 const string AgentNameMEAI = "CoderAgent-MEAI";
 const string AgentNameNative = "CoderAgent-NATIVE";
 
