@@ -13,7 +13,7 @@ using SampleApp;
 #pragma warning disable CA5399
 
 var endpoint = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_ENDPOINT") ?? throw new InvalidOperationException("AZURE_FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deploymentName = "gpt-5"; // Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
+var deploymentName = Environment.GetEnvironmentVariable("AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
 
 const string AssistantInstructions = "You are a helpful assistant that extracts structured information about people.";
 const string AssistantName = "StructuredOutputAssistant";
