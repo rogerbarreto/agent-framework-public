@@ -4,14 +4,15 @@
 
 using System;
 using System.Threading.Tasks;
-using Azure.AI.Agents;
+using Azure.AI.Projects;
+using Azure.AI.Projects.OpenAI;
 
 namespace Shared.Foundry;
 
 internal static class AgentFactory
 {
     public static async ValueTask<AgentVersion> CreateAgentAsync(
-        this AgentClient agentClient,
+        this AIProjectClient aiProjectClient,
         string agentName,
         AgentDefinition agentDefinition,
         string agentDescription)
@@ -27,7 +28,7 @@ internal static class AgentFactory
                     },
             };
 
-        AgentVersion agentVersion = await agentClient.CreateAgentVersionAsync(agentName, options).ConfigureAwait(false);
+        AgentVersion agentVersion = await aiProjectClient.Agents.CreateAgentVersionAsync(agentName, options).ConfigureAwait(false);
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         try

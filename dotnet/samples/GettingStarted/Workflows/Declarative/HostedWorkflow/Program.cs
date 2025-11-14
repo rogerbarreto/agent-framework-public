@@ -3,7 +3,8 @@
 // Uncomment this to enable JSON checkpointing to the local file system.
 //#define CHECKPOINT_JSON
 
-using Azure.AI.Agents;
+using Azure.AI.Projects;
+using Azure.AI.Projects.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -34,23 +35,26 @@ internal sealed class Program
         Uri foundryEndpoint = new(configuration.GetValue(Application.Settings.FoundryEndpoint));
 
         // Create the agent service client
-        AgentClient agentClient = new(foundryEndpoint, new AzureCliCredential());
+        AIProjectClient aiProjectClient = new(foundryEndpoint, new AzureCliCredential());
 
         // Ensure sample agents exist in Foundry.
-        await CreateAgentsAsync(agentClient, configuration);
+        await CreateAgentsAsync(aiProjectClient, configuration);
 
         // Ensure workflow agent exists in Foundry.
-        AgentVersion agentVersion = await CreateWorkflowAsync(agentClient, configuration);
+        AgentVersion agentVersion = await CreateWorkflowAsync(aiProjectClient, configuration);
 
         string workflowInput = GetWorkflowInput(args);
 
-        AIAgent agent = agentClient.GetAIAgent(agentVersion);
+        AIAgent agent = aiProjectClient.GetAIAgent(agentVersion);
 
         AgentThread thread = agent.GetNewThread();
 
-        AgentConversation conversation =
-            await agentClient.GetConversationClient()
-                .CreateConversationAsync().ConfigureAwait(false);
+        ProjectConversation conversation =
+            await aiProjectClient
+                .GetProjectOpenAIClient()
+                .GetProjectConversationsClient()
+                .CreateProjectConversationAsync()
+                .ConfigureAwait(false);
 
         Console.WriteLine($"CONVERSATION: {conversation.Id}");
 
@@ -77,7 +81,7 @@ internal sealed class Program
         }
     }
 
-    private static async Task<AgentVersion> CreateWorkflowAsync(AgentClient agentClient, IConfiguration configuration)
+    private static async Task<AgentVersion> CreateWorkflowAsync(AIProjectClient agentClient, IConfiguration configuration)
     {
         string workflowYaml = File.ReadAllText("MathChat.yaml");
 
@@ -90,7 +94,7 @@ internal sealed class Program
                 agentDescription: "The student attempts to solve the input problem and the teacher provides guidance.");
     }
 
-    private static async Task CreateAgentsAsync(AgentClient agentClient, IConfiguration configuration)
+    private static async Task CreateAgentsAsync(AIProjectClient agentClient, IConfiguration configuration)
     {
         await agentClient.CreateAgentAsync(
             agentName: "StudentAgent",

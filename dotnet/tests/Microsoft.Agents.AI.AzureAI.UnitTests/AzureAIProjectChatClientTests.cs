@@ -6,11 +6,11 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using Azure.AI.Agents;
+using Azure.AI.Projects;
 
 namespace Microsoft.Agents.AI.AzureAI.UnitTests;
 
-public class AzureAIChatClientTests
+public class AzureAIProjectChatClientTests
 {
     /// <summary>
     /// Verify that when the ChatOptions has a "conv_" prefixed conversation ID, the chat client uses conversation in the http requests via the chat client
@@ -43,7 +43,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
@@ -51,7 +51,7 @@ public class AzureAIChatClientTests
                 Name = "test-agent",
                 Instructions = "Test instructions",
                 ChatOptions = new() { ConversationId = "conv_12345" }
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -93,14 +93,14 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
             {
                 Name = "test-agent",
                 Instructions = "Test instructions",
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -142,7 +142,7 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
@@ -150,7 +150,7 @@ public class AzureAIChatClientTests
                 Name = "test-agent",
                 Instructions = "Test instructions",
                 ChatOptions = new() { ConversationId = "conv_should_not_use_default" }
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -192,14 +192,14 @@ public class AzureAIChatClientTests
         using var httpClient = new HttpClient(httpHandler);
 #pragma warning restore CA5399
 
-        var client = new AgentClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
+        var client = new AIProjectClient(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider(), new() { Transport = new HttpClientPipelineTransport(httpClient) });
 
         var agent = await client.GetAIAgentAsync(
             new ChatClientAgentOptions
             {
                 Name = "test-agent",
                 Instructions = "Test instructions",
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
