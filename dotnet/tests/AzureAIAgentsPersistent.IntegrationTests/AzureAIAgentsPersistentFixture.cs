@@ -11,7 +11,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Shared.IntegrationTests;
 
-namespace AzureAI.IntegrationTests;
+namespace AzureAIAgentsPersistent.IntegrationTests;
 
 public class AzureAIAgentsPersistentFixture : IChatClientAgentFixture
 {

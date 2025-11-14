@@ -2,7 +2,7 @@
 
 using AgentConformance.IntegrationTests;
 
-namespace AzureAI.IntegrationTests;
+namespace AzureAIAgentsPersistent.IntegrationTests;
 
 public class AzureAIAgentsPersistentRunStreamingTests() : RunStreamingTests<AzureAIAgentsPersistentFixture>(() => new())
 {
