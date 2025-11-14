@@ -10,7 +10,7 @@ using Azure.AI.Projects;
 
 namespace Microsoft.Agents.AI.AzureAI.UnitTests;
 
-public class AzureAIChatClientTests
+public class AzureAIProjectChatClientTests
 {
     /// <summary>
     /// Verify that when the ChatOptions has a "conv_" prefixed conversation ID, the chat client uses conversation in the http requests via the chat client

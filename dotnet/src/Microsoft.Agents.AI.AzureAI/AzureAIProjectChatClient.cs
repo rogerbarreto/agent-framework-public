@@ -15,7 +15,7 @@ namespace Microsoft.Agents.AI.AzureAI;
 /// Provides a chat client implementation that integrates with Azure AI Agents, enabling chat interactions using
 /// Azure-specific agent capabilities.
 /// </summary>
-internal sealed class AzureAIAgentChatClient : DelegatingChatClient
+internal sealed class AzureAIProjectChatClient : DelegatingChatClient
 {
     private readonly ChatClientMetadata? _metadata;
     private readonly AIProjectClient _agentClient;
@@ -30,19 +30,18 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     private const string NoOpModel = "no-op";
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="AzureAIAgentChatClient"/> class.
+    /// Initializes a new instance of the <see cref="AzureAIProjectChatClient"/> class.
     /// </summary>
     /// <param name="aiProjectClient">An instance of <see cref="AIProjectClient"/> to interact with Azure AI Agents services.</param>
     /// <param name="agentReference">An instance of <see cref="AgentReference"/> representing the specific agent to use.</param>
     /// <param name="defaultModelId">The default model to use for the agent, if applicable.</param>
     /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <remarks>
-    /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
+    /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIProjectChatClient"/> for proper functionality.
     /// </remarks>
-    internal AzureAIAgentChatClient(AIProjectClient aiProjectClient, AgentReference agentReference, string? defaultModelId, ChatOptions? chatOptions, ProjectOpenAIClientOptions? projectOpenAIClientOptions = null)
+    internal AzureAIProjectChatClient(AIProjectClient aiProjectClient, AgentReference agentReference, string? defaultModelId, ChatOptions? chatOptions)
         : base(Throw.IfNull(aiProjectClient)
-            .GetProjectOpenAIClient(projectOpenAIClientOptions)
+            .GetProjectOpenAIClient()
             .GetOpenAIResponseClient(defaultModelId ?? NoOpModel)
             .AsIChatClient())
     {
@@ -53,28 +52,26 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="AzureAIAgentChatClient"/> class.
+    /// Initializes a new instance of the <see cref="AzureAIProjectChatClient"/> class.
     /// </summary>
     /// <param name="aiProjectClient">An instance of <see cref="AIProjectClient"/> to interact with Azure AI Agents services.</param>
     /// <param name="agentRecord">An instance of <see cref="AgentRecord"/> representing the specific agent to use.</param>
     /// <param name="chatOptions">An instance of <see cref="ChatOptions"/> representing the options on how the agent was predefined.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <remarks>
-    /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIAgentChatClient"/> for proper functionality.
+    /// The <see cref="IChatClient"/> provided should be decorated with a <see cref="AzureAIProjectChatClient"/> for proper functionality.
     /// </remarks>
-    internal AzureAIAgentChatClient(AIProjectClient aiProjectClient, AgentRecord agentRecord, ChatOptions? chatOptions, ProjectOpenAIClientOptions? projectOpenAIClientOptions = null)
-        : this(aiProjectClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions, projectOpenAIClientOptions)
+    internal AzureAIProjectChatClient(AIProjectClient aiProjectClient, AgentRecord agentRecord, ChatOptions? chatOptions)
+        : this(aiProjectClient, Throw.IfNull(agentRecord).Versions.Latest, chatOptions)
     {
         this._agentRecord = agentRecord;
     }
 
-    internal AzureAIAgentChatClient(AIProjectClient aiProjectClient, AgentVersion agentVersion, ChatOptions? chatOptions, ProjectOpenAIClientOptions? projectOpenAIClientOptions = null)
+    internal AzureAIProjectChatClient(AIProjectClient aiProjectClient, AgentVersion agentVersion, ChatOptions? chatOptions)
         : this(
               aiProjectClient,
               new AgentReference(Throw.IfNull(agentVersion).Name, agentVersion.Version),
               (agentVersion.Definition as PromptAgentDefinition)?.Model,
-              chatOptions,
-              projectOpenAIClientOptions)
+              chatOptions)
     {
         this._agentVersion = agentVersion;
     }

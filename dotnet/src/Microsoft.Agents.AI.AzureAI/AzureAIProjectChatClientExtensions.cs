@@ -24,7 +24,7 @@ namespace Azure.AI.Projects;
 /// <summary>
 /// Provides extension methods for <see cref="AIProjectClient"/>.
 /// </summary>
-public static partial class AgentClientExtensions
+public static partial class AzureAIProjectChatClientExtensions
 {
     /// <summary>
     /// Retrieves an existing server side agent, wrapped as a <see cref="ChatClientAgent"/> using the provided <see cref="AIProjectClient"/>.
@@ -678,7 +678,7 @@ public static partial class AgentClientExtensions
         Func<IChatClient, IChatClient>? clientFactory,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentVersion, agentOptions.ChatOptions);
+        IChatClient chatClient = new AzureAIProjectChatClient(aiProjectClient, agentVersion, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {
@@ -696,7 +696,7 @@ public static partial class AgentClientExtensions
         Func<IChatClient, IChatClient>? clientFactory,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentRecord, agentOptions.ChatOptions);
+        IChatClient chatClient = new AzureAIProjectChatClient(aiProjectClient, agentRecord, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {
@@ -714,7 +714,7 @@ public static partial class AgentClientExtensions
         Func<IChatClient, IChatClient>? clientFactory,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentReference, defaultModelId: null, agentOptions.ChatOptions);
+        IChatClient chatClient = new AzureAIProjectChatClient(aiProjectClient, agentReference, defaultModelId: null, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {

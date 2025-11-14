@@ -21,9 +21,9 @@ using OpenAI.Responses;
 namespace Microsoft.Agents.AI.AzureAI.UnitTests;
 
 /// <summary>
-/// Unit tests for the <see cref="AgentClientExtensions"/> class.
+/// Unit tests for the <see cref="AzureAIProjectChatClientExtensions"/> class.
 /// </summary>
-public sealed class AgentClientExtensionsTests
+public sealed class AzureAIProjectChatClientExtensionsTests
 {
     #region GetAIAgent(AIProjectClient, AgentRecord) Tests
 
