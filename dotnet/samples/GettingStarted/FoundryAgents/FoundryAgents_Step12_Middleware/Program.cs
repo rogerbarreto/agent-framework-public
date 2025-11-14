@@ -69,7 +69,7 @@ Console.WriteLine($"Function calling response: {functionCallResponse}");
 // Special per-request middleware agent.
 Console.WriteLine("\n\n=== Example 4: Middleware with human in the loop function approval ===");
 
-AIAgent humamInTheLoopAgent = aiProjectClient.CreateAIAgent(
+AIAgent humanInTheLoopAgent = aiProjectClient.CreateAIAgent(
     name: "HumanInTheLoopAgent",
     model: deploymentName,
     instructions: "You are an Human in the loop testing AI assistant that helps people find information.",
@@ -78,13 +78,13 @@ AIAgent humamInTheLoopAgent = aiProjectClient.CreateAIAgent(
     tools: [new ApprovalRequiredAIFunction(AIFunctionFactory.Create(GetWeather, name: nameof(GetWeather)))]);
 
 // Using the ConsolePromptingApprovalMiddleware for a specific request to handle user approval during function calls.
-AgentRunResponse response = await humamInTheLoopAgent
+AgentRunResponse response = await humanInTheLoopAgent
     .AsBuilder()
     .Use(ConsolePromptingApprovalMiddleware, null)
     .Build()
     .RunAsync("What's the current time and the weather in Seattle?");
 
-Console.WriteLine($"HumamInTheLoopAgent agent middleware response: {response}");
+Console.WriteLine($"HumanInTheLoopAgent agent middleware response: {response}");
 
 // Function invocation middleware that logs before and after function calls.
 async ValueTask<object?> FunctionCallMiddleware(AIAgent agent, FunctionInvocationContext context, Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> next, CancellationToken cancellationToken)

@@ -49,6 +49,3 @@ Console.WriteLine(await jokerAgentLatest.RunAsync("Now tell me a joke about a ca
 
 // Cleanup by agent name removes both agent versions created (jokerAgentV1 + jokerAgentV2).
 aiProjectClient.Agents.DeleteAgent(jokerAgentV1.Name);
-
-// It is also possible delete just a specific agent version by the composition (name + version number).
-// aiProjectClient.DeleteAgentVersion(latestVersion.Name, latestVersion.Version);
