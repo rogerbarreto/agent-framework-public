@@ -44,7 +44,7 @@ public sealed class MediaInputTest(ITestOutputHelper output) : IntegrationTest(o
         byte[] imageData = await DownloadFileAsync();
         AIProjectClient client = new(this.TestEndpoint, new AzureCliCredential());
         using MemoryStream contentStream = new(imageData);
-        OpenAIFileClient fileClient = client.GetOpenAIClient().GetOpenAIFileClient();
+        OpenAIFileClient fileClient = client.GetProjectOpenAIClient().GetOpenAIFileClient();
         OpenAIFile fileInfo = await fileClient.UploadFileAsync(contentStream, "basic-text.pdf", FileUploadPurpose.Assistants);
         try
         {

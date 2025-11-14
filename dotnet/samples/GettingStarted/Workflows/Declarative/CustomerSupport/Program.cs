@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using Azure.AI.Projects;
+using Azure.AI.Projects.OpenAI;
 using Azure.Identity;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;

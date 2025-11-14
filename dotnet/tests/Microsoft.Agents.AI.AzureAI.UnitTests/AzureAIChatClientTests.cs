@@ -51,7 +51,7 @@ public class AzureAIChatClientTests
                 Name = "test-agent",
                 Instructions = "Test instructions",
                 ChatOptions = new() { ConversationId = "conv_12345" }
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -100,7 +100,7 @@ public class AzureAIChatClientTests
             {
                 Name = "test-agent",
                 Instructions = "Test instructions",
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -150,7 +150,7 @@ public class AzureAIChatClientTests
                 Name = "test-agent",
                 Instructions = "Test instructions",
                 ChatOptions = new() { ConversationId = "conv_should_not_use_default" }
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();
@@ -199,7 +199,7 @@ public class AzureAIChatClientTests
             {
                 Name = "test-agent",
                 Instructions = "Test instructions",
-            }, openAIClientOptions: new() { Transport = new HttpClientPipelineTransport(httpClient) });
+            });
 
         // Act
         var thread = agent.GetNewThread();

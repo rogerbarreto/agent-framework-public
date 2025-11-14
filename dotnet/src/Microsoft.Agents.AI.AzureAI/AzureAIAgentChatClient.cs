@@ -141,6 +141,7 @@ internal sealed class AzureAIAgentChatClient : DelegatingChatClient
             }
 
             ResponseCreationOptionsExtensions.set_Agent(responseCreationOptions, this._agentReference);
+            ResponseCreationOptionsExtensions.set_Model(responseCreationOptions, null);
 
             return responseCreationOptions;
         };

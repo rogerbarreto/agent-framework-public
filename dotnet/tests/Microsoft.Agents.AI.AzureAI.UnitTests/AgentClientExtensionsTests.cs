@@ -16,7 +16,6 @@ using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
 using Microsoft.Extensions.AI;
 using Moq;
-using OpenAI;
 using OpenAI.Responses;
 
 namespace Microsoft.Agents.AI.AzureAI.UnitTests;
@@ -429,12 +428,14 @@ public sealed class AgentClientExtensionsTests
     public void GetAIAgent_ByName_WithNonExistentAgent_ThrowsInvalidOperationException()
     {
         // Arrange
-        var mockClient = new Mock<AIProjectClient>();
-        mockClient.Setup(c => c.GetAgent(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
+            .Setup(c => c.GetAgent(It.IsAny<string>(), It.IsAny<RequestOptions>()))
             .Returns(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200, BinaryData.FromString("null"))));
 
-        mockClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+        var mockClient = new Mock<AIProjectClient>();
+        mockClient.SetupGet(x => x.Agents).Returns(mockAgentOperations.Object);
+        mockClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
 
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -486,12 +487,14 @@ public sealed class AgentClientExtensionsTests
     public async Task GetAIAgentAsync_ByName_WithNonExistentAgent_ThrowsInvalidOperationExceptionAsync()
     {
         // Arrange
-        var mockClient = new Mock<AIProjectClient>();
-        mockClient.Setup(c => c.GetAgentAsync(It.IsAny<string>(), It.IsAny<RequestOptions>()))
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
+            .Setup(c => c.GetAgentAsync(It.IsAny<string>(), It.IsAny<RequestOptions>()))
             .ReturnsAsync(ClientResult.FromOptionalValue((AgentRecord)null!, new MockPipelineResponse(200, BinaryData.FromString("null"))));
 
-        mockClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+        var mockClient = new Mock<AIProjectClient>();
+        mockClient.SetupGet(c => c.Agents).Returns(mockAgentOperations.Object);
+        mockClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -1241,7 +1244,7 @@ public sealed class AgentClientExtensionsTests
         definition.Tools.Add((ResponseTool)AgentTool.CreateOpenApiTool(new OpenAPIFunctionDefinition("name", BinaryData.FromString(OpenAPISpec), new OpenAPIAnonymousAuthenticationDetails())));
         definition.Tools.Add((ResponseTool)AgentTool.CreateSharepointTool(sharepointOptions));
         definition.Tools.Add((ResponseTool)AgentTool.CreateStructuredOutputsTool(structuredOutputs));
-        definition.Tools.Add((ResponseTool)AgentTool.CreateAzureAISearchTool(new AzureAISearchToolOptions([new Azure.AI.Projects.OpenAI.AzureAISearchIndex() { IndexName = "name" }])));
+        definition.Tools.Add((ResponseTool)AgentTool.CreateAzureAISearchTool(new AzureAISearchToolOptions([new AzureAISearchToolIndex() { IndexName = "name" }])));
 
         // Generate agent definition response with the tools
         var definitionResponse = GeneratePromptDefinitionResponse(definition, definition.Tools.Select(t => t.AsAITool()).ToList());
@@ -1993,14 +1996,16 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         RequestOptions? capturedRequestOptions = null;
-        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
-        mockAgentClient
+
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
             .Setup(x => x.GetAgent(It.IsAny<string>(), It.IsAny<RequestOptions>()))
             .Callback<string, RequestOptions>((name, options) => capturedRequestOptions = options)
             .Returns(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(TestDataUtil.GetAgentResponseJson()))));
 
-        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient.SetupGet(x => x.Agents).Returns(mockAgentOperations.Object);
+        mockAgentClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
 
         // Act
         var agent = mockAgentClient.Object.GetAIAgent("test-agent");
@@ -2018,15 +2023,16 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         RequestOptions? capturedRequestOptions = null;
-        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
-        mockAgentClient
+
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
             .Setup(x => x.GetAgentAsync(It.IsAny<string>(), It.IsAny<RequestOptions>()))
             .Callback<string, RequestOptions>((name, options) => capturedRequestOptions = options)
             .Returns(Task.FromResult(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(TestDataUtil.GetAgentResponseJson())))));
 
-        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
-
+        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient.SetupGet(x => x.Agents).Returns(mockAgentOperations.Object);
+        mockAgentClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
         // Act
         var agent = await mockAgentClient.Object.GetAIAgentAsync("test-agent");
 
@@ -2043,14 +2049,16 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         RequestOptions? capturedRequestOptions = null;
-        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
-        mockAgentClient
+
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
             .Setup(x => x.CreateAgentVersion(It.IsAny<string>(), It.IsAny<BinaryContent>(), It.IsAny<RequestOptions>()))
             .Callback<string, BinaryContent, RequestOptions>((name, content, options) => capturedRequestOptions = options)
             .Returns(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(TestDataUtil.GetAgentVersionResponseJson()))));
 
-        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient.SetupGet(x => x.Agents).Returns(mockAgentOperations.Object);
+        mockAgentClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
 
         var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
 
@@ -2070,14 +2078,16 @@ public sealed class AgentClientExtensionsTests
     {
         // Arrange
         RequestOptions? capturedRequestOptions = null;
-        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
-        mockAgentClient
+
+        var mockAgentOperations = new Mock<AIProjectAgentsOperations>();
+        mockAgentOperations
             .Setup(x => x.CreateAgentVersionAsync(It.IsAny<string>(), It.IsAny<BinaryContent>(), It.IsAny<RequestOptions>()))
             .Callback<string, BinaryContent, RequestOptions>((name, content, options) => capturedRequestOptions = options)
             .Returns(Task.FromResult(ClientResult.FromResponse(new MockPipelineResponse(200, BinaryData.FromString(TestDataUtil.GetAgentVersionResponseJson())))));
 
-        mockAgentClient.Setup(x => x.GetOpenAIClient(It.IsAny<OpenAIClientOptions?>()))
-            .Returns(new OpenAIClient(new ApiKeyCredential("test-key")));
+        var mockAgentClient = new Mock<AIProjectClient>(new Uri("https://test.openai.azure.com/"), new FakeAuthenticationTokenProvider());
+        mockAgentClient.SetupGet(x => x.Agents).Returns(mockAgentOperations.Object);
+        mockAgentClient.Setup(x => x.GetConnection(It.IsAny<string>())).Returns(new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None));
 
         var agentOptions = new ChatClientAgentOptions { Name = "test-agent" };
 
@@ -2568,18 +2578,14 @@ public sealed class AgentClientExtensionsTests
     /// </summary>
     private sealed class FakeAgentClient : AIProjectClient
     {
-        private readonly string? _agentName;
-        private readonly string? _instructions;
-        private readonly string? _description;
-        private readonly AgentDefinition? _agentDefinition;
-
         public FakeAgentClient(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
         {
-            this._agentName = agentName;
-            this._instructions = instructions;
-            this._description = description;
-            this._agentDefinition = agentDefinitionResponse;
             this.Agents = new FakeAIProjectAgentsOperations(agentName, instructions, description, agentDefinitionResponse);
+        }
+
+        public override ClientConnection GetConnection(string connectionId)
+        {
+            return new ClientConnection("fake-connection-id", "http://localhost", ClientPipeline.Create(), CredentialKind.None);
         }
 
         public override AIProjectAgentsOperations Agents { get; }

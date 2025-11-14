@@ -33,7 +33,6 @@ public static partial class AgentClientExtensions
     /// <param name="agentReference">The <see cref="AgentReference"/> representing the name and version of the server side agent to create a <see cref="ChatClientAgent"/> for. Cannot be <see langword="null"/>.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="aiProjectClient"/> or <paramref name="agentReference"/> is <see langword="null"/>.</exception>
@@ -47,7 +46,6 @@ public static partial class AgentClientExtensions
         AgentReference agentReference,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null)
     {
         Throw.IfNull(aiProjectClient);
@@ -64,7 +62,6 @@ public static partial class AgentClientExtensions
                 ChatOptions = new() { Tools = tools },
             },
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -75,7 +72,6 @@ public static partial class AgentClientExtensions
     /// <param name="name">The name of the server side agent to create a <see cref="ChatClientAgent"/> for. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
@@ -87,7 +83,6 @@ public static partial class AgentClientExtensions
         string name,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -101,7 +96,6 @@ public static partial class AgentClientExtensions
             agentRecord,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -112,7 +106,6 @@ public static partial class AgentClientExtensions
     /// <param name="name">The name of the server side agent to create a <see cref="ChatClientAgent"/> for. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the named Azure AI Agent.</returns>
@@ -124,7 +117,6 @@ public static partial class AgentClientExtensions
         string name,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -138,7 +130,6 @@ public static partial class AgentClientExtensions
             agentRecord,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -149,7 +140,6 @@ public static partial class AgentClientExtensions
     /// <param name="agentRecord">The agent record to be converted. The latest version will be used. Cannot be <see langword="null"/>.</param>
     /// <param name="tools">The tools to use when interacting with the agent. This is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the latest version of the Azure AI Agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="aiProjectClient"/> or <paramref name="agentRecord"/> is <see langword="null"/>.</exception>
@@ -158,7 +148,6 @@ public static partial class AgentClientExtensions
         AgentRecord agentRecord,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null)
     {
         Throw.IfNull(aiProjectClient);
@@ -171,7 +160,6 @@ public static partial class AgentClientExtensions
             agentRecord,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             !allowDeclarativeMode,
             services);
     }
@@ -183,7 +171,6 @@ public static partial class AgentClientExtensions
     /// <param name="agentVersion">The agent version to be converted. Cannot be <see langword="null"/>.</param>
     /// <param name="tools">In-process invocable tools to be provided. If no tools are provided manual handling will be necessary to invoke in-process tools.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations based on the provided version of the Azure AI Agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="aiProjectClient"/> or <paramref name="agentVersion"/> is <see langword="null"/>.</exception>
@@ -192,7 +179,6 @@ public static partial class AgentClientExtensions
         AgentVersion agentVersion,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null)
     {
         Throw.IfNull(aiProjectClient);
@@ -205,7 +191,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             !allowDeclarativeMode,
             services);
     }
@@ -216,7 +201,6 @@ public static partial class AgentClientExtensions
     /// <param name="aiProjectClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -225,7 +209,6 @@ public static partial class AgentClientExtensions
         this AIProjectClient aiProjectClient,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -249,7 +232,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             agentOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -259,7 +241,6 @@ public static partial class AgentClientExtensions
     /// <param name="aiProjectClient">The client used to manage and interact with AI agents. Cannot be <see langword="null"/>.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -268,7 +249,6 @@ public static partial class AgentClientExtensions
         this AIProjectClient aiProjectClient,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -292,7 +272,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             agentOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -306,7 +285,6 @@ public static partial class AgentClientExtensions
     /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -321,7 +299,6 @@ public static partial class AgentClientExtensions
         string? description = null,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -336,7 +313,6 @@ public static partial class AgentClientExtensions
             tools,
             new AgentVersionCreationOptions(new PromptAgentDefinition(model) { Instructions = instructions }) { Description = description },
             clientFactory,
-            projectOpenAIClientOptions,
             services,
             cancellationToken);
     }
@@ -351,7 +327,6 @@ public static partial class AgentClientExtensions
     /// <param name="description">The description for the agent.</param>
     /// <param name="tools">The tools to use when interacting with the agent, this is required when using prompt agent definitions with tools.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -366,7 +341,6 @@ public static partial class AgentClientExtensions
         string? description = null,
         IList<AITool>? tools = null,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -381,7 +355,6 @@ public static partial class AgentClientExtensions
             tools,
             new AgentVersionCreationOptions(new PromptAgentDefinition(model) { Instructions = instructions }) { Description = description },
             clientFactory,
-            projectOpenAIClientOptions,
             services,
             cancellationToken);
     }
@@ -393,7 +366,6 @@ public static partial class AgentClientExtensions
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -404,7 +376,6 @@ public static partial class AgentClientExtensions
         string model,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -451,7 +422,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             agentOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -462,7 +432,6 @@ public static partial class AgentClientExtensions
     /// <param name="model">The name of the model to use for the agent. Cannot be <see langword="null"/> or whitespace.</param>
     /// <param name="options">The options for creating the agent. Cannot be <see langword="null"/>.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the operation if needed.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
@@ -473,7 +442,6 @@ public static partial class AgentClientExtensions
         string model,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default)
     {
@@ -520,7 +488,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             agentOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services);
     }
 
@@ -531,7 +498,6 @@ public static partial class AgentClientExtensions
     /// <param name="name">The name for the agent.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="aiProjectClient"/> or <paramref name="creationOptions"/> is <see langword="null"/>.</exception>
@@ -544,7 +510,6 @@ public static partial class AgentClientExtensions
         string name,
         AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(aiProjectClient);
@@ -557,7 +522,6 @@ public static partial class AgentClientExtensions
             tools: null,
             creationOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services: null,
             cancellationToken);
     }
@@ -570,7 +534,6 @@ public static partial class AgentClientExtensions
     /// <param name="name">The name for the agent.</param>
     /// <param name="creationOptions">Settings that control the creation of the agent.</param>
     /// <param name="clientFactory">A factory function to customize the creation of the chat client used by the agent.</param>
-    /// <param name="projectOpenAIClientOptions">An optional <see cref="ProjectOpenAIClientOptions"/> for configuring the underlying OpenAI client.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A <see cref="ChatClientAgent"/> instance that can be used to perform operations on the newly created agent.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="aiProjectClient"/> or <paramref name="creationOptions"/> is <see langword="null"/>.</exception>
@@ -583,7 +546,6 @@ public static partial class AgentClientExtensions
         string name,
         AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory = null,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions = null,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(aiProjectClient);
@@ -596,7 +558,6 @@ public static partial class AgentClientExtensions
             tools: null,
             creationOptions,
             clientFactory,
-            projectOpenAIClientOptions,
             services: null,
             cancellationToken);
     }
@@ -613,7 +574,7 @@ public static partial class AgentClientExtensions
         ClientResult protocolResponse = aiProjectClient.Agents.GetAgent(agentName, cancellationToken.ToRequestOptions(false));
         var rawResponse = protocolResponse.GetRawResponse();
         AgentRecord? result = ModelReaderWriter.Read<AgentRecord>(rawResponse.Content, s_modelWriterOptionsWire, AzureAIProjectsOpenAIContext.Default);
-        return ClientResult.FromValue(result, rawResponse).Value!
+        return ClientResult.FromOptionalValue(result, rawResponse).Value!
             ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
     }
 
@@ -625,7 +586,7 @@ public static partial class AgentClientExtensions
         ClientResult protocolResponse = await aiProjectClient.Agents.GetAgentAsync(agentName, cancellationToken.ToRequestOptions(false)).ConfigureAwait(false);
         var rawResponse = protocolResponse.GetRawResponse();
         AgentRecord? result = ModelReaderWriter.Read<AgentRecord>(rawResponse.Content, s_modelWriterOptionsWire, AzureAIProjectsOpenAIContext.Default);
-        return ClientResult.FromValue(result, rawResponse).Value!
+        return ClientResult.FromOptionalValue(result, rawResponse).Value!
             ?? throw new InvalidOperationException($"Agent with name '{agentName}' not found.");
     }
 
@@ -661,7 +622,6 @@ public static partial class AgentClientExtensions
         IList<AITool>? tools,
         AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         IServiceProvider? services,
         CancellationToken cancellationToken)
     {
@@ -679,7 +639,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             !allowDeclarativeMode,
             services);
     }
@@ -690,7 +649,6 @@ public static partial class AgentClientExtensions
         IList<AITool>? tools,
         AgentVersionCreationOptions creationOptions,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         IServiceProvider? services,
         CancellationToken cancellationToken)
     {
@@ -708,7 +666,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             tools,
             clientFactory,
-            projectOpenAIClientOptions,
             !allowDeclarativeMode,
             services);
     }
@@ -719,10 +676,9 @@ public static partial class AgentClientExtensions
         AgentVersion agentVersion,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentVersion, agentOptions.ChatOptions, projectOpenAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentVersion, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {
@@ -738,10 +694,9 @@ public static partial class AgentClientExtensions
         AgentRecord agentRecord,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentRecord, agentOptions.ChatOptions, projectOpenAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentRecord, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {
@@ -757,10 +712,9 @@ public static partial class AgentClientExtensions
         AgentReference agentReference,
         ChatClientAgentOptions agentOptions,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         IServiceProvider? services)
     {
-        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentReference, defaultModelId: null, agentOptions.ChatOptions, projectOpenAIClientOptions);
+        IChatClient chatClient = new AzureAIAgentChatClient(aiProjectClient, agentReference, defaultModelId: null, agentOptions.ChatOptions);
 
         if (clientFactory is not null)
         {
@@ -776,7 +730,6 @@ public static partial class AgentClientExtensions
         AgentVersion agentVersion,
         IList<AITool>? tools,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         bool requireInvocableTools,
         IServiceProvider? services)
         => CreateChatClientAgent(
@@ -784,7 +737,6 @@ public static partial class AgentClientExtensions
             agentVersion,
             CreateChatClientAgentOptions(agentVersion, new ChatOptions() { Tools = tools }, requireInvocableTools),
             clientFactory,
-            projectOpenAIClientOptions,
             services);
 
     /// <summary>This method creates an <see cref="ChatClientAgent"/> with a auto-generated ChatClientAgentOptions from the specified configuration parameters.</summary>
@@ -793,7 +745,6 @@ public static partial class AgentClientExtensions
         AgentRecord agentRecord,
         IList<AITool>? tools,
         Func<IChatClient, IChatClient>? clientFactory,
-        ProjectOpenAIClientOptions? projectOpenAIClientOptions,
         bool requireInvocableTools,
         IServiceProvider? services)
         => CreateChatClientAgent(
@@ -801,7 +752,6 @@ public static partial class AgentClientExtensions
             agentRecord,
             CreateChatClientAgentOptions(agentRecord.Versions.Latest, new ChatOptions() { Tools = tools }, requireInvocableTools),
             clientFactory,
-            projectOpenAIClientOptions,
             services);
 
     /// <summary>
