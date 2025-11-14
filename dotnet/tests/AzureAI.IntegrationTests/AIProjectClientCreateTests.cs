@@ -4,18 +4,21 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using AgentConformance.IntegrationTests.Support;
-using Azure.AI.Agents.Persistent;
+using Azure.AI.Projects;
+using Azure.AI.Projects.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using OpenAI.Files;
+using OpenAI.Responses;
 using Shared.IntegrationTests;
 
 namespace AzureAI.IntegrationTests;
 
-public class AzureAIAgentsPersistentCreateTests
+public class AIProjectClientCreateTests
 {
     private static readonly AzureAIConfiguration s_config = TestConfiguration.LoadSection<AzureAIConfiguration>();
-    private readonly PersistentAgentsClient _persistentAgentsClient = new(s_config.Endpoint, new AzureCliCredential());
+    private readonly AIProjectClient _client = new(new Uri(s_config.Endpoint), new AzureCliCredential());
 
     [Theory]
     [InlineData("CreateWithChatClientAgentOptionsAsync")]
@@ -32,28 +35,24 @@ public class AzureAIAgentsPersistentCreateTests
         // Act.
         var agent = createMechanism switch
         {
-            "CreateWithChatClientAgentOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
+            "CreateWithChatClientAgentOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
                 options: new ChatClientAgentOptions(
                     instructions: AgentInstructions,
                     name: AgentName,
                     description: AgentDescription)),
-            "CreateWithChatClientAgentOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
+            "CreateWithChatClientAgentOptionsSync" => this._client.CreateAIAgent(
+                model: s_config.DeploymentName,
                 options: new ChatClientAgentOptions(
                     instructions: AgentInstructions,
                     name: AgentName,
                     description: AgentDescription)),
-            "CreateWithFoundryOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
-                instructions: AgentInstructions,
+            "CreateWithFoundryOptionsAsync" => await this._client.CreateAIAgentAsync(
                 name: AgentName,
-                description: AgentDescription),
-            "CreateWithFoundryOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
-                instructions: AgentInstructions,
+                creationOptions: new AgentVersionCreationOptions(new PromptAgentDefinition(s_config.DeploymentName) { Instructions = AgentInstructions }) { Description = AgentDescription }),
+            "CreateWithFoundryOptionsSync" => this._client.CreateAIAgent(
                 name: AgentName,
-                description: AgentDescription),
+                creationOptions: new AgentVersionCreationOptions(new PromptAgentDefinition(s_config.DeploymentName) { Instructions = AgentInstructions }) { Description = AgentDescription }),
             _ => throw new InvalidOperationException($"Unknown create mechanism: {createMechanism}")
         };
 
@@ -65,16 +64,17 @@ public class AzureAIAgentsPersistentCreateTests
             Assert.Equal(AgentDescription, agent.Description);
             Assert.Equal(AgentInstructions, agent.Instructions);
 
-            var retrievedAgentMetadata = await this._persistentAgentsClient.Administration.GetAgentAsync(agent.Id);
-            Assert.NotNull(retrievedAgentMetadata);
-            Assert.Equal(AgentName, retrievedAgentMetadata.Value.Name);
-            Assert.Equal(AgentDescription, retrievedAgentMetadata.Value.Description);
-            Assert.Equal(AgentInstructions, retrievedAgentMetadata.Value.Instructions);
+            var agentRecord = await this._client.Agents.GetAgentAsync(agent.Name);
+            Assert.NotNull(agentRecord);
+            Assert.Equal(AgentName, agentRecord.Value.Name);
+            var definition = Assert.IsType<PromptAgentDefinition>(agentRecord.Value.Versions.Latest.Definition);
+            Assert.Equal(AgentDescription, agentRecord.Value.Versions.Latest.Description);
+            Assert.Equal(AgentInstructions, definition.Instructions);
         }
         finally
         {
             // Cleanup.
-            await this._persistentAgentsClient.Administration.DeleteAgentAsync(agent.Id);
+            await this._client.Agents.DeleteAgentAsync(agent.Name);
         }
     }
 
@@ -86,11 +86,15 @@ public class AzureAIAgentsPersistentCreateTests
     public async Task CreateAgent_CreatesAgentWithVectorStoresAsync(string createMechanism)
     {
         // Arrange.
+        const string AgentName = "VectorStoreAgent";
         const string AgentInstructions = """
             You are a helpful agent that can help fetch data from files you know about.
             Use the File Search Tool to look up codes for words.
             Do not answer a question unless you can find the answer using the File Search Tool.
             """;
+
+        // Get the project OpenAI client.
+        var projectOpenAIClient = this._client.GetProjectOpenAIClient();
 
         // Create a vector store.
         var searchFilePath = Path.GetTempFileName() + "wordcodelookup.txt";
@@ -98,35 +102,35 @@ public class AzureAIAgentsPersistentCreateTests
             path: searchFilePath,
             contents: "The word 'apple' uses the code 442345, while the word 'banana' uses the code 673457."
         );
-        PersistentAgentFileInfo uploadedAgentFile = this._persistentAgentsClient.Files.UploadFile(
+        OpenAIFile uploadedAgentFile = projectOpenAIClient.GetProjectFilesClient().UploadFile(
             filePath: searchFilePath,
-            purpose: PersistentAgentFilePurpose.Agents
+            purpose: FileUploadPurpose.Assistants
         );
-        var vectorStoreMetadata = await this._persistentAgentsClient.VectorStores.CreateVectorStoreAsync([uploadedAgentFile.Id], name: "WordCodeLookup_VectorStore");
+        var vectorStoreMetadata = await projectOpenAIClient.GetProjectVectorStoresClient().CreateVectorStoreAsync(options: new() { FileIds = { uploadedAgentFile.Id }, Name = "WordCodeLookup_VectorStore" });
 
         // Act.
         var agent = createMechanism switch
         {
-            "CreateWithChatClientAgentOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
-                options: new ChatClientAgentOptions(
-                    instructions: AgentInstructions,
-                    tools: [new HostedFileSearchTool() { Inputs = [new HostedVectorStoreContent(vectorStoreMetadata.Value.Id)] }])),
-            "CreateWithChatClientAgentOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
-                options: new ChatClientAgentOptions(
-                    instructions: AgentInstructions,
-                    tools: [new HostedFileSearchTool() { Inputs = [new HostedVectorStoreContent(vectorStoreMetadata.Value.Id)] }])),
-            "CreateWithFoundryOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
+            "CreateWithChatClientAgentOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
+                name: AgentName,
                 instructions: AgentInstructions,
-                tools: [new FileSearchToolDefinition()],
-                toolResources: new ToolResources() { FileSearch = new([vectorStoreMetadata.Value.Id], null) }),
-            "CreateWithFoundryOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
+                tools: [new HostedFileSearchTool() { Inputs = [new HostedVectorStoreContent(vectorStoreMetadata.Value.Id)] }]),
+            "CreateWithChatClientAgentOptionsSync" => this._client.CreateAIAgent(
+                model: s_config.DeploymentName,
+                name: AgentName,
                 instructions: AgentInstructions,
-                tools: [new FileSearchToolDefinition()],
-                toolResources: new ToolResources() { FileSearch = new([vectorStoreMetadata.Value.Id], null) }),
+                tools: [new HostedFileSearchTool() { Inputs = [new HostedVectorStoreContent(vectorStoreMetadata.Value.Id)] }]),
+            "CreateWithFoundryOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
+                name: AgentName,
+                instructions: AgentInstructions,
+                tools: [ResponseTool.CreateFileSearchTool(vectorStoreIds: [vectorStoreMetadata.Value.Id]).AsAITool()]),
+            "CreateWithFoundryOptionsSync" => this._client.CreateAIAgent(
+                model: s_config.DeploymentName,
+                name: AgentName,
+                instructions: AgentInstructions,
+                tools: [ResponseTool.CreateFileSearchTool(vectorStoreIds: [vectorStoreMetadata.Value.Id]).AsAITool()]),
             _ => throw new InvalidOperationException($"Unknown create mechanism: {createMechanism}")
         };
 
@@ -140,9 +144,9 @@ public class AzureAIAgentsPersistentCreateTests
         finally
         {
             // Cleanup.
-            await this._persistentAgentsClient.Administration.DeleteAgentAsync(agent.Id);
-            await this._persistentAgentsClient.VectorStores.DeleteVectorStoreAsync(vectorStoreMetadata.Value.Id);
-            await this._persistentAgentsClient.Files.DeleteFileAsync(uploadedAgentFile.Id);
+            await this._client.Agents.DeleteAgentAsync(agent.Name);
+            await projectOpenAIClient.GetProjectVectorStoresClient().DeleteVectorStoreAsync(vectorStoreMetadata.Value.Id);
+            await projectOpenAIClient.GetProjectFilesClient().DeleteFileAsync(uploadedAgentFile.Id);
             File.Delete(searchFilePath);
         }
     }
@@ -155,10 +159,14 @@ public class AzureAIAgentsPersistentCreateTests
     public async Task CreateAgent_CreatesAgentWithCodeInterpreterAsync(string createMechanism)
     {
         // Arrange.
+        const string AgentName = "CodeInterpreterAgent";
         const string AgentInstructions = """
             You are a helpful coding agent. A Python file is provided. Use the Code Interpreter Tool to run the file
             and report the SECRET_NUMBER value it prints. Respond only with the number.
             """;
+
+        // Get the project OpenAI client.
+        var projectOpenAIClient = this._client.GetProjectOpenAIClient();
 
         // Create a python file that prints a known value.
         var codeFilePath = Path.GetTempFileName() + "secret_number.py";
@@ -166,38 +174,36 @@ public class AzureAIAgentsPersistentCreateTests
             path: codeFilePath,
             contents: "print(\"SECRET_NUMBER=24601\")" // Deterministic output we will look for.
         );
-        PersistentAgentFileInfo uploadedCodeFile = this._persistentAgentsClient.Files.UploadFile(
+        OpenAIFile uploadedCodeFile = projectOpenAIClient.GetProjectFilesClient().UploadFile(
             filePath: codeFilePath,
-            purpose: PersistentAgentFilePurpose.Agents
+            purpose: FileUploadPurpose.Assistants
         );
-        CodeInterpreterToolResource toolResource = new();
-        toolResource.FileIds.Add(uploadedCodeFile.Id);
 
         // Act.
         var agent = createMechanism switch
         {
             // Hosted tool path (tools supplied via ChatClientAgentOptions)
-            "CreateWithChatClientAgentOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
-                options: new ChatClientAgentOptions(
-                    instructions: AgentInstructions,
-                    tools: [new HostedCodeInterpreterTool() { Inputs = [new HostedFileContent(uploadedCodeFile.Id)] }])),
-            "CreateWithChatClientAgentOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
-                options: new ChatClientAgentOptions(
-                    instructions: AgentInstructions,
-                    tools: [new HostedCodeInterpreterTool() { Inputs = [new HostedFileContent(uploadedCodeFile.Id)] }])),
+            "CreateWithChatClientAgentOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
+                name: AgentName,
+                instructions: AgentInstructions,
+                tools: [new HostedCodeInterpreterTool() { Inputs = [new HostedFileContent(uploadedCodeFile.Id)] }]),
+            "CreateWithChatClientAgentOptionsSync" => this._client.CreateAIAgent(
+                model: s_config.DeploymentName,
+                name: AgentName,
+                instructions: AgentInstructions,
+                tools: [new HostedCodeInterpreterTool() { Inputs = [new HostedFileContent(uploadedCodeFile.Id)] }]),
             // Foundry (definitions + resources provided directly)
-            "CreateWithFoundryOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
+            "CreateWithFoundryOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
+                name: AgentName,
                 instructions: AgentInstructions,
-                tools: [new CodeInterpreterToolDefinition()],
-                toolResources: new ToolResources() { CodeInterpreter = toolResource }),
-            "CreateWithFoundryOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
-                s_config.DeploymentName,
+                tools: [ResponseTool.CreateCodeInterpreterTool(new CodeInterpreterToolContainer(CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration([uploadedCodeFile.Id]))).AsAITool()]),
+            "CreateWithFoundryOptionsSync" => this._client.CreateAIAgent(
+                model: s_config.DeploymentName,
+                name: AgentName,
                 instructions: AgentInstructions,
-                tools: [new CodeInterpreterToolDefinition()],
-                toolResources: new ToolResources() { CodeInterpreter = toolResource }),
+                tools: [ResponseTool.CreateCodeInterpreterTool(new CodeInterpreterToolContainer(CodeInterpreterToolContainerConfiguration.CreateAutomaticContainerConfiguration([uploadedCodeFile.Id]))).AsAITool()]),
             _ => throw new InvalidOperationException($"Unknown create mechanism: {createMechanism}")
         };
 
@@ -211,8 +217,8 @@ public class AzureAIAgentsPersistentCreateTests
         finally
         {
             // Cleanup.
-            await this._persistentAgentsClient.Administration.DeleteAgentAsync(agent.Id);
-            await this._persistentAgentsClient.Files.DeleteFileAsync(uploadedCodeFile.Id);
+            await this._client.Agents.DeleteAgentAsync(agent.Name);
+            await projectOpenAIClient.GetProjectFilesClient().DeleteFileAsync(uploadedCodeFile.Id);
             File.Delete(codeFilePath);
         }
     }
@@ -223,6 +229,7 @@ public class AzureAIAgentsPersistentCreateTests
     public async Task CreateAgent_CreatesAgentWithAIFunctionToolsAsync(string createMechanism)
     {
         // Arrange.
+        const string AgentName = "WeatherAgent";
         const string AgentInstructions = "You are a helpful weather assistant. Always call the GetWeather function to answer questions about weather.";
 
         static string GetWeather(string location) => $"The weather in {location} is sunny with a high of 23C.";
@@ -230,14 +237,16 @@ public class AzureAIAgentsPersistentCreateTests
 
         ChatClientAgent agent = createMechanism switch
         {
-            "CreateWithChatClientAgentOptionsAsync" => await this._persistentAgentsClient.CreateAIAgentAsync(
-                s_config.DeploymentName,
+            "CreateWithChatClientAgentOptionsAsync" => await this._client.CreateAIAgentAsync(
+                model: s_config.DeploymentName,
                 options: new ChatClientAgentOptions(
+                    name: AgentName,
                     instructions: AgentInstructions,
                     tools: [weatherFunction])),
-            "CreateWithChatClientAgentOptionsSync" => this._persistentAgentsClient.CreateAIAgent(
+            "CreateWithChatClientAgentOptionsSync" => this._client.CreateAIAgent(
                 s_config.DeploymentName,
                 options: new ChatClientAgentOptions(
+                    name: AgentName,
                     instructions: AgentInstructions,
                     tools: [weatherFunction])),
             _ => throw new InvalidOperationException($"Unknown create mechanism: {createMechanism}")
@@ -256,7 +265,7 @@ public class AzureAIAgentsPersistentCreateTests
         }
         finally
         {
-            await this._persistentAgentsClient.Administration.DeleteAgentAsync(agent.Id);
+            await this._client.Agents.DeleteAgentAsync(agent.Name);
         }
     }
 }
