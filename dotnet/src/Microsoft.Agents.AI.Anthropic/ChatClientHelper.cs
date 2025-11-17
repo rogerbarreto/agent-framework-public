@@ -2,6 +2,7 @@
 
 #pragma warning disable CA1812
 
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Anthropic.Client.Models.Messages;
@@ -39,6 +40,21 @@ internal static class ChatClientHelper
         return usageDetails;
     }
 
+    private static InputSchema AIFunctionDeclarationToInputSchema(AIFunctionDeclaration function)
+        => new(function.JsonSchema.EnumerateObject().ToDictionary(k => k.Name, v => v.Value));
+
+    public static ThinkingConfigParam? GetThinkingParameters(this ChatOptions options)
+    {
+        const string ThinkingParametersKey = "Anthropic.ThinkingParameters";
+
+        if (options?.AdditionalProperties?.TryGetValue(ThinkingParametersKey, out var value) == true)
+        {
+            return value as ThinkingConfigParam;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Create message parameters from chat messages and options
     /// </summary>
@@ -46,62 +62,38 @@ internal static class ChatClientHelper
     {
         if (options.RawRepresentationFactory?.Invoke(client) is not MessageCreateParams parameters)
         {
-            parameters = new MessageCreateParams()
-            {
-                Model = options.ModelId!,
-                Messages = [],
-                System = (options.Instructions is string instructions) ? new SystemModel(instructions) : null,
-                MaxTokens = (options.MaxOutputTokens is int maxOutputTokens) ? maxOutputTokens : 4096,
-                Temperature = (options.Temperature is float temperature) ? (double)temperature : null,
-            };
-        }
-
-        if (options is not null)
-        {
-
-            if (options.TopP is float topP)
-            {
-                parameters.TopP = (decimal)topP;
-            }
-
-            if (options.TopK is int topK)
-            {
-                parameters.TopK = topK;
-            }
-
-            if (options.StopSequences is not null)
-            {
-                parameters.StopSequences = options.StopSequences.ToArray();
-            }
+            List<ToolUnion>? tools = null;
+            ToolChoice? toolChoice = null;
 
             if (options.Tools is { Count: > 0 })
             {
-                parameters.ToolChoice ??= new();
-
                 if (options.ToolMode is RequiredChatToolMode r)
                 {
-                    parameters.ToolChoice.Type = r.RequiredFunctionName is null ? ToolChoiceType.Any : ToolChoiceType.Tool;
-                    parameters.ToolChoice.Name = r.RequiredFunctionName;
+                    toolChoice = r.RequiredFunctionName is null ? new ToolChoice(new ToolChoiceAny()) : new ToolChoice(new ToolChoiceTool(r.RequiredFunctionName));
                 }
 
-                IList<Common.Tool> tools = parameters.Tools ??= [];
+                tools = [];
                 foreach (var tool in options.Tools)
                 {
                     switch (tool)
                     {
                         case AIFunctionDeclaration f:
-                            tools.Add(new Common.Tool(new Function(f.Name, f.Description, JsonSerializer.SerializeToNode(JsonSerializer.Deserialize<FunctionParameters>(f.JsonSchema)))));
+                            tools.Add(new ToolUnion(new Tool()
+                            {
+                                Name = f.Name,
+                                Description = f.Description,
+                                InputSchema = AIFunctionDeclarationToInputSchema(f)
+                            }));
                             break;
 
-                        case HostedCodeInterpreterTool:
-                            tools.Add(Common.Tool.CodeInterpreter);
-                            break;
-
-                        case HostedWebSearchTool:
-                            tools.Add(ServerTools.GetWebSearchTool(5));
-                            break;
-
-#pragma warning disable MEAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates.
+                            /*
+                            case HostedCodeInterpreterTool:
+                                tools.Add(new ToolUnion(CodeInterpreter));
+                                break;
+                            case HostedWebSearchTool:
+                                tools.Add(new ToolUnion(ServerTools.GetWebSearchTool(5)));
+                                break;
+                            #pragma warning disable MEAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates.
                         case HostedMcpServerTool mcpt:
                             MCPServer mcpServer = new()
                             {
@@ -119,32 +111,65 @@ internal static class ChatClientHelper
                             (parameters.MCPServers ??= []).Add(mcpServer);
                             break;
 #pragma warning restore MEAI001
+                            */
                     }
                 }
             }
 
-            // Map thinking parameters from ChatOptions
-            var thinkingParameters = options.GetThinkingParameters();
-            if (thinkingParameters != null)
+            parameters = new MessageCreateParams()
             {
-                parameters.Thinking = thinkingParameters;
-            }
+                Model = options.ModelId!,
+                Messages = GetMessages(messages),
+                System = GetSystem(options, messages),
+                MaxTokens = (options.MaxOutputTokens is int maxOutputTokens) ? maxOutputTokens : 4096,
+                Temperature = (options.Temperature is float temperature) ? (double)temperature : null,
+                TopP = (options.TopP is float topP) ? (double)topP : null,
+                TopK = (options.TopK is int topK) ? topK : null,
+                StopSequences = (options.StopSequences is { Count: > 0 } stopSequences) ? stopSequences.ToList() : null,
+                ToolChoice = toolChoice,
+                Tools = tools,
+                Thinking = options.GetThinkingParameters(),
+            };
         }
+
+        // Avoid errors from completely empty input.
+        if (!parameters.Messages.Any(m => m.Content.Count > 0))
+        {
+            parameters.Messages.Add(new(RoleType.User, "\u200b")); // zero-width space
+        }
+
+        return parameters;
+    }
+
+    private static SystemModel? GetSystem(ChatOptions options, IEnumerable<ChatMessage> messages)
+    {
+        StringBuilder? fullInstructions = (options.Instructions is string instructions) ? new(instructions) : null;
 
         foreach (ChatMessage message in messages)
         {
             if (message.Role == ChatRole.System)
             {
-                (parameters.System ??= []).Add(new SystemMessage(string.Concat(message.Contents.OfType<TextContent>())));
+                (fullInstructions ??= new()).AppendLine(string.Concat(message.Contents.OfType<TextContent>()));
             }
-            else
+        }
+
+        return fullInstructions is not null ? new SystemModel(fullInstructions.ToString()) : null;
+    }
+
+    private static List<MessageParam> GetMessages(IEnumerable<ChatMessage> chatMessages)
+    {
+        List<MessageParam> messages = [];
+
+        foreach (ChatMessage chatMessage in chatMessages)
+        {
+            if (chatMessage.Role != ChatRole.System)
             {
                 // Process contents in order, creating new messages when switching between tool results and other content
                 // This preserves ordering and handles interleaved tool calls, AI output, and tool results
-                Message currentMessage = null;
+                MessageParam? currentMessage = null;
                 bool lastWasToolResult = false;
 
-                foreach (AIContent content in message.Contents)
+                foreach (AIContent content in chatMessage.Contents)
                 {
                     bool isToolResult = content is FunctionResultContent;
 
@@ -156,10 +181,10 @@ internal static class ChatClientHelper
                         currentMessage = new()
                         {
                             // Tool results must always be in User messages, others respect original role
-                            Role = isToolResult ? RoleType.User : (message.Role == ChatRole.Assistant ? RoleType.Assistant : RoleType.User),
-                            Content = [],
+                            Role = isToolResult ? RoleType.User : (chatMessage.Role == ChatRole.Assistant ? RoleType.Assistant : RoleType.User),
+                            Content = new ContentModel(),
                         };
-                        parameters.Messages.Add(currentMessage);
+                        messages.Add(currentMessage);
                         lastWasToolResult = isToolResult;
                     }
 
@@ -243,14 +268,6 @@ internal static class ChatClientHelper
         }
 
         parameters.Messages.RemoveAll(m => m.Content.Count == 0);
-
-        // Avoid errors from completely empty input.
-        if (!parameters.Messages.Any(m => m.Content.Count > 0))
-        {
-            parameters.Messages.Add(new(RoleType.User, "\u200b")); // zero-width space
-        }
-
-        return parameters;
     }
 
     /// <summary>
