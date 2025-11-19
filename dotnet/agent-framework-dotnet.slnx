@@ -85,6 +85,7 @@
   <Folder Name="/Samples/GettingStarted/AgentWithAnthropic/">
     <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step01_Running/Agent_Anthropic_Step01_Running.csproj" />
     <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step02_Reasoning/Agent_Anthropic_Step02_Reasoning.csproj" />
+    <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step03_UsingFunctionTools/Agent_Anthropic_Step03_UsingFunctionTools.csproj" />
   </Folder>
   <Folder Name="/Samples/GettingStarted/AgentWithMemory/">
     <File Path="samples/GettingStarted/AgentWithMemory/README.md" />
