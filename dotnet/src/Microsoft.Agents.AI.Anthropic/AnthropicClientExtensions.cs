@@ -47,6 +47,6 @@ public static class AnthropicClientExtensions
         this AnthropicClient client,
         string model)
     {
-        return new AnthropicChatClient(client);
+        return new AnthropicBetaChatClient(client, defaultModelId: model);
     }
 }
