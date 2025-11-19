@@ -19,11 +19,14 @@ internal sealed class AnthropicBetaChatClient : IChatClient
     private readonly AnthropicClient _client;
     private readonly ChatClientMetadata _metadata;
 
-    internal AnthropicBetaChatClient(AnthropicClient client, Uri? endpoint = null, string? defaultModelId = null)
+    internal AnthropicBetaChatClient(AnthropicClient client, long defaultMaxTokens, Uri? endpoint = null, string? defaultModelId = null)
     {
         this._client = client;
         this._metadata = new ChatClientMetadata(providerName: "anthropic", providerUri: endpoint ?? new Uri("https://api.anthropic.com"), defaultModelId);
+        this.DefaultMaxTokens = defaultMaxTokens;
     }
+
+    public long DefaultMaxTokens { get; set; }
 
     public void Dispose()
     {

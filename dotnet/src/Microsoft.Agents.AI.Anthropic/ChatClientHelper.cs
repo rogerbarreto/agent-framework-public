@@ -45,9 +45,7 @@ internal static class ChatClientHelper
 
     public static BetaThinkingConfigParam? GetThinkingParameters(this ChatOptions options)
     {
-        const string ThinkingParametersKey = "Anthropic.ThinkingParameters";
-
-        if (options?.AdditionalProperties?.TryGetValue(ThinkingParametersKey, out var value) == true)
+        if (options?.AdditionalProperties?.TryGetValue(nameof(BetaThinkingConfigParam), out var value) == true)
         {
             return value as BetaThinkingConfigParam;
         }
@@ -82,13 +80,8 @@ internal static class ChatClientHelper
     /// <summary>
     /// Create message parameters from chat messages and options
     /// </summary>
-    internal static MessageCreateParams CreateBetaMessageParameters(IChatClient client, string modelId, IEnumerable<ChatMessage> messages, ChatOptions? options)
+    internal static MessageCreateParams CreateBetaMessageParameters(AnthropicBetaChatClient client, string modelId, IEnumerable<ChatMessage> messages, ChatOptions? options)
     {
-        if (options?.RawRepresentationFactory?.Invoke(client) is MessageCreateParams parameters && parameters is not null)
-        {
-            return parameters;
-        }
-
         List<BetaToolUnion>? tools = null;
         BetaToolChoice? toolChoice = null;
 
@@ -139,23 +132,23 @@ internal static class ChatClientHelper
             }
         }
 
-        parameters = new MessageCreateParams()
+        MessageCreateParams? providedParameters = options?.RawRepresentationFactory?.Invoke(client) as MessageCreateParams;
+
+        return new MessageCreateParams()
         {
             Model = modelId,
             Messages = GetMessages(messages),
             System = GetSystem(options, messages),
-            MaxTokens = (options?.MaxOutputTokens is int maxOutputTokens) ? maxOutputTokens : 4096,
-            Temperature = (options?.Temperature is float temperature) ? (double)temperature : null,
-            TopP = (options?.TopP is float topP) ? (double)topP : null,
-            TopK = (options?.TopK is int topK) ? topK : null,
-            StopSequences = (options?.StopSequences is { Count: > 0 } stopSequences) ? stopSequences.ToList() : null,
-            ToolChoice = toolChoice,
-            Tools = tools,
-            Thinking = options?.GetThinkingParameters(),
-            MCPServers = GetMcpServers(options),
+            MaxTokens = (options?.MaxOutputTokens is int maxOutputTokens) ? maxOutputTokens : providedParameters?.MaxTokens ?? client.DefaultMaxTokens,
+            Temperature = (options?.Temperature is float temperature) ? (double)temperature : providedParameters?.Temperature,
+            TopP = (options?.TopP is float topP) ? (double)topP : providedParameters?.TopP,
+            TopK = (options?.TopK is int topK) ? topK : providedParameters?.TopK,
+            StopSequences = (options?.StopSequences is { Count: > 0 } stopSequences) ? stopSequences.ToList() : providedParameters?.StopSequences,
+            ToolChoice = toolChoice ?? providedParameters?.ToolChoice,
+            Tools = tools ?? providedParameters?.Tools,
+            Thinking = options?.GetThinkingParameters() ?? providedParameters?.Thinking,
+            MCPServers = GetMcpServers(options) ?? providedParameters?.MCPServers,
         };
-
-        return parameters;
     }
 
     private static SystemModel? GetSystem(ChatOptions? options, IEnumerable<ChatMessage> messages)
