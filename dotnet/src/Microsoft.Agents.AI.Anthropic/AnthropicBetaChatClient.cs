@@ -539,6 +539,14 @@ end:
                         {
                             codeResult.Outputs.Add(new TextContent(cerResult.Stderr) { RawRepresentation = cerResult });
                         }
+
+                        if (cerResult.Content is { Count: > 0 })
+                        {
+                            foreach (var ceOutputContent in cerResult.Content)
+                            {
+                                codeResult.Outputs.Add(new HostedFileContent(ceOutputContent.FileID));
+                            }
+                        }
                     }
 
                     contents.Add(codeResult);
@@ -580,4 +588,5 @@ end:
 
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(Dictionary<string, object?>))]
 internal sealed partial class AnthropicClientJsonContext : JsonSerializerContext;

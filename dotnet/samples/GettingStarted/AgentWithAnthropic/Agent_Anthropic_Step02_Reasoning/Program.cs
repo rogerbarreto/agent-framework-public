@@ -3,7 +3,6 @@
 // This sample shows how to create and use an AI agent with reasoning capabilities.
 
 using Anthropic;
-using Anthropic.Client;
 using Anthropic.Core;
 using Anthropic.Models.Beta.Messages;
 using Microsoft.Agents.AI;
@@ -34,7 +33,6 @@ Console.WriteLine("Token usage:");
 Console.WriteLine($"Input: {response.Usage?.InputTokenCount}, Output: {response.Usage?.OutputTokenCount}, {string.Join(", ", response.Usage?.AdditionalCounts ?? [])}");
 Console.WriteLine();
 
-/*
 Console.WriteLine("2. Streaming");
 await foreach (var update in agent.RunStreamingAsync("Explain the theory of relativity in simple terms."))
 {
@@ -50,4 +48,3 @@ await foreach (var update in agent.RunStreamingAsync("Explain the theory of rela
         }
     }
 }
-*/

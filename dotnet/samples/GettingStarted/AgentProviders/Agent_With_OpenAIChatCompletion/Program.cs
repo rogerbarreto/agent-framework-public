@@ -3,7 +3,9 @@
 // This sample shows how to create and use a simple AI agent with OpenAI Chat Completion as the backend.
 
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using OpenAI;
+using OpenAI.Responses;
 
 var apiKey = Environment.GetEnvironmentVariable("OPENAI_APIKEY") ?? throw new InvalidOperationException("OPENAI_APIKEY is not set.");
 var model = Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini";
@@ -15,3 +17,9 @@ AIAgent agent = new OpenAIClient(
 
 // Invoke the agent and output the text result.
 Console.WriteLine(await agent.RunAsync("Tell me a joke about a pirate."));
+
+var responseCreationOptions = new ResponseCreationOptions();
+#pragma warning disable SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+responseCreationOptions.Patch.Set("$.prompt_cache_key"u8, BinaryData.FromString("custom_key"));
+responseCreationOptions.Patch.Set("$.prompt_cache_retention"u8, BinaryData.FromString("24h"));
+#pragma warning restore SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.

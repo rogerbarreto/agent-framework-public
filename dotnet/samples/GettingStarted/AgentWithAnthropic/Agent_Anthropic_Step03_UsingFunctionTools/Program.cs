@@ -30,10 +30,8 @@ AgentThread thread = agent.GetNewThread();
 Console.WriteLine(await agent.RunAsync("What is the weather like in Amsterdam?", thread));
 
 // Streaming agent interaction with function tools.
-/*
 thread = agent.GetNewThread();
 await foreach (AgentRunResponseUpdate update in agent.RunStreamingAsync("What is the weather like in Amsterdam?", thread))
 {
     Console.WriteLine(update);
 }
-*/
