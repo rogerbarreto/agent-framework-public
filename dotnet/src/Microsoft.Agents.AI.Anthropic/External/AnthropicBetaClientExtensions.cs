@@ -85,12 +85,13 @@ public static class AnthropicBetaClientExtensions
         return new ToolUnionAITool(tool);
     }
 
-    private sealed class AnthropicChatClient(
-        IBetaService betaService,
-        string? defaultModelId,
-        int? defaultMaxOutputTokens) : IChatClient
+    private sealed class AnthropicChatClient : IChatClient
     {
         private const int DefaultMaxTokens = 1024;
+        private readonly IBetaService _betaService;
+        private readonly string? _defaultModelId;
+        private readonly int _defaultMaxTokens;
+        private readonly IAnthropicClient _anthropicClient;
 
         private static readonly AIJsonSchemaTransformCache s_transformCache = new(new AIJsonSchemaTransformOptions
         {
@@ -116,12 +117,19 @@ public static class AnthropicBetaClientExtensions
             },
         });
 
-        private readonly IBetaService _betaService = betaService;
-        private readonly string? _defaultModelId = defaultModelId;
-        private readonly int _defaultMaxTokens = defaultMaxOutputTokens ?? DefaultMaxTokens;
-        private readonly IAnthropicClient _anthropicClient = typeof(BetaService)
-            .GetField("_client", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        public AnthropicChatClient(
+            IBetaService betaService,
+            string? defaultModelId,
+            int? defaultMaxOutputTokens)
+        {
+            this._betaService = betaService;
+            this._defaultModelId = defaultModelId;
+            this._defaultMaxTokens = defaultMaxOutputTokens ?? DefaultMaxTokens;
+#pragma warning disable IL2075 // 'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.
+            this._anthropicClient = betaService.GetType().GetField("_client", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
             .GetValue(betaService) as IAnthropicClient ?? throw new InvalidOperationException("Unable to access Anthropic client from BetaService.");
+#pragma warning restore IL2075 // 'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.
+        }
 
         private ChatClientMetadata? _metadata;
 
