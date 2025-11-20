@@ -1,39 +1,37 @@
-# Using Function Tools with AI Agents
+# Using Function Tools with Anthropic agents
 
-This sample demonstrates how to use function tools with AI agents, allowing agents to call custom functions to retrieve information.
+This sample demonstrates how to use function tools with Anthropic Claude agents, allowing agents to call custom functions to retrieve information.
 
 ## What this sample demonstrates
 
 - Creating function tools using AIFunctionFactory
-- Passing function tools to an AI agent
+- Passing function tools to an Anthropic Claude agent
 - Running agents with function tools (text output)
 - Running agents with function tools (streaming output)
-- Managing agent lifecycle (creation and deletion)
+- Managing agent lifecycle
 
 ## Prerequisites
 
 Before you begin, ensure you have the following prerequisites:
 
 - .NET 8.0 SDK or later
-- Azure Foundry service endpoint and deployment configured
-- Azure CLI installed and authenticated (for Azure credential authentication)
+- Anthropic API key configured
 
-**Note**: This demo uses Azure CLI credentials for authentication. Make sure you're logged in with `az login` and have access to the Azure Foundry resource. For more information, see the [Azure CLI documentation](https://learn.microsoft.com/cli/azure/authenticate-azure-cli-interactively).
+**Note**: This sample uses Anthropic Claude models. For more information, see [Anthropic documentation](https://docs.anthropic.com/).
 
 Set the following environment variables:
 
 ```powershell
-$env:AZURE_FOUNDRY_PROJECT_ENDPOINT="https://your-foundry-service.services.ai.azure.com/api/projects/your-foundry-project" # Replace with your Azure Foundry resource endpoint
-$env:AZURE_FOUNDRY_PROJECT_DEPLOYMENT_NAME="gpt-4o-mini"  # Optional, defaults to gpt-4o-mini
+$env:ANTHROPIC_API_KEY="your-anthropic-api-key"  # Replace with your Anthropic API key
 ```
 
 ## Run the sample
 
-Navigate to the FoundryAgents sample directory and run:
+Navigate to the AgentWithAnthropic sample directory and run:
 
 ```powershell
-cd dotnet/samples/GettingStarted/FoundryAgents
-dotnet run --project .\FoundryAgents_Step03.1_UsingFunctionTools
+cd dotnet/samples/GettingStarted/AgentWithAnthropic
+dotnet run --project .\Agent_Anthropic_Step03_UsingFunctionTools
 ```
 
 ## Expected behavior
