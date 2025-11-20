@@ -184,8 +184,8 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 
 | File | Description |
 |------|-------------|
-| [`getting_started/evaluation/azure_ai_foundry/red_teaming/red_team_agent_sample.py`](./getting_started/evaluation/azure_ai_foundry/red_teaming/red_team_agent_sample.py) | Red team agent evaluation sample for Azure AI Foundry |
-| [`getting_started/evaluation/azure_ai_foundry/self_reflection/self_reflection.py`](./getting_started/evaluation/azure_ai_foundry/self_reflection/self_reflection.py) | LLM self-reflection with AI Foundry graders example |
+| [`getting_started/evaluation/red_teaming/red_team_agent_sample.py`](./getting_started/evaluation/red_teaming/red_team_agent_sample.py) | Red team agent evaluation sample for Azure AI Foundry |
+| [`getting_started/evaluation/self_reflection/self_reflection.py`](./getting_started/evaluation/self_reflection/self_reflection.py) | LLM self-reflection with AI Foundry graders example |
 
 ## MCP (Model Context Protocol)
 
@@ -319,12 +319,6 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 |------|-------------|
 | [`getting_started/workflows/human-in-the-loop/guessing_game_with_human_input.py`](./getting_started/workflows/human-in-the-loop/guessing_game_with_human_input.py) | Sample: Human in the loop guessing game |
 | [`getting_started/workflows/human-in-the-loop/agents_with_approval_requests.py`](./getting_started/workflows/human-in-the-loop/agents_with_approval_requests.py) | Sample: Agents with Approval Requests in Workflows |
-
-### Observability
-
-| File | Description |
-|------|-------------|
-| [`getting_started/workflows/observability/tracing_basics.py`](./getting_started/workflows/observability/tracing_basics.py) | Basic tracing workflow sample |
 
 ### Orchestration
 
