@@ -17,11 +17,11 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 | [`getting_started/agents/anthropic/anthropic_basic.py`](./getting_started/agents/anthropic/anthropic_basic.py) | Agent with Anthropic Client |
 | [`getting_started/agents/anthropic/anthropic_advanced.py`](./getting_started/agents/anthropic/anthropic_advanced.py) | Advanced sample with `thinking` and hosted tools. |
 
-### Azure AI
+### Azure AI (based on `azure-ai-agents` V1 package)
 
 | File | Description |
 |------|-------------|
-| [`getting_started/agents/azure_ai_agent/azure_ai_basic.py`](./getting_started/agents/azure_ai/azure_ai_basic.py) | Azure AI Agent Basic Example |
+| [`getting_started/agents/azure_ai_agent/azure_ai_basic.py`](./getting_started/agents/azure_ai_agent/azure_ai_basic.py) | Azure AI Agent Basic Example |
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_azure_ai_search.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_azure_ai_search.py) | Azure AI Agent with Azure AI Search Example |
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_bing_grounding.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_bing_grounding.py) | Azure AI agent with Bing Grounding search for real-time web information |
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_code_interpreter.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_code_interpreter.py) | Azure AI Agent with Code Interpreter Example |
@@ -35,6 +35,28 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_multiple_tools.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_multiple_tools.py) | Azure AI Agent with Multiple Tools Example |
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_openapi_tools.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_openapi_tools.py) | Azure AI agent with OpenAPI tools |
 | [`getting_started/agents/azure_ai_agent/azure_ai_with_thread.py`](./getting_started/agents/azure_ai_agent/azure_ai_with_thread.py) | Azure AI Agent with Thread Management Example |
+
+### Azure AI (based on `azure-ai-projects` V2 package)
+
+| File | Description |
+|------|-------------|
+| [`getting_started/agents/azure_ai/azure_ai_basic.py`](./getting_started/agents/azure_ai/azure_ai_basic.py) | Azure AI Agent Basic Example |
+| [`getting_started/agents/azure_ai/azure_ai_use_latest_version.py`](./getting_started/agents/azure_ai/azure_ai_use_latest_version.py) | Azure AI Agent latest version reuse example |
+| [`getting_started/agents/azure_ai/azure_ai_with_azure_ai_search.py`](./getting_started/agents/azure_ai/azure_ai_with_azure_ai_search.py) | Azure AI Agent with Azure AI Search Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_bing_grounding.py`](./getting_started/agents/azure_ai/azure_ai_with_bing_grounding.py) | Azure AI Agent with Bing Grounding Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_bing_custom_search.py`](./getting_started/agents/azure_ai/azure_ai_with_bing_custom_search.py) | Azure AI Agent with Bing Custom Search Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_browser_automation.py`](./getting_started/agents/azure_ai/azure_ai_with_browser_automation.py) | Azure AI Agent with Browser Automation Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_code_interpreter.py`](./getting_started/agents/azure_ai/azure_ai_with_code_interpreter.py) | Azure AI Agent with Code Interpreter Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_existing_agent.py`](./getting_started/agents/azure_ai/azure_ai_with_existing_agent.py) | Azure AI Agent with Existing Agent Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_existing_conversation.py`](./getting_started/agents/azure_ai/azure_ai_with_existing_conversation.py) | Azure AI Agent with Existing Conversation Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_explicit_settings.py`](./getting_started/agents/azure_ai/azure_ai_with_explicit_settings.py) | Azure AI Agent with Explicit Settings Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_file_search.py`](./getting_started/agents/azure_ai/azure_ai_with_file_search.py) | Azure AI Agent with File Search Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_hosted_mcp.py`](./getting_started/agents/azure_ai/azure_ai_with_hosted_mcp.py) | Azure AI Agent with Hosted MCP Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_response_format.py`](./getting_started/agents/azure_ai/azure_ai_with_response_format.py) | Azure AI Agent with Structured Output Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_thread.py`](./getting_started/agents/azure_ai/azure_ai_with_thread.py) | Azure AI Agent with Thread Management Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_image_generation.py`](./getting_started/agents/azure_ai/azure_ai_with_image_generation.py) | Azure AI Agent with Image Generation Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_microsoft_fabric.py`](./getting_started/agents/azure_ai/azure_ai_with_microsoft_fabric.py) | Azure AI Agent with Microsoft Fabric Example |
+| [`getting_started/agents/azure_ai/azure_ai_with_web_search.py`](./getting_started/agents/azure_ai/azure_ai_with_web_search.py) | Azure AI Agent with Web Search Example |
 
 ### Azure OpenAI
 
@@ -162,7 +184,8 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 
 | File | Description |
 |------|-------------|
-| [`getting_started/evaluation/azure_ai_foundry/red_team_agent_sample.py`](./getting_started/evaluation/azure_ai_foundry/red_team_agent_sample.py) | Red team agent evaluation sample for Azure AI Foundry |
+| [`getting_started/evaluation/azure_ai_foundry/red_teaming/red_team_agent_sample.py`](./getting_started/evaluation/azure_ai_foundry/red_teaming/red_team_agent_sample.py) | Red team agent evaluation sample for Azure AI Foundry |
+| [`getting_started/evaluation/azure_ai_foundry/self_reflection/self_reflection.py`](./getting_started/evaluation/azure_ai_foundry/self_reflection/self_reflection.py) | LLM self-reflection with AI Foundry graders example |
 
 ## MCP (Model Context Protocol)
 
@@ -183,6 +206,7 @@ This directory contains samples demonstrating the capabilities of Microsoft Agen
 | [`getting_started/middleware/function_based_middleware.py`](./getting_started/middleware/function_based_middleware.py) | Function-based middleware example |
 | [`getting_started/middleware/middleware_termination.py`](./getting_started/middleware/middleware_termination.py) | Middleware termination example |
 | [`getting_started/middleware/override_result_with_middleware.py`](./getting_started/middleware/override_result_with_middleware.py) | Override result with middleware example |
+| [`getting_started/middleware/runtime_context_delegation.py`](./getting_started/middleware/runtime_context_delegation.py) | Runtime context delegation example demonstrating how to pass API tokens, session data, and other context through hierarchical agent delegation |
 | [`getting_started/middleware/shared_state_middleware.py`](./getting_started/middleware/shared_state_middleware.py) | Shared state middleware example |
 | [`getting_started/middleware/thread_behavior_middleware.py`](./getting_started/middleware/thread_behavior_middleware.py) | Thread behavior middleware example demonstrating how to track conversation state across multiple agent runs |
 
