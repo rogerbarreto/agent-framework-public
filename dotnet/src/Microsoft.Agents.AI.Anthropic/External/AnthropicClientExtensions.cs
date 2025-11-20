@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// Pollyfil from 
+// Adapted polyfill from https://raw.githubusercontent.com/stephentoub/anthropic-sdk-csharp/3034edde7c21ac1650b3358a7812b59685eff3a9/src/Anthropic/AnthropicClientExtensions.cs
+// To be deleted once PR is Merged: https://github.com/anthropics/anthropic-sdk-csharp/pull/10
 
 using System.Runtime.CompilerServices;
 using System.Text;
