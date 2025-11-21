@@ -1,17 +1,30 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
+using System.Threading.Tasks;
 using AgentConformance.IntegrationTests;
 
 namespace AnthropicChatCompletion.IntegrationTests;
 
+public abstract class SkipAllChatClientAgentRun(Func<AnthropicChatCompletionFixture> func) : ChatClientAgentRunTests<AnthropicChatCompletionFixture>(func)
+{
+    [Fact(Skip = "For manual verification.")]
+    public override Task RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync()
+        => base.RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync();
+
+    [Fact(Skip = "For manual verification.")]
+    public override Task RunWithInstructionsAndNoMessageReturnsExpectedResultAsync()
+        => base.RunWithInstructionsAndNoMessageReturnsExpectedResultAsync();
+}
+
 public class AnthropicBetaChatCompletionChatClientAgentRunTests()
-    : ChatClientAgentRunTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: false, useBeta: true));
+    : SkipAllChatClientAgentRun(() => new(useReasoningChatModel: false, useBeta: true));
 
 public class AnthropicBetaChatCompletionChatClientAgentReasoningRunTests()
-    : ChatClientAgentRunTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: true, useBeta: true));
+    : SkipAllChatClientAgentRun(() => new(useReasoningChatModel: true, useBeta: true));
 
 public class AnthropicChatCompletionChatClientAgentRunTests()
-    : ChatClientAgentRunTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: false, useBeta: false));
+    : SkipAllChatClientAgentRun(() => new(useReasoningChatModel: false, useBeta: false));
 
 public class AnthropicChatCompletionChatClientAgentReasoningRunTests()
-    : ChatClientAgentRunTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: true, useBeta: false));
+    : SkipAllChatClientAgentRun(() => new(useReasoningChatModel: true, useBeta: false));

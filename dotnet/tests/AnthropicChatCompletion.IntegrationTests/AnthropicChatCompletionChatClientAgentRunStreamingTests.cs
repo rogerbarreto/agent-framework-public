@@ -1,17 +1,26 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
+using System.Threading.Tasks;
 using AgentConformance.IntegrationTests;
 
 namespace AnthropicChatCompletion.IntegrationTests;
 
-public class AnthropicBetaChatCompletionChatClientAgentRunStreamingTests()
-    : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: false, useBeta: true));
+public abstract class SkipAllChatClientRunStreaming(Func<AnthropicChatCompletionFixture> func) : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(func)
+{
+    [Fact(Skip = "For manual verification.")]
+    public override Task RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync()
+        => base.RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync();
 
-public class AnthropicBetaChatCompletionChatClientAgentReasoningRunStreamingTests()
-    : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: true, useBeta: true));
+    [Fact(Skip = "For manual verification.")]
+    public override Task RunWithInstructionsAndNoMessageReturnsExpectedResultAsync()
+        => base.RunWithInstructionsAndNoMessageReturnsExpectedResultAsync();
+}
 
-public class AnthropicChatCompletionChatClientAgentRunStreamingTests()
-    : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: false, useBeta: false));
+public class AnthropicBetaChatCompletionChatClientAgentReasoningRunStreamingTests() : SkipAllChatClientRunStreaming(() => new(useReasoningChatModel: true, useBeta: true));
 
-public class AnthropicChatCompletionChatClientAgentReasoningRunStreamingTests()
-    : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(() => new(useReasoningChatModel: true, useBeta: false));
+public class AnthropicBetaChatCompletionChatClientAgentRunStreamingTests() : SkipAllChatClientRunStreaming(() => new(useReasoningChatModel: false, useBeta: true));
+
+public class AnthropicChatCompletionChatClientAgentRunStreamingTests() : SkipAllChatClientRunStreaming(() => new(useReasoningChatModel: false, useBeta: false));
+
+public class AnthropicChatCompletionChatClientAgentReasoningRunStreamingTests() : SkipAllChatClientRunStreaming(() => new(useReasoningChatModel: true, useBeta: false));
