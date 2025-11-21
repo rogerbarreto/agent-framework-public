@@ -12,6 +12,9 @@ using Anthropic;
 using Anthropic.Core;
 using Anthropic.Services;
 using Microsoft.Extensions.AI;
+using Moq;
+using IBetaMessageService = Anthropic.Services.Beta.IMessageService;
+using IMessageService = Anthropic.Services.IMessageService;
 
 namespace Microsoft.Agents.AI.Anthropic.UnitTests.Extensions;
 
@@ -249,6 +252,8 @@ public sealed class AnthropicBetaServiceExtensionsTests
 
         public IBetaService BetaService { get; }
 
+        IMessageService IAnthropicClient.Messages => new Mock<IMessageService>().Object;
+
         public Task<HttpResponse> Execute<T>(HttpRequest<T> request, CancellationToken cancellationToken = default) where T : ParamsBase
         {
             throw new NotImplementedException();
@@ -270,11 +275,11 @@ public sealed class AnthropicBetaServiceExtensionsTests
 
             public global::Anthropic.Services.Beta.IModelService Models => throw new NotImplementedException();
 
-            public global::Anthropic.Services.Beta.IMessageService Messages => throw new NotImplementedException();
-
             public global::Anthropic.Services.Beta.IFileService Files => throw new NotImplementedException();
 
             public global::Anthropic.Services.Beta.ISkillService Skills => throw new NotImplementedException();
+
+            public IBetaMessageService Messages => new Mock<IBetaMessageService>().Object;
 
             public IBetaService WithOptions(Func<ClientOptions, ClientOptions> modifier)
             {
