@@ -2,7 +2,7 @@
 
 #pragma warning disable CA1050 // Declare types in namespaces
 
-// This sample shows how to create and use a AI agents with Azure Foundry Agents as the backend.
+// This sample shows how to create and use an AI agent with Anthropic as the backend.
 
 using Anthropic;
 using Anthropic.Foundry;

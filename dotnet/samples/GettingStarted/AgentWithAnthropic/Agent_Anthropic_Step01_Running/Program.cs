@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// This sample shows how to create and use a simple AI agent with OpenAI as the backend.
+// This sample shows how to create and use a simple AI agent with Anthropic as the backend.
 
 using Anthropic;
 using Anthropic.Core;

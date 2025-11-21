@@ -18,8 +18,4 @@ AIAgent agent = new OpenAIClient(
 // Invoke the agent and output the text result.
 Console.WriteLine(await agent.RunAsync("Tell me a joke about a pirate."));
 
-var responseCreationOptions = new ResponseCreationOptions();
-#pragma warning disable SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-responseCreationOptions.Patch.Set("$.prompt_cache_key"u8, BinaryData.FromString("custom_key"));
-responseCreationOptions.Patch.Set("$.prompt_cache_retention"u8, BinaryData.FromString("24h"));
-#pragma warning restore SCME0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
