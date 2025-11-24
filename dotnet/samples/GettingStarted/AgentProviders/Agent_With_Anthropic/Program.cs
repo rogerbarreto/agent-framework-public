@@ -34,30 +34,6 @@ Console.WriteLine(await agent.RunAsync("Tell me a joke about a pirate."));
 
 namespace Sample
 {
-    public class AzureTokenCredential
-    {
-        private readonly TokenCredential _tokenCredential;
-
-        public AzureTokenCredential(ApiKeyCredential apiKeyCredential)
-        {
-            this._tokenCredential = DelegatedTokenCredential.Create((_, _) =>
-            {
-                apiKeyCredential.Deconstruct(out string dangerousCredential);
-                return new AccessToken(dangerousCredential, DateTimeOffset.UtcNow.AddMinutes(30));
-            });
-        }
-
-        public AzureTokenCredential(TokenCredential tokenCredential)
-        {
-            this._tokenCredential = tokenCredential;
-        }
-
-        public AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
-        {
-            return this._tokenCredential.GetToken(requestContext, cancellationToken);
-        }
-    }
-
     /// <summary>
     /// Provides methods for invoking the Azure hosted Anthropic api.
     /// </summary>
