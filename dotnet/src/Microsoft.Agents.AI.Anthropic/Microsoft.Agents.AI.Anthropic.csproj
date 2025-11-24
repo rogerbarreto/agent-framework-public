@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <VersionSuffix>preview</VersionSuffix>
-    <TargetFrameworks>$(TargetFrameworksCore);netstandard2.0;net472</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <InjectSharedThrow>true</InjectSharedThrow>
   </PropertyGroup>
