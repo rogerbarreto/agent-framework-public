@@ -3,6 +3,7 @@
 // This sample shows how to create and use an AI agent with Anthropic as the backend.
 
 using System.ClientModel;
+using System.Net.Http.Headers;
 using Anthropic;
 using Anthropic.Core;
 using Azure.Core;
@@ -23,7 +24,7 @@ const string JokerName = "JokerAgent";
 AnthropicClient? client = (resource is null)
     ? new AnthropicClient() { APIKey = apiKey ?? throw new InvalidOperationException("ANTHROPIC_API_KEY is required when no ANTHROPIC_RESOURCE is provided") }  // If no resource is provided, use Anthropic public API
     : (apiKey is not null)
-        ? new AnthropicFoundryClient(resource, new ApiKeyCredential(apiKey)) // If an apiKey are provided, use Foundry with ApiKey authentication
+        ? new AnthropicFoundryClient(resource, new ApiKeyCredential(apiKey)) // If an apiKey is provided, use Foundry with ApiKey authentication
         : new AnthropicFoundryClient(resource, new AzureCliCredential()); // Otherwise, use Foundry with Azure Client authentication
 
 AIAgent agent = client.CreateAIAgent(model: deploymentName, instructions: JokerInstructions, name: JokerName);
@@ -34,7 +35,6 @@ Console.WriteLine(await agent.RunAsync("Tell me a joke about a pirate."));
 namespace Sample
 {
     public class AzureTokenCredential
-#pragma warning restore CA1050 // Declare types in namespaces
     {
         private readonly TokenCredential _tokenCredential;
 
@@ -62,7 +62,6 @@ namespace Sample
     /// Provides methods for invoking the Azure hosted Anthropic api.
     /// </summary>
     public class AnthropicFoundryClient : AnthropicClient
-#pragma warning restore CA1050 // Declare types in namespaces
     {
         private readonly TokenCredential _tokenCredential;
         private readonly string _resourceName;
@@ -107,25 +106,8 @@ namespace Sample
                 options)
         { }
 
-        [Obsolete("The {nameof(APIKey)} property is not supported in this configuration.", true)]
-#pragma warning disable CS0809 // Obsolete member overrides non-obsolete member
-        public override string? APIKey
-#pragma warning restore CS0809 // Obsolete member overrides non-obsolete member
-        {
-            get =>
-                throw new NotSupportedException(
-                    $"The {nameof(this.APIKey)} property is not supported in this configuration."
-                );
-            init =>
-                throw new NotSupportedException(
-                    $"The {nameof(this.APIKey)} property is not supported in this configuration."
-                );
-        }
-
         public override IAnthropicClient WithOptions(Func<Anthropic.Core.ClientOptions, Anthropic.Core.ClientOptions> modifier)
-        {
-            return new AnthropicFoundryClient(this._resourceName, this._tokenCredential, modifier(this._options));
-        }
+            => this;
 
         protected override ValueTask BeforeSend<T>(
             HttpRequest<T> request,
@@ -135,7 +117,7 @@ namespace Sample
         {
             var accessToken = this._tokenCredential.GetToken(new TokenRequestContext(scopes: ["https://ai.azure.com/.default"]), cancellationToken);
 
-            requestMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("bearer", accessToken.Token);
+            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("bearer", accessToken.Token);
 
             return default;
         }

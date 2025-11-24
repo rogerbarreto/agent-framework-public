@@ -14,7 +14,7 @@ using Microsoft.Extensions.AI;
 namespace Microsoft.Agents.AI.Anthropic.UnitTests.Extensions;
 
 /// <summary>
-/// Unit tests for the <see cref="AnthropicClientExtensions"/> class.
+/// Unit tests for the AnthropicClientExtensions class.
 /// </summary>
 public sealed class AnthropicClientExtensionsTests
 {

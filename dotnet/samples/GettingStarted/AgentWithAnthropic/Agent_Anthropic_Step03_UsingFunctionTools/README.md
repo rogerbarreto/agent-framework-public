@@ -23,6 +23,7 @@ Set the following environment variables:
 
 ```powershell
 $env:ANTHROPIC_API_KEY="your-anthropic-api-key"  # Replace with your Anthropic API key
+$env:ANTHROPIC_MODEL="your-anthropic-model"  # Replace with your Anthropic model
 ```
 
 ## Run the sample
@@ -30,7 +31,7 @@ $env:ANTHROPIC_API_KEY="your-anthropic-api-key"  # Replace with your Anthropic A
 Navigate to the AgentWithAnthropic sample directory and run:
 
 ```powershell
-cd dotnet/samples/GettingStarted/AgentWithAnthropic
+cd dotnet\samples\GettingStarted\AgentWithAnthropic
 dotnet run --project .\Agent_Anthropic_Step03_UsingFunctionTools
 ```
 

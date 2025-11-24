@@ -1,11 +1,11 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using Anthropic.Services;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Shared.Diagnostics;
 
-namespace Microsoft.Agents.AI;
+namespace Anthropic.Services;
 
 /// <summary>
 /// Provides extension methods for the <see cref="IBetaService"/> class.
@@ -68,24 +68,24 @@ public static class AnthropicBetaServiceExtensions
     /// <summary>
     /// Creates an AI agent from an <see cref="IBetaService"/> using the Anthropic Chat Completion API.
     /// </summary>
-    /// <param name="client">The Anthropic <see cref="IBetaService"/> to use for the agent.</param>
+    /// <param name="betaService">The Anthropic <see cref="IBetaService"/> to use for the agent.</param>
     /// <param name="options">Full set of options to configure the agent.</param>
     /// <param name="clientFactory">Provides a way to customize the creation of the underlying <see cref="IChatClient"/> used by the agent.</param>
     /// <param name="loggerFactory">Optional logger factory for enabling logging within the agent.</param>
     /// <param name="services">An optional <see cref="IServiceProvider"/> to use for resolving services required by the <see cref="AIFunction"/> instances being invoked.</param>
     /// <returns>An <see cref="ChatClientAgent"/> instance backed by the Anthropic Chat Completion service.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="client"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="betaService"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
     public static ChatClientAgent CreateAIAgent(
-        this IBetaService client,
+        this IBetaService betaService,
         ChatClientAgentOptions options,
         Func<IChatClient, IChatClient>? clientFactory = null,
         ILoggerFactory? loggerFactory = null,
         IServiceProvider? services = null)
     {
-        Throw.IfNull(client);
+        Throw.IfNull(betaService);
         Throw.IfNull(options);
 
-        var chatClient = client.AsIChatClient();
+        var chatClient = betaService.AsIChatClient();
 
         if (clientFactory is not null)
         {

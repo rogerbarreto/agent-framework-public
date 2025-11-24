@@ -19,7 +19,7 @@ using IMessageService = Anthropic.Services.IMessageService;
 namespace Microsoft.Agents.AI.Anthropic.UnitTests.Extensions;
 
 /// <summary>
-/// Unit tests for the <see cref="AnthropicClientExtensions"/> class.
+/// Unit tests for the AnthropicClientExtensions class.
 /// </summary>
 public sealed class AnthropicBetaServiceExtensionsTests
 {

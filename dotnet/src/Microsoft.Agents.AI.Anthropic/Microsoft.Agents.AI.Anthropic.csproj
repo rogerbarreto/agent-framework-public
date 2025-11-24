@@ -19,7 +19,7 @@
 
   <PropertyGroup>
     <!-- NuGet Package Settings -->
-    <Title>Microsoft Agent Framework for Anthropic Agents</Title>
+    <Title>Microsoft Agent Framework Anthropic Agents</Title>
     <Description>Provides Microsoft Agent Framework support for Anthropic Agents.</Description>
   </PropertyGroup>
 
