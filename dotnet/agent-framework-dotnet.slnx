@@ -83,6 +83,7 @@
     <Project Path="samples/GettingStarted/DevUI/DevUI_Step01_BasicUsage/DevUI_Step01_BasicUsage.csproj" />
   </Folder>
   <Folder Name="/Samples/GettingStarted/AgentWithAnthropic/">
+    <File Path="samples/GettingStarted/AgentWithAnthropic/README.md" />
     <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step01_Running/Agent_Anthropic_Step01_Running.csproj" />
     <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step02_Reasoning/Agent_Anthropic_Step02_Reasoning.csproj" />
     <Project Path="samples/GettingStarted/AgentWithAnthropic/Agent_Anthropic_Step03_UsingFunctionTools/Agent_Anthropic_Step03_UsingFunctionTools.csproj" />

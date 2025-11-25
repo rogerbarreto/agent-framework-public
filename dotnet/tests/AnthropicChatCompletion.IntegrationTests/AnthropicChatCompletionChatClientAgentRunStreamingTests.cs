@@ -8,11 +8,11 @@ namespace AnthropicChatCompletion.IntegrationTests;
 
 public abstract class SkipAllChatClientRunStreaming(Func<AnthropicChatCompletionFixture> func) : ChatClientAgentRunStreamingTests<AnthropicChatCompletionFixture>(func)
 {
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync()
         => base.RunWithFunctionsInvokesFunctionsAndReturnsExpectedResultsAsync();
 
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithInstructionsAndNoMessageReturnsExpectedResultAsync()
         => base.RunWithInstructionsAndNoMessageReturnsExpectedResultAsync();
 }

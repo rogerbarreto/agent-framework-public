@@ -16,6 +16,9 @@ namespace AnthropicChatCompletion.IntegrationTests;
 
 public class AnthropicChatCompletionFixture : IChatClientAgentFixture
 {
+    // All tests for Anthropic are intended to be ran locally as the CI pipeline for Anthropic is not setup.
+    internal const string SkipReason = "Integrations tests for local execution only";
+
     private static readonly AnthropicConfiguration s_config = TestConfiguration.LoadSection<AnthropicConfiguration>();
     private readonly bool _useReasoningModel;
     private readonly bool _useBeta;

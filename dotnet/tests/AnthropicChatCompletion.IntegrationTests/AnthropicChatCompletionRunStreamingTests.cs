@@ -8,19 +8,19 @@ namespace AnthropicChatCompletion.IntegrationTests;
 
 public abstract class SkipAllRunStreaming(Func<AnthropicChatCompletionFixture> func) : RunStreamingTests<AnthropicChatCompletionFixture>(func)
 {
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithChatMessageReturnsExpectedResultAsync() => base.RunWithChatMessageReturnsExpectedResultAsync();
 
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithNoMessageDoesNotFailAsync() => base.RunWithNoMessageDoesNotFailAsync();
 
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithChatMessagesReturnsExpectedResultAsync() => base.RunWithChatMessagesReturnsExpectedResultAsync();
 
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task RunWithStringReturnsExpectedResultAsync() => base.RunWithStringReturnsExpectedResultAsync();
 
-    [Fact(Skip = "For manual verification.")]
+    [Fact(Skip = AnthropicChatCompletionFixture.SkipReason)]
     public override Task ThreadMaintainsHistoryAsync() => base.ThreadMaintainsHistoryAsync();
 }
 
