@@ -289,6 +289,7 @@ public sealed partial class ChatClientAgent : AIAgent
     public override AgentThread GetNewThread()
         => new ChatClientAgentThread
         {
+            MessageStore = this._agentOptions?.ChatMessageStoreFactory?.Invoke(new() { SerializedState = default, JsonSerializerOptions = null }),
             AIContextProvider = this._agentOptions?.AIContextProviderFactory?.Invoke(new() { SerializedState = default, JsonSerializerOptions = null })
         };
 
@@ -313,6 +314,34 @@ public sealed partial class ChatClientAgent : AIAgent
         => new ChatClientAgentThread()
         {
             ConversationId = conversationId,
+            AIContextProvider = this._agentOptions?.AIContextProviderFactory?.Invoke(new() { SerializedState = default, JsonSerializerOptions = null })
+        };
+
+    /// <summary>
+    /// Creates a new agent thread instance using an existing <see cref="ChatMessageStore"/> to continue a conversation.
+    /// </summary>
+    /// <param name="chatMessageStore">The <see cref="ChatMessageStore"/> instance to use for managing the conversation's message history.</param>
+    /// <returns>
+    /// A new <see cref="AgentThread"/> instance configured to work with the provided <paramref name="chatMessageStore"/>.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// This method creates threads that do not support server-side conversation storage.
+    /// Some AI services require server-side conversation storage to function properly, and creating a thread
+    /// with a <see cref="ChatMessageStore"/> may not be compatible with these services.
+    /// </para>
+    /// <para>
+    /// Where a service requires server-side conversation storage, use <see cref="GetNewThread(string)"/>.
+    /// </para>
+    /// <para>
+    /// If the agent detects, during the first run, that the underlying AI service requires server-side conversation storage,
+    /// the thread will throw an exception to indicate that it cannot continue using the provided <see cref="ChatMessageStore"/>.
+    /// </para>
+    /// </remarks>
+    public AgentThread GetNewThread(ChatMessageStore chatMessageStore)
+        => new ChatClientAgentThread()
+        {
+            MessageStore = Throw.IfNull(chatMessageStore),
             AIContextProvider = this._agentOptions?.AIContextProviderFactory?.Invoke(new() { SerializedState = default, JsonSerializerOptions = null })
         };
 
