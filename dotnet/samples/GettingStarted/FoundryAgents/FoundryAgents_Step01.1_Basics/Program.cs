@@ -31,7 +31,7 @@ AgentVersion createdAgentVersion = aiProjectClient.Agents.CreateAgentVersion(age
 // You can retrieve an AIAgent for an already created server side agent version.
 AIAgent existingJokerAgent = aiProjectClient.GetAIAgent(createdAgentVersion);
 
-// You can also create another AIAgent version (V2) by providing the same name with a different definition/instruction.
+// You can also create another AIAgent version by providing the same name with a different definition/instruction.
 AIAgent newJokerAgent = aiProjectClient.CreateAIAgent(name: JokerName, model: deploymentName, instructions: "You are extremely hilarious at telling jokes.");
 
 // You can also get the AIAgent latest version by just providing its name.
@@ -44,5 +44,5 @@ Console.WriteLine($"Latest agent version id: {latestAgentVersion.Id}");
 // Once you have the AIAgent, you can invoke it like any other AIAgent.
 Console.WriteLine(await jokerAgentLatest.RunAsync("Tell me a joke about a pirate."));
 
-// Cleanup by agent name removes both agent versions created (jokerAgentV1 + jokerAgentV2).
+// Cleanup by agent name removes both agent versions created.
 await aiProjectClient.Agents.DeleteAgentAsync(existingJokerAgent.Name);

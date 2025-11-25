@@ -46,5 +46,5 @@ Console.WriteLine(await jokerAgentLatest.RunAsync("Tell me a joke about a pirate
 // This will use the same thread to continue the conversation.
 Console.WriteLine(await jokerAgentLatest.RunAsync("Now tell me a joke about a cat and a dog using last joke as the anchor.", thread));
 
-// Cleanup by agent name removes both agent versions created (jokerAgentV1 + jokerAgentV2).
+// Cleanup by agent name removes both agent versions created.
 aiProjectClient.Agents.DeleteAgent(existingJokerAgent.Name);
