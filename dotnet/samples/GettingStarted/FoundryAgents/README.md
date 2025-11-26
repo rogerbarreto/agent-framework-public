@@ -13,7 +13,7 @@ versioning, multi-turn conversations, and advanced features like code interpreta
 
 For more information about the previous classic agents and for what's new in Foundry Agents, see the [Foundry Agents migration documentation](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/migrate?view=foundry).
 
-For sample demonstrating how to use classic Foundry Agents, see the following: [Agent with Azure AI Persistent](../AgentProviders/Agent_With_AzureAIAgentsPersistent/README.md).
+For a sample demonstrating how to use classic Foundry Agents, see the following: [Agent with Azure AI Persistent](../AgentProviders/Agent_With_AzureAIAgentsPersistent/README.md).
 
 ## Getting started with Foundry Agents prerequisites
 
