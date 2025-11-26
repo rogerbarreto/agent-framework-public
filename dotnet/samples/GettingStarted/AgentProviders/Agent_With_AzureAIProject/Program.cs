@@ -26,7 +26,7 @@ var createdAgentVersion = aiProjectClient.Agents.CreateAgentVersion(agentName: J
 //      agentVersion.Version = <versionNumber>,
 //      agentVersion.Name = <agentName>
 
-// You can retrieve an AIAgent for a already created server side agent version.
+// You can retrieve an AIAgent for an already created server side agent version.
 AIAgent existingJokerAgent = aiProjectClient.GetAIAgent(createdAgentVersion);
 
 // You can also create another AIAgent version by providing the same name with a different definition.

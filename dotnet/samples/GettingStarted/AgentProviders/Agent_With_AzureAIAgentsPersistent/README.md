@@ -6,7 +6,7 @@ This sample demonstrates how to create an agent using the classic Foundry Agents
 
 Below is a comparison between the classic and new Foundry Agents approaches:
 
-https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/migrate?view=foundry
+[Migration Guide](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/migrate?view=foundry)
 
 # Prerequisites
 

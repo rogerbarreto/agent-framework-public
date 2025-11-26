@@ -11,7 +11,7 @@ versioning, multi-turn conversations, and advanced features like code interpreta
 > [!NOTE]
 > Recently, Azure Foundry introduced a new and improved experience for creating and managing AI agents, which is the target of these samples.
 
-For more information about the previous classic and what's new in Foundry Agents, see the [Foundry Agents migration documentation](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/migrate?view=foundry).
+For more information about the previous classic agents and for what's new in Foundry Agents, see the [Foundry Agents migration documentation](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/migrate?view=foundry).
 
 For sample demonstrating how to use classic Foundry Agents, see the following: [Agent with Azure AI Persistent](../AgentProviders/Agent_With_AzureAIAgentsPersistent/README.md).
 
