@@ -82,7 +82,7 @@ public class AzureAIAgentsPersistentCreateTests
         }
     }
 
-    [Theory]
+    [Theory(Skip = "For manual testing only")]
     [InlineData("CreateWithChatClientAgentOptionsAsync")]
     [InlineData("CreateWithChatClientAgentOptionsSync")]
     [InlineData("CreateWithFoundryOptionsAsync")]

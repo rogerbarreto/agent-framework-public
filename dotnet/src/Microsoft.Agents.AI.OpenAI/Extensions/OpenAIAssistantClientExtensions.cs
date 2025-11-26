@@ -505,7 +505,7 @@ public static class OpenAIAssistantClientExtensions
                 {
                     case HostedCodeInterpreterTool codeTool:
 
-                        toolDefinitions ??= new();
+                        toolDefinitions ??= [];
                         toolDefinitions.Add(new CodeInterpreterToolDefinition());
 
                         if (codeTool.Inputs is { Count: > 0 })
@@ -526,7 +526,7 @@ public static class OpenAIAssistantClientExtensions
                         break;
 
                     case HostedFileSearchTool fileSearchTool:
-                        toolDefinitions ??= new();
+                        toolDefinitions ??= [];
                         toolDefinitions.Add(new FileSearchToolDefinition
                         {
                             MaxResults = fileSearchTool.MaximumResultCount,
@@ -549,7 +549,7 @@ public static class OpenAIAssistantClientExtensions
                         break;
 
                     default:
-                        functionToolsAndOtherTools ??= new();
+                        functionToolsAndOtherTools ??= [];
                         functionToolsAndOtherTools.Add(tool);
                         break;
                 }
