@@ -970,7 +970,7 @@ public partial class ChatClientAgentTests
     /// Verify that ChatOptions property returns null when no params are provided that require a ChatOptions instance.
     /// </summary>
     [Fact]
-    public void ChatOptionsReturnsNullWhenConstructorToolsNotProvided()
+    public void ChatOptionsCreatedWithInstructionsEvenWhenConstructorToolsNotProvided()
     {
         // Arrange
         var chatClient = new Mock<IChatClient>().Object;
