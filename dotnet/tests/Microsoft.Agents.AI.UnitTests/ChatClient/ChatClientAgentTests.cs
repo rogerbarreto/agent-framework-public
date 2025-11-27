@@ -967,7 +967,7 @@ public partial class ChatClientAgentTests
     }
 
     /// <summary>
-    /// Verify that ChatOptions property returns null when no params are provided that require a ChatOptions instance.
+    /// Verify that ChatOptions is created with instructions when instructions are provided and no tools are provided.
     /// </summary>
     [Fact]
     public void ChatOptionsCreatedWithInstructionsEvenWhenConstructorToolsNotProvided()
