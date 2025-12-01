@@ -1,53 +1,34 @@
-# Creating an AIAgent with Anthropic
+# Creating an AIAgent with Google Gemini
 
-This sample demonstrates how to create an AIAgent using Anthropic Claude models as the underlying inference service.
+This sample demonstrates how to create an AIAgent using Google Gemini models as the underlying inference service.
 
-The sample supports three deployment scenarios:
+The sample showcases two different `IChatClient` implementations:
 
-1. **Anthropic Public API** - Direct connection to Anthropic's public API
-2. **Azure Foundry with API Key** - Anthropic models deployed through Azure Foundry using API key authentication
-3. **Azure Foundry with Azure CLI** - Anthropic models deployed through Azure Foundry using Azure CLI credentials
+1. **Google GenAI** - Using the official [Google.GenAI](https://www.nuget.org/packages/Google.GenAI) package
+2. **Mscc.GenerativeAI.Microsoft** - Using the community-driven [Mscc.GenerativeAI.Microsoft](https://www.nuget.org/packages/Mscc.GenerativeAI.Microsoft) package
 
 ## Prerequisites
 
 Before you begin, ensure you have the following prerequisites:
 
 - .NET 8.0 SDK or later
-
-### For Anthropic Public API
-
-- Anthropic API key
+- Google AI Studio API key (get one at [Google AI Studio](https://aistudio.google.com/apikey))
 
 Set the following environment variables:
 
 ```powershell
-$env:ANTHROPIC_API_KEY="your-anthropic-api-key"  # Replace with your Anthropic API key
-$env:ANTHROPIC_DEPLOYMENT_NAME="claude-haiku-4-5"  # Optional, defaults to claude-haiku-4-5
+$env:GOOGLE_GENAI_API_KEY="your-google-api-key"  # Replace with your Google AI Studio API key
+$env:GOOGLE_GENAI_MODEL="gemini-2.5-fast"  # Optional, defaults to gemini-2.5-fast
 ```
 
-### For Azure Foundry with API Key
+## Package Options
 
-- Azure Foundry service endpoint and deployment configured
-- Anthropic API key
+### Google GenAI (Official)
 
-Set the following environment variables:
+The official Google GenAI package provides direct access to Google's Generative AI models. This sample uses an extension method to convert the Google client to an `IChatClient`.
 
-```powershell
-$env:ANTHROPIC_RESOURCE="your-foundry-resource-name"  # Replace with your Azure Foundry resource name (subdomain before .services.ai.azure.com)
-$env:ANTHROPIC_API_KEY="your-anthropic-api-key"  # Replace with your Anthropic API key
-$env:ANTHROPIC_DEPLOYMENT_NAME="claude-haiku-4-5"  # Optional, defaults to claude-haiku-4-5
-```
+> **Note**: Until PR [googleapis/dotnet-genai#81](https://github.com/googleapis/dotnet-genai/pull/81) is merged, this option requires the additional `GeminiChatClient.cs` and `GoogleGenAIExtensions.cs` files included in this sample.
 
-### For Azure Foundry with Azure CLI
+### Mscc.GenerativeAI.Microsoft (Community)
 
-- Azure Foundry service endpoint and deployment configured
-- Azure CLI installed and authenticated (for Azure credential authentication)
-
-Set the following environment variables:
-
-```powershell
-$env:ANTHROPIC_RESOURCE="your-foundry-resource-name"  # Replace with your Azure Foundry resource name (subdomain before .services.ai.azure.com)
-$env:ANTHROPIC_DEPLOYMENT_NAME="claude-haiku-4-5"  # Optional, defaults to claude-haiku-4-5
-```
-
-**Note**: When using Azure Foundry with Azure CLI, make sure you're logged in with `az login` and have access to the Azure Foundry resource. For more information, see the [Azure CLI documentation](https://learn.microsoft.com/cli/azure/authenticate-azure-cli-interactively).
+The community-driven Mscc.GenerativeAI.Microsoft package provides a ready-to-use `IChatClient` implementation for Google Gemini models through the `GeminiChatClient` class.
