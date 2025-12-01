@@ -11,7 +11,7 @@ The sample showcases two different `IChatClient` implementations:
 
 Before you begin, ensure you have the following prerequisites:
 
-- .NET 8.0 SDK or later
+- .NET 10.0 SDK or later
 - Google AI Studio API key (get one at [Google AI Studio](https://aistudio.google.com/apikey))
 
 Set the following environment variables:
