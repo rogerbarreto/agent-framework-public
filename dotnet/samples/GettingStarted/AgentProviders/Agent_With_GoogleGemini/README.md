@@ -27,7 +27,10 @@ $env:GOOGLE_GENAI_MODEL="gemini-2.5-fast"  # Optional, defaults to gemini-2.5-fa
 
 The official Google GenAI package provides direct access to Google's Generative AI models. This sample uses an extension method to convert the Google client to an `IChatClient`.
 
-> **Note**: Until PR [googleapis/dotnet-genai#81](https://github.com/googleapis/dotnet-genai/pull/81) is merged, this option requires the additional `GeminiChatClient.cs` and `GoogleGenAIExtensions.cs` files included in this sample.
+> [!NOTE]
+> Until PR [googleapis/dotnet-genai#81](https://github.com/googleapis/dotnet-genai/pull/81) is merged, this option requires the additional `GeminiChatClient.cs` and `GoogleGenAIExtensions.cs` files included in this sample.
+>
+> We appreciate any community push by liking and commenting in the above PR to get it merged and release as part of official Google GenAI package.
 
 ### Mscc.GenerativeAI.Microsoft (Community)
 
