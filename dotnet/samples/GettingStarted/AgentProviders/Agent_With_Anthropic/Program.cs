@@ -56,7 +56,8 @@ namespace Sample
 
         public void Apply(HttpRequestMessage requestMessage)
         {
-            if (this._cachedAccessToken is null || this._cachedAccessToken.Value.ExpiresOn <= DateTimeOffset.Now)
+            // Add a 5-minute buffer to avoid using tokens that are about to expire
+            if (this._cachedAccessToken is null || this._cachedAccessToken.Value.ExpiresOn <= DateTimeOffset.Now.AddMinutes(5))
             {
                 this._cachedAccessToken = this._tokenCredential.GetToken(new TokenRequestContext(scopes: ["https://ai.azure.com/.default"]), CancellationToken.None);
             }
