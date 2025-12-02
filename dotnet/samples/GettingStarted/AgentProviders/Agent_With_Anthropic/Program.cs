@@ -15,7 +15,7 @@ var deploymentName = Environment.GetEnvironmentVariable("ANTHROPIC_DEPLOYMENT_NA
 // The resource is the subdomain name / first name coming before '.services.ai.azure.com' in the endpoint Uri
 // ie: https://(resource name).services.ai.azure.com/anthropic/v1/chat/completions
 string? resource = Environment.GetEnvironmentVariable("ANTHROPIC_RESOURCE");
-string? apiKey = null; // Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+string? apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
 
 const string JokerInstructions = "You are good at telling jokes.";
 const string JokerName = "JokerAgent";
