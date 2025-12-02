@@ -36,11 +36,13 @@ namespace Sample
     /// <summary>
     /// Provides methods for invoking the Azure hosted Anthropic models using <see cref="TokenCredential"/> types.
     /// </summary>
-    public class AnthropicAzureTokenCredential : IAnthropicFoundryCredentials
+    public sealed class AnthropicAzureTokenCredential : IAnthropicFoundryCredentials
     {
         private readonly TokenCredential _tokenCredential;
+        private readonly Lock _lock = new();
         private AccessToken? _cachedAccessToken;
 
+        /// <inheritdoc/>
         public string ResourceName { get; }
 
         /// <summary>
@@ -48,22 +50,29 @@ namespace Sample
         /// </summary>
         /// <param name="tokenCredential">The credential provider. Use any specialization of <see cref="TokenCredential"/> to get your access token in supported environments.</param>
         /// <param name="resourceName">The service resource subdomain name to use in the anthropic azure endpoint</param>
-        public AnthropicAzureTokenCredential(TokenCredential tokenCredential, string resourceName)
+        internal AnthropicAzureTokenCredential(TokenCredential tokenCredential, string resourceName)
         {
             this.ResourceName = resourceName ?? throw new ArgumentNullException(nameof(resourceName));
             this._tokenCredential = tokenCredential ?? throw new ArgumentNullException(nameof(tokenCredential));
         }
 
+        /// <inheritdoc/>
         public void Apply(HttpRequestMessage requestMessage)
         {
-            if (this._cachedAccessToken is null || this._cachedAccessToken.Value.ExpiresOn <= DateTimeOffset.Now)
+            AccessToken accessToken;
+            lock (this._lock)
             {
-                this._cachedAccessToken = this._tokenCredential.GetToken(new TokenRequestContext(scopes: ["https://ai.azure.com/.default"]), CancellationToken.None);
+                if (this._cachedAccessToken is null || this._cachedAccessToken.Value.ExpiresOn <= DateTimeOffset.Now)
+                {
+                    this._cachedAccessToken = this._tokenCredential.GetToken(new TokenRequestContext(scopes: ["https://ai.azure.com/.default"]), CancellationToken.None);
+                }
+
+                accessToken = this._cachedAccessToken.Value;
             }
 
             requestMessage.Headers.Authorization = new AuthenticationHeaderValue(
                 "bearer",
-                this._cachedAccessToken.Value.Token
+                accessToken.Token
             );
         }
     }
