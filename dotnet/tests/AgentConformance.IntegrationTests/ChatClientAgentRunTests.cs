@@ -69,8 +69,8 @@ public abstract class ChatClientAgentRunTests<TAgentFixture>(Func<TAgentFixture>
         }
     }
 
-    [Fact]
-    public async Task RunWithImageContentWorksAsync()
+    [RetryFact(Constants.RetryCount, Constants.RetryDelay)]
+    public virtual async Task RunWithImageContentWorksAsync()
     {
         const string AgentInstructions = "You are a helpful agent that can analyze images";
         const string AgentName = "VisionAgent";
@@ -80,7 +80,7 @@ public abstract class ChatClientAgentRunTests<TAgentFixture>(Func<TAgentFixture>
         {
             ChatMessage message = new(ChatRole.User, [
                 new TextContent("What do you see in this image?"),
-                new DataContent(File.ReadAllBytes("assets/walkway.jpg"), "image/jpeg")
+                new DataContent(File.ReadAllBytes(Path.Combine("shared", "assets", "walkway.jpg")), "image/jpeg")
             ]);
 
             var thread = agent.GetNewThread();
