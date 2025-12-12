@@ -11,7 +11,7 @@ using Microsoft.Extensions.AI;
 using OpenAI.Files;
 using OpenAI.VectorStores;
 
-namespace AzureAI.IntegrationTests.Tools;
+namespace AzureAI.IntegrationTests;
 
 public sealed class AIProjectClientAgentHostedToolsTests() : AgentTests<AIProjectClientFixture>(() => new())
 {
@@ -128,16 +128,22 @@ public sealed class AIProjectClientAgentHostedToolsTests() : AgentTests<AIProjec
     public async Task CreateAIAgentAsync_WithHostedMcpTool_PerformCallsAsync()
     {
         // Arrange
-        const string Name = "McpAgent";
-        const string Instructions = "You are an AI agent that can make MCP calls using the hosted MCP tool.";
-        var mcpTool = new HostedMcpTool() { Inputs = [] };
+        const string Name = "MicrosoftLearnAgentWithApproval";
+        const string Instructions = "You answer questions by searching the Microsoft Learn content only.";
+        var mcpTool = new HostedMcpServerTool(
+         serverName: "microsoft_learn",
+         serverAddress: "https://learn.microsoft.com/api/mcp")
+        {
+            AllowedTools = ["microsoft_docs_search"],
+            ApprovalMode = HostedMcpServerToolApprovalMode.AlwaysRequire
+        };
+
         var agent = await this.Fixture.CreateChatClientAgentAsync(name: Name, instructions: Instructions, aiTools: [mcpTool]);
+
         try
         {
             var response = await agent.RunAsync("Fetch me a list of available models.");
-            // Get the McpToolCallContent
-            var toolCallContent = response.Messages.SelectMany(m => m.Contents).OfType<McpToolCallContent>().FirstOrDefault();
-            Assert.NotNull(toolCallContent);
+            Assert.NotEmpty(response.UserInputRequests.OfType<McpServerToolApprovalRequestContent>());
         }
         finally
         {

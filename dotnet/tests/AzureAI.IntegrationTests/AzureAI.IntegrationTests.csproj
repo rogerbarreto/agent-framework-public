@@ -13,4 +13,10 @@
     <PackageReference Include="Azure.Identity" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Assets\walkway.jpg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
