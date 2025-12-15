@@ -76,7 +76,7 @@ public class AzureAIAgentsPersistentFixture : IChatClientAgentFixture
       string name,
       string instructions,
       IList<ToolDefinition>? toolDefinitions,
-      ToolResources toolResources)
+      ToolResources? toolResources)
     {
         var persistentAgentResponse = await this._persistentAgentsClient.Administration.CreateAgentAsync(
             model: s_config.DeploymentName,
@@ -123,5 +123,14 @@ public class AzureAIAgentsPersistentFixture : IChatClientAgentFixture
     {
         this._persistentAgentsClient = new(s_config.Endpoint, new AzureCliCredential());
         this._agent = await this.CreateChatClientAgentAsync();
+    }
+
+    internal ToolDefinition GetWebSearchTool()
+    {
+        return new BingGroundingToolDefinition(
+            new BingGroundingSearchToolParameters(
+                [new BingGroundingSearchConfiguration(s_config.BingConnectionId)]
+            )
+        );
     }
 }

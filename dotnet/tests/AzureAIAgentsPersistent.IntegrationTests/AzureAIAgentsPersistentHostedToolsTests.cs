@@ -127,6 +127,39 @@ public sealed class AzureAIAgentsPersistentHostedToolsTests() : AgentTests<Azure
         }
     }
 
+    // Due to a small bug in the ChatClient, annotations are only provided when there's a file id associated, the bug was corrected in the commit below but needs to be released.
+    // https://github.com/Azure/azure-sdk-for-net/pull/54496/commits/d72f0b689e17d1b3d5cbaea20f77ea8ecbe4de0d
+    [Fact(Skip = "Search tool disabled temporarily")]
+    public async Task CreateAIAgentAsync_WithWebSearchTool_PerformsWebSearchAsync()
+    {
+        // Arrange
+        const string Name = "WebSearchAgent";
+        const string Instructions = "Use the bing grounding tool to answer questions.";
+
+        var webSearchTool = this.Fixture.GetWebSearchTool();
+
+        var agent = await this.Fixture.CreateChatClientAgentAsync(name: Name, instructions: Instructions, toolDefinitions: [webSearchTool], toolResources: null);
+        try
+        {
+            // Act
+            var response = await agent.RunAsync("How does wikipedia explain Euler's Identity?");
+            var text = response.ToString();
+
+            var annotations = response.Messages
+                .SelectMany(m => m.Contents)
+                .OfType<TextContent>()
+                .Where(c => c.Annotations is { Count: > 0 })
+                .SelectMany(c => c.Annotations!);
+
+            Assert.NotEmpty(annotations);
+            Assert.NotEmpty(text);
+        }
+        finally
+        {
+            await this.Fixture.DeleteAgentAsync(agent);
+        }
+    }
+
     /// <summary>
     /// Waits for a vector store to complete indexing by polling its status.
     /// </summary>
