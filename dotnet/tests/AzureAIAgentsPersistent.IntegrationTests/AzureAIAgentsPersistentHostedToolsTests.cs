@@ -18,7 +18,9 @@ public sealed class AzureAIAgentsPersistentHostedToolsTests() : AgentTests<Azure
 {
     private static readonly AzureAIConfiguration s_config = TestConfiguration.LoadSection<AzureAIConfiguration>();
 
-    [Fact]
+    // Agents with Foundry Classic Agents don't give Code Interpreter Results back
+    // Being tracked in issue https://github.com/microsoft/agent-framework/issues/2877
+    [Fact(Skip = "Currently not working as expected")]
     public async Task CreateAIAgentAsync_WithCodeInterpreterTool_RenderResultsAsync()
     {
         // Arrange
