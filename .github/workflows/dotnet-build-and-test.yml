@@ -36,6 +36,7 @@ jobs:
       pull-requests: read
     outputs:
       dotnetChanges: ${{ steps.filter.outputs.dotnet}}
+      cosmosDbChanges: ${{ steps.filter.outputs.cosmosdb}}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -44,10 +45,15 @@ jobs:
           filters: |
             dotnet:
               - 'dotnet/**'
+            cosmosdb:
+              - 'dotnet/src/Microsoft.Agents.AI.CosmosNoSql/**'
       # run only if 'dotnet' files were changed
       - name: dotnet tests
         if: steps.filter.outputs.dotnet == 'true'
         run: echo "Dotnet file"
+      - name: dotnet CosmosDB tests
+        if: steps.filter.outputs.cosmosdb == 'true'
+        run: echo "Dotnet CosmosDB changes"
       # run only if not 'dotnet' files were changed
       - name: not dotnet tests
         if: steps.filter.outputs.dotnet != 'true'
@@ -124,9 +130,9 @@ jobs:
           popd
           rm -rf "$TEMP_DIR"
 
-      # Start Cosmos DB Emulator for Cosmos-based unit tests (only on Windows)
+      # Start Cosmos DB Emulator for Cosmos-based unit tests (only when CosmosDB changes happened and running on Windows OS)
       - name: Start Azure Cosmos DB Emulator
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.paths-filter.outputs.cosmosDbChanges == 'true'
         shell: pwsh
         run: |
           Write-Host "Launching Azure Cosmos DB Emulator"
@@ -196,6 +202,7 @@ jobs:
           done
         env:
           # Cosmos DB Emulator connection settings
+          COSMOS_EMULATOR_AVAILABLE: true
           COSMOSDB_ENDPOINT: https://localhost:8081
           COSMOSDB_KEY: C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
           # OpenAI Models
