@@ -35,8 +35,8 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      dotnetChanges: ${{ steps.filter.outputs.dotnet}}
-      cosmosDbChanges: ${{ steps.filter.outputs.cosmosdb}}
+      dotnetChanges: ${{ steps.filter.outputs.dotnet }}
+      cosmosDbChanges: ${{ steps.filter.outputs.cosmosdb }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -132,7 +132,7 @@ jobs:
 
       # Start Cosmos DB Emulator for Cosmos-based unit tests (only when CosmosDB changes happened and running on Windows OS)
       - name: Start Azure Cosmos DB Emulator
-        if: runner.os == 'Windows' && needs.paths-filter.outputs.cosmosDbChanges == 'true'
+        if: runner.os == 'Windows' && needs.paths-filter.outputs.cosmosDbChanges
         shell: pwsh
         run: |
           Write-Host "Launching Azure Cosmos DB Emulator"
