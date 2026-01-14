@@ -2,7 +2,7 @@
 status: proposed
 contact: {agent-framework-team}
 date: 2026-01-14
-deciders: {stephentoub, markwallace-microsoft, rogerbarreto, westey-m}
+deciders: {sergeymenshykh, markwallace-microsoft, rogerbarreto, westey-m, dmytrostruk, evananvalkenburg}
 consulted: {}
 informed: {}
 ---
