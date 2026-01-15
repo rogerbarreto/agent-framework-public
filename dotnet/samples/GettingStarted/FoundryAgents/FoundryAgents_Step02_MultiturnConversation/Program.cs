@@ -44,7 +44,7 @@ await foreach (AgentRunResponseUpdate update in jokerAgent.RunStreamingAsync("Te
 {
     Console.WriteLine(update);
 }
-await foreach (AgentRunResponseUpdate update in jokerAgent.RunStreamingAsync("Now add some emojis to the joke and tell it in the voice of a pirate's parrot.", thread))
+await foreach (AgentResponseUpdate update in jokerAgent.RunStreamingAsync("Now add some emojis to the joke and tell it in the voice of a pirate's parrot.", thread))
 {
     Console.WriteLine(update);
 }
