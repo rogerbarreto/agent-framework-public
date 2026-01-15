@@ -394,7 +394,218 @@ var response = await agent.RunAsync(messages, thread, runOptions);
 
 ---
 
-### Option 3: Decorator Pattern with ChatClientAgentDecorator (Least Favorable)
+### Option 3: Factory Property in ChatClientAgentOptions
+
+Introduce a `ChatOptionsFactory` delegate property that provides programmatic, flexible control over ChatOptions generation by allowing custom logic to determine how agent-level and per-request options are merged or processed.
+
+#### Implementation Description
+
+```csharp
+/// <summary>
+/// Delegate for customizing ChatOptions generation during per-request invocations.
+/// </summary>
+/// <param name="agent">The agent instance invoking the factory.</param>
+/// <param name="agentOptions">The agent-level options configured during agent initialization.</param>
+/// <param name="runOptions">The per-request run options provided for this specific invocation.</param>
+/// <returns>The final ChatOptions to send to the underlying chat client.</returns>
+public delegate ChatOptions ChatOptionsFactory(
+    AIAgent agent,
+    AgentOptions agentOptions,
+    AgentRunOptions runOptions);
+
+public sealed class ChatClientAgentOptions
+{
+    // ... existing properties ...
+
+    /// <summary>
+    /// Gets or sets a factory delegate that customizes ChatOptions generation during per-request invocations.
+    /// </summary>
+    /// <remarks>
+    /// When provided, this factory is invoked to generate the final ChatOptions that will be sent
+    /// to the underlying chat client, replacing the default merge logic. This allows providers and
+    /// callers to implement custom configuration strategies including:
+    /// - Selective property overriding (allow some properties to be overridden, protect others)
+    /// - Provider-specific merging logic (e.g., respecting server-side constraints)
+    /// - Dynamic configuration based on runtime conditions
+    /// - Validation and transformation of configuration values
+    ///
+    /// When <see langword="null"/>, the default merge logic is used (AllowAll behavior).
+    /// This property is typically set by provider-specific extensions, not by direct callers.
+    /// </remarks>
+    public ChatOptionsFactory? ChatOptionsFactory { get; set; } = null;
+}
+```
+
+#### Implementation in ChatClientAgent
+
+```csharp
+private ChatOptions? GetChatOptionsForRun(AgentRunOptions? runOptions)
+{
+    // If ChatOptionsFactory is provided, use it for custom logic
+    if (this._agentOptions?.ChatOptionsFactory is not null)
+    {
+        return this._agentOptions.ChatOptionsFactory(
+            this,
+            this._agentOptions,
+            runOptions ?? new ChatClientAgentRunOptions());
+    }
+
+    // Otherwise, proceed with existing merge/advertise-per-request logic
+    var requestChatOptions = (runOptions as ChatClientAgentRunOptions)?.ChatOptions?.Clone();
+
+    // ... existing merge logic ...
+}
+```
+
+#### Usage Pattern: Simple Provider-Specific Factory (Recommended)
+
+For providers like Foundry that need to enforce strict server-side configuration:
+
+```csharp
+// In AzureAIProjectExtensions.cs
+public static class AzureAIProjectExtensions
+{
+    private static ChatClientAgent CreateChatClientAgent(
+        AIProjectClient client,
+        string agentId)
+    {
+        var agentDef = client.GetAgentDefinition(agentId);
+        var chatOptions = new ChatOptions
+        {
+            Instructions = agentDef.Instructions,
+            Tools = agentDef.Tools,
+            ModelId = agentDef.ModelId
+        };
+
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Name = agentDef.Name,
+            Description = agentDef.Description,
+            ChatOptions = chatOptions,
+            // Factory that returns only agent-level options, ignoring per-request changes
+            ChatOptionsFactory = (agent, agentOpts, runOpts) =>
+                agentOpts.ChatOptions?.Clone()
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions);
+    }
+}
+```
+
+#### Usage Pattern: Runtime Parameter Tuning Factory
+
+For providers like OpenAI that allow selective per-request overrides:
+
+```csharp
+// In OpenAIExtensions.cs
+public static class OpenAIExtensions
+{
+    private static ChatClientAgent CreateChatClientAgent(
+        OpenAIClient client,
+        string assistantId)
+    {
+        var assistant = client.GetAssistant(assistantId);
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Name = assistant.Name,
+            ChatOptions = new ChatOptions
+            {
+                Instructions = assistant.Instructions,
+                Tools = assistant.Tools,
+                ModelId = assistant.ModelId
+            },
+            // Factory that allows runtime parameter tuning but protects critical settings
+            ChatOptionsFactory = (agent, agentOpts, runOpts) =>
+            {
+                var agentChatOptions = agentOpts.ChatOptions?.Clone();
+                var requestChatOptions = (runOpts as ChatClientAgentRunOptions)?.ChatOptions;
+
+                if (agentChatOptions is null)
+                    return requestChatOptions;
+
+                if (requestChatOptions is null)
+                    return agentChatOptions;
+
+                // Allow overrides for runtime parameters only
+                agentChatOptions.Temperature = requestChatOptions.Temperature ?? agentChatOptions.Temperature;
+                agentChatOptions.MaxOutputTokens = requestChatOptions.MaxOutputTokens ?? agentChatOptions.MaxOutputTokens;
+                agentChatOptions.TopP = requestChatOptions.TopP ?? agentChatOptions.TopP;
+                agentChatOptions.TopK = requestChatOptions.TopK ?? agentChatOptions.TopK;
+                agentChatOptions.Seed = requestChatOptions.Seed ?? agentChatOptions.Seed;
+                agentChatOptions.FrequencyPenalty = requestChatOptions.FrequencyPenalty ?? agentChatOptions.FrequencyPenalty;
+                agentChatOptions.PresencePenalty = requestChatOptions.PresencePenalty ?? agentChatOptions.PresencePenalty;
+
+                // Critical settings remain unchanged (Instructions, Tools, ModelId, ResponseFormat)
+
+                return agentChatOptions;
+            }
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions);
+    }
+}
+```
+
+#### Usage Pattern: Complex Provider-Specific Logic
+
+For providers with sophisticated requirements:
+
+```csharp
+// Factory with conditional logic based on agent state or request context
+ChatOptionsFactory = (agent, agentOpts, runOpts) =>
+{
+    var result = agentOpts.ChatOptions?.Clone() ?? new ChatOptions();
+    var requestChatOptions = (runOpts as ChatClientAgentRunOptions)?.ChatOptions;
+
+    if (requestChatOptions is null)
+        return result;
+
+    // Custom business logic: allow overrides only during non-critical operations
+    var isNonCriticalOperation = (runOpts as ChatClientAgentRunOptions)?.Metadata?["operation_type"] as string == "casual";
+
+    if (isNonCriticalOperation)
+    {
+        // Allow full override for casual operations
+        return requestChatOptions;
+    }
+
+    // For critical operations, apply selective overrides
+    if (requestChatOptions.Temperature.HasValue)
+        result.Temperature = requestChatOptions.Temperature;
+
+    // Instructions and Tools remain protected
+
+    return result;
+};
+```
+
+#### Pros
+
+- Maximum flexibility and customization capability for provider-specific scenarios
+- Allows complex logic that can't be expressed through simple policies
+- Enables dynamic behavior based on runtime context or state
+- Supports conditional merging strategies based on operation type or other metadata
+- Single property that can handle all current and future scenarios
+- No need to introduce new enum types; logic lives where it's used
+- Extensible without modifying core agent code
+- Clear separation of concerns: each provider implements its own strategy
+- Nullable design allows provider detection logic
+- Callers don't need to understand merging behavior
+
+#### Cons
+
+- More complex API requiring callers to understand delegate patterns
+- Factory implementation details hidden from callers; harder to reason about behavior
+- Potential for inconsistent implementations across different providers
+- Requires more careful documentation and examples
+- Harder to test provider-specific factories in isolation
+- Could lead to code duplication if multiple providers need similar logic
+- Factory logic could become complex and difficult to maintain
+- Debugging factory behavior could be harder than explicit policies
+
+---
+
+### Option 4: Decorator Pattern with ChatClientAgentDecorator (Least Favorable)
 
 **This option is presented for completeness but is least favorable due to considerable breaking change requirements across the entire provider ecosystem.**
 
@@ -556,7 +767,7 @@ var response = await serverControlledAgent.RunAsync(messages, thread, runOptions
 - **Violates Requirements**: Explicitly conflicts with the backward compatibility requirement
 - **Not Production Ready**: Should not be implemented due to unacceptable breaking change impact
 
-**Recommendation**: Do not pursue this option. Use Options 1 or 2 instead.
+**Recommendation**: Do not pursue this option. Use Options 1, 2, or 3 instead.
 
 ---
 
@@ -564,22 +775,29 @@ var response = await serverControlledAgent.RunAsync(messages, thread, runOptions
 
 **Pending team discussion and feedback.**
 
-This ADR presents three viable approaches for production implementation:
+This ADR presents four approaches, with three viable options for production implementation:
 
 - **Option 1 (Boolean Property)**: Simplest implementation, best for straightforward opt-out scenarios. Uses `AllowAdvertiseAgentConfigPerRequest` property. Provider extensions deduce the value internally. Uses nullable `bool?` to distinguish provider-determined vs. default behavior.
 
-- **Option 2 (Enum Policy)**: Most flexible approach with granular control. Supports three policies (AllowAll, DisableAll, AllowRunOnly). Uses `AdvertiseAgentConfigPolicy` enum. Provider extensions set the appropriate policy based on provider characteristics. Uses nullable enum to allow provider-specific determination.
+- **Option 2 (Enum Policy)**: Policy-based approach with explicit control. Supports three policies (AllowAll, DisableAll, AllowRunOnly). Uses `AdvertiseAgentConfigPolicy` enum. Provider extensions set the appropriate policy based on provider characteristics. Uses nullable enum to allow provider-specific determination.
 
-- **Option 3 (Decorator Pattern)**: Not recommended due to requiring massive breaking changes to ChatClientAgent. Included for completeness but should not be pursued.
+- **Option 3 (Factory Property)**: Maximum flexibility with custom logic. Uses `ChatOptionsFactory` delegate to enable programmatic control. Supports complex scenarios including conditional merging, selective overrides, and runtime-based decisions. Best for providers with sophisticated requirements. Factory implementation lives in provider-specific extensions.
+
+- **Option 4 (Decorator Pattern)**: Not recommended due to requiring massive breaking changes to ChatClientAgent. Included for completeness but should not be pursued.
 
 ### Recommendation Focus
 
 For the team's consideration:
 1. **Option 1** is recommended for providers that need simple all-or-nothing opt-out (like Foundry agents)
-2. **Option 2** is recommended for providers needing fine-grained control (like OpenAI where runtime parameters can be tuned)
-3. Both options use **provider-specific extension methods** as the primary consumer API
-4. Both options use **nullable properties** to allow provider extensions to determine behavior
-5. **Direct caller usage** should be discouraged in favor of factory/extension methods
+2. **Option 2** is recommended for providers needing explicit, named policies (like OpenAI where runtime parameters can be tuned, but with clear policy semantics)
+3. **Option 3** is recommended for providers with complex, custom requirements that don't fit into predefined policies
+4. All three options use **provider-specific extension methods** as the primary consumer API
+5. All three options use **nullable properties** to allow provider extensions to determine behavior
+6. **Direct caller usage** should be discouraged in favor of factory/extension methods
+7. **Trade-off considerations**:
+   - Option 1: Simplicity vs. Limited control
+   - Option 2: Clarity and predictability vs. Extensibility
+   - Option 3: Maximum flexibility vs. Complexity and consistency
 
 ## Validation
 
