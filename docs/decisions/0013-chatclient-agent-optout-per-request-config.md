@@ -205,7 +205,8 @@ public enum AdvertiseAgentConfigPolicy
     DisableAll = 1,
 
     /// <summary>
-    /// Only advertise AgentRunOptions per-request parameters, ignoring AgentOptions entirely.
+    /// Use only per-request AgentRunOptions, completely ignoring agent-level AgentOptions.
+    /// Per-request configuration fully replaces initialization configuration.
     /// </summary>
     AllowRunOnly = 2
 }
@@ -243,41 +244,11 @@ private ChatOptions? GetChatOptionsForRun(AgentRunOptions? runOptions)
             this._agentOptions?.ChatOptions?.Clone(),
 
         AdvertiseAgentConfigPolicy.AllowRunOnly =>
-            requestChatOptions,  // Only use request options, ignore agent options entirely
+            requestChatOptions,  // Use only per-request options, ignore agent options entirely
 
         AdvertiseAgentConfigPolicy.AllowAll or _ =>
             this.MergeChatOptions(requestChatOptions)  // Existing logic - merge both
     };
-}
-
-private ChatOptions? MergeChatOptionsWithRuntimeParametersOnly(ChatOptions? requestOptions)
-{
-    var agentOptions = this._agentOptions?.ChatOptions?.Clone();
-
-    if (requestOptions is null)
-    {
-        return agentOptions;
-    }
-
-    if (agentOptions is null)
-    {
-        return requestOptions;
-    }
-
-    // Allow per-request overrides for runtime parameters only
-    agentOptions.Temperature = requestOptions.Temperature ?? agentOptions.Temperature;
-    agentOptions.MaxOutputTokens = requestOptions.MaxOutputTokens ?? agentOptions.MaxOutputTokens;
-    agentOptions.TopP = requestOptions.TopP ?? agentOptions.TopP;
-    agentOptions.TopK = requestOptions.TopK ?? agentOptions.TopK;
-    agentOptions.Seed = requestOptions.Seed ?? agentOptions.Seed;
-    agentOptions.FrequencyPenalty = requestOptions.FrequencyPenalty ?? agentOptions.FrequencyPenalty;
-    agentOptions.PresencePenalty = requestOptions.PresencePenalty ?? agentOptions.PresencePenalty;
-
-    // Prevent overrides of critical settings
-    // Instructions, Tools, ModelId, ResponseFormat remain as initialized
-    // No merging of instructions, tools, or model
-
-    return agentOptions;
 }
 ```
 
@@ -317,50 +288,44 @@ var agent = AzureAIProjectExtensions.CreateChatClientAgent(projectClient, "agent
 var response = await agent.RunAsync(messages, thread, runOptions);
 ```
 
-For providers that allow runtime parameter tuning:
+#### AllowRunOnly Policy Limitation
+
+The `AllowRunOnly` policy completely replaces agent options with per-request options. It is **not suitable** for providers like OpenAI that want to allow selective runtime parameter overrides while protecting critical settings like instructions and tools.
+
+For such providers, consider:
+- Using **Option 3 (Factory Property)** which provides fine-grained control through custom logic
+- Or implementing selective merging in the future as an additional policy value
+
+Example showing why AllowRunOnly is insufficient for OpenAI:
 
 ```csharp
-// In OpenAIExtensions.cs - OpenAI assistants allow runtime parameter tuning
-public static class OpenAIExtensions
+// This example shows the LIMITATION of AllowRunOnly for selective overrides
+var agentOptions = new ChatClientAgentOptions
 {
-    private static ChatClientAgent CreateChatClientAgent(
-        OpenAIClient client,
-        string assistantId)
+    ChatOptions = new ChatOptions
     {
-        var assistant = client.GetAssistant(assistantId);
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Name = assistant.Name,
-            ChatOptions = new ChatOptions
-            {
-                Instructions = assistant.Instructions,
-                Tools = assistant.Tools,
-                ModelId = assistant.ModelId
-            },
-            // Allow per-request temperature/token overrides but protect instructions and tools
-            AdvertiseAgentConfigPolicy = AdvertiseAgentConfigPolicy.AllowRunOnly
-        };
+        Instructions = "Important: follow company policies",  // Will be LOST
+        Tools = [new AuthorizedTool()],                       // Will be LOST
+        Temperature = 0.7f
+    },
+    AdvertiseAgentConfigPolicy = AdvertiseAgentConfigPolicy.AllowRunOnly  // ❌ TOO COARSE
+};
 
-        return new ChatClientAgent(chatClient, agentOptions);
-    }
-}
-
-// Caller can tune runtime parameters (temperature, max tokens)
 var runOptions = new ChatClientAgentRunOptions
 {
     ChatOptions = new ChatOptions
     {
-        Temperature = 0.8f,      // Allowed - affects model behavior
-        TopP = 0.9f              // Allowed - affects model behavior
-        // Instructions, Tools are protected - changes to these are ignored
+        Temperature = 0.8f,  // Want to override this
+        // Did NOT provide Instructions or Tools
     }
 };
 
 var response = await agent.RunAsync(messages, thread, runOptions);
-// Temperature: 0.8f (overridden by request)
-// Instructions: Original agent instructions (NOT overridden)
-// Tools: Original agent tools (NOT merged with per-request tools)
+// Result: Instructions and Tools are MISSING because AllowRunOnly completely replaces agent options
+// This is NOT what OpenAI-style selective overrides should do
 ```
+
+For providers requiring selective runtime parameter merging, use **Option 3 (Factory Property)** which allows the logic shown in the "Runtime Parameter Tuning Factory" example above.
 
 #### Pros
 
@@ -375,9 +340,9 @@ var response = await agent.RunAsync(messages, thread, runOptions);
 #### Cons
 
 - More complex API with additional enum type
-- `AllowRuntimeParametersOnly` requires clear documentation about which properties are considered "runtime parameters" vs. "critical settings"
-- Implementation complexity increases with each policy type
-- Potential confusion about which properties fall into which category
+- Implementation complexity is minimal for initial version (only handles DisableAll and AllowAll; AllowRunOnly is straightforward pass-through)
+- AllowRunOnly is simple but may be too coarse-grained for providers wanting to allow selective runtime parameter overrides (e.g., temperature/tokens only)
+- Future extension to support selective runtime parameter merging could increase complexity
 
 ---
 
