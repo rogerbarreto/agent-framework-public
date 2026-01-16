@@ -28,7 +28,81 @@ This behavior makes it difficult for provider-specific agents and decorations to
 
 ## Considered Options
 
-### Option 1: Boolean Property in ChatClientAgentOptions
+### Option 1: No Change (Handle in Specialized IChatClient Implementations)
+
+Maintain the current `ChatClientAgent` behavior where agent-level configuration is merged with per-request configuration. Any restrictions on per-request configuration advertisement should be handled in specialized `IChatClient` implementations where allowed per-request configurations are explicitly defined. Per-request information that is not allowed will be ignored at the `IChatClient` level/implementations.
+
+#### Implementation Description
+
+No changes are required to `ChatClientAgent`. The merging behavior remains as-is, and provider-specific `IChatClient` implementations are responsible for:
+
+1. Defining which per-request configuration properties are allowed
+2. Ignoring or filtering out any per-request configuration that violates provider constraints
+3. Enforcing server-side authority at the chat client level
+
+#### Example: AzureAIProjectChatClient Implementation
+
+The existing `AzureAIProjectChatClient` in the `Microsoft.Agents.AI.AzureAI` package already implements this pattern:
+
+```csharp
+// In AzureAIProjectChatClient.cs (existing implementation)
+internal sealed class AzureAIProjectChatClient : DelegatingChatClient
+{
+    private readonly ChatOptions? _chatOptions;
+
+    public override async Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var agentOptions = this.GetAgentEnabledChatOptions(options);
+        return await base.GetResponseAsync(messages, agentOptions, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ChatOptions GetAgentEnabledChatOptions(ChatOptions? options)
+    {
+        // Start with a clone of the base chat options defined for the agent, if any.
+        ChatOptions agentEnabledChatOptions = this._chatOptions?.Clone() ?? new();
+
+        // Ignore per-request all options that can't be overridden.
+        agentEnabledChatOptions.Instructions = null;
+        agentEnabledChatOptions.Tools = null;
+        agentEnabledChatOptions.Temperature = null;
+        agentEnabledChatOptions.TopP = null;
+        agentEnabledChatOptions.PresencePenalty = null;
+        agentEnabledChatOptions.ResponseFormat = null;
+
+        // Use the conversation from the request, or the one defined at the client level.
+        agentEnabledChatOptions.ConversationId = options?.ConversationId ?? this._chatOptions?.ConversationId;
+
+        // ... additional agent-specific configuration ...
+
+        return agentEnabledChatOptions;
+    }
+}
+```
+
+This implementation demonstrates how the `IChatClient` layer handles per-request configuration restrictions without requiring any changes to `ChatClientAgent`.
+
+#### Pros
+
+- No changes required to `ChatClientAgent`
+- Separation of concerns: provider-specific restrictions are handled at the provider level
+- Maximum backward compatibility
+- Clear responsibility boundary: `ChatClientAgent` handles general orchestration, `IChatClient` implementations handle provider-specific constraints
+- Allows each provider to define its own allowed configuration subset
+- No additional API surface area in the agent framework
+
+#### Cons
+
+- Per-request configuration is still sent to the `IChatClient`, even if it will be ignored
+- May require each provider to implement filtering logic
+- Less explicit about the opt-out behavior at the agent level
+- Callers may not be aware that their per-request configuration is being ignored
+
+---
+
+### Option 2: Boolean Property in ChatClientAgentOptions
 
 Add an `AllowAdvertiseAgentConfigPerRequest` boolean property to `ChatClientAgentOptions` that controls whether agent configuration is advertised (re-sent) with each per-request invocation. When set to `false`, agent configuration is advertised only once at creation and not re-advertised per request, preventing per-request configuration changes to core agent settings.
 
@@ -177,10 +251,11 @@ public sealed class ChatClientAgentOptions
 - All-or-nothing approach; doesn't allow selective opt-out of specific configuration properties
 - Doesn't provide granular control over which settings can be overridden per-request
 - Some providers might want to allow certain per-request overrides while blocking others
+- Adds complexity to `ChatClientAgent` that may not be needed, as no strong blocker issues have been identified at the `ChatClientAgent` level yet
 
 ---
 
-### Option 2: AdvertiseAgentConfigPolicy Enum in ChatClientAgentOptions
+### Option 3: AdvertiseAgentConfigPolicy Enum in ChatClientAgentOptions
 
 Introduce an `AdvertiseAgentConfigPolicy` enum that defines the per-request agent configuration advertising behavior, providing granular control over which settings can be advertised and potentially overridden per-request.
 
@@ -343,10 +418,11 @@ For providers requiring selective runtime parameter merging, use **Option 3 (Fac
 - Implementation complexity is minimal for initial version (only handles DisableAll and AllowAll; AllowRunOnly is straightforward pass-through)
 - AllowRunOnly is simple but may be too coarse-grained for providers wanting to allow selective runtime parameter overrides (e.g., temperature/tokens only)
 - Future extension to support selective runtime parameter merging could increase complexity
+- Adds complexity to `ChatClientAgent` that may not be needed, as no strong blocker issues have been identified at the `ChatClientAgent` level yet
 
 ---
 
-### Option 3: Factory Property in ChatClientAgentOptions
+### Option 4: Factory Property in ChatClientAgentOptions
 
 Introduce a `ChatOptionsFactory` delegate property that provides programmatic, flexible control over ChatOptions generation by allowing custom logic to determine how agent-level and per-request options are merged or processed.
 
@@ -554,10 +630,11 @@ ChatOptionsFactory = (agent, agentOpts, runOpts) =>
 - Could lead to code duplication if multiple providers need similar logic
 - Factory logic could become complex and difficult to maintain
 - Debugging factory behavior could be harder than explicit policies
+- Adds complexity to `ChatClientAgent` that may not be needed, as no strong blocker issues have been identified at the `ChatClientAgent` level yet
 
 ---
 
-### Option 4: Decorator Pattern with ChatClientAgentDecorator (Least Favorable)
+### Option 5: Decorator Pattern with ChatClientAgentDecorator (Least Favorable)
 
 **This option is presented for completeness but is least favorable due to considerable breaking change requirements across the entire provider ecosystem.**
 
@@ -718,8 +795,9 @@ var response = await serverControlledAgent.RunAsync(messages, thread, runOptions
 - **Requires Opt-In Merging**: Existing code would need to be wrapped with a merging decorator
 - **Violates Requirements**: Explicitly conflicts with the backward compatibility requirement
 - **Not Production Ready**: Should not be implemented due to unacceptable breaking change impact
+- Adds complexity to `ChatClientAgent` that may not be needed, as no strong blocker issues have been identified at the `ChatClientAgent` level yet
 
-**Recommendation**: Do not pursue this option. Use Options 1, 2, or 3 instead.
+**Recommendation**: Do not pursue this option. Use Options 1, 2, 3, or 4 instead.
 
 ---
 
@@ -727,29 +805,33 @@ var response = await serverControlledAgent.RunAsync(messages, thread, runOptions
 
 **Pending team discussion and feedback.**
 
-This ADR presents four approaches, with three viable options for production implementation:
+This ADR presents five approaches, with four viable options for production implementation:
 
-- **Option 1 (Boolean Property)**: Simplest implementation, best for straightforward opt-out scenarios. Uses `AllowAdvertiseAgentConfigPerRequest` property. Provider extensions deduce the value internally. Uses nullable `bool?` to distinguish provider-determined vs. default behavior.
+- **Option 1 (No Change)**: Maintain current behavior and handle restrictions in specialized `IChatClient` implementations. No changes to `ChatClientAgent`. Provider-specific `IChatClient` implementations filter or ignore disallowed per-request configuration.
 
-- **Option 2 (Enum Policy)**: Policy-based approach with explicit control. Supports three policies (AllowAll, DisableAll, AllowRunOnly). Uses `AdvertiseAgentConfigPolicy` enum. Provider extensions set the appropriate policy based on provider characteristics. Uses nullable enum to allow provider-specific determination.
+- **Option 2 (Boolean Property)**: Simplest implementation, best for straightforward opt-out scenarios. Uses `AllowAdvertiseAgentConfigPerRequest` property. Provider extensions deduce the value internally. Uses nullable `bool?` to distinguish provider-determined vs. default behavior.
 
-- **Option 3 (Factory Property)**: Maximum flexibility with custom logic. Uses `ChatOptionsFactory` delegate to enable programmatic control. Supports complex scenarios including conditional merging, selective overrides, and runtime-based decisions. Best for providers with sophisticated requirements. Factory implementation lives in provider-specific extensions.
+- **Option 3 (Enum Policy)**: Policy-based approach with explicit control. Supports three policies (AllowAll, DisableAll, AllowRunOnly). Uses `AdvertiseAgentConfigPolicy` enum. Provider extensions set the appropriate policy based on provider characteristics. Uses nullable enum to allow provider-specific determination.
 
-- **Option 4 (Decorator Pattern)**: Not recommended due to requiring massive breaking changes to ChatClientAgent. Included for completeness but should not be pursued.
+- **Option 4 (Factory Property)**: Maximum flexibility with custom logic. Uses `ChatOptionsFactory` delegate to enable programmatic control. Supports complex scenarios including conditional merging, selective overrides, and runtime-based decisions. Best for providers with sophisticated requirements. Factory implementation lives in provider-specific extensions.
+
+- **Option 5 (Decorator Pattern)**: Not recommended due to requiring massive breaking changes to ChatClientAgent. Included for completeness but should not be pursued.
 
 ### Recommendation Focus
 
 For the team's consideration:
-1. **Option 1** is recommended for providers that need simple all-or-nothing opt-out (like Foundry agents)
-2. **Option 2** is recommended for providers needing explicit, named policies (like OpenAI where runtime parameters can be tuned, but with clear policy semantics)
-3. **Option 3** is recommended for providers with complex, custom requirements that don't fit into predefined policies
-4. All three options use **provider-specific extension methods** as the primary consumer API
-5. All three options use **nullable properties** to allow provider extensions to determine behavior
-6. **Direct caller usage** should be discouraged in favor of factory/extension methods
-7. **Trade-off considerations**:
-   - Option 1: Simplicity vs. Limited control
-   - Option 2: Clarity and predictability vs. Extensibility
-   - Option 3: Maximum flexibility vs. Complexity and consistency
+1. **Option 1** is recommended if no strong blocker issues arise at the `ChatClientAgent` level, keeping the framework simple and delegating restrictions to `IChatClient` implementations
+2. **Option 2** is recommended for providers that need simple all-or-nothing opt-out (like Foundry agents)
+3. **Option 3** is recommended for providers needing explicit, named policies (like OpenAI where runtime parameters can be tuned, but with clear policy semantics)
+4. **Option 4** is recommended for providers with complex, custom requirements that don't fit into predefined policies
+5. Options 2, 3, and 4 use **provider-specific extension methods** as the primary consumer API
+6. Options 2, 3, and 4 use **nullable properties** to allow provider extensions to determine behavior
+7. **Direct caller usage** should be discouraged in favor of factory/extension methods
+8. **Trade-off considerations**:
+   - Option 1: Maximum simplicity and no framework changes vs. Less explicit opt-out at agent level
+   - Option 2: Simplicity vs. Limited control
+   - Option 3: Clarity and predictability vs. Extensibility
+   - Option 4: Maximum flexibility vs. Complexity and consistency
 
 ## Validation
 
