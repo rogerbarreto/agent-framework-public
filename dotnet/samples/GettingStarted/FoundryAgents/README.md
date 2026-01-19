@@ -24,7 +24,7 @@ One of the key architectural changes in the new Foundry Agents compared to the c
 
 This design ensures consistency and predictability in agent behavior across all interactions with a specific agent version.
 
-The Agent Framework intentionally ignores unsupported runtime parameters rather than throwing exceptions. This abstraction-first approach ensures that code written against the unified agent abstraction remains portable across providers (OpenAI, Azure OpenAI, Foundry Agents) without requiring provider-specific conditional logic. Teams can adopt Foundry Agents without rewriting existing orchestration code—configurations that work with other providers will gracefully degrade rather than fail when the underlying API does not support them.
+The Agent Framework intentionally ignores unsupported runtime parameters rather than throwing exceptions. This abstraction-first approach ensures that code written against the unified agent abstraction remains portable across providers (OpenAI, Azure OpenAI, Foundry Agents). It removes the need for provider-specific conditional logic. Teams can adopt Foundry Agents without rewriting existing orchestration code. Configurations that work with other providers will gracefully degrade, rather than fail, when the underlying API does not support them.
 
 ## Getting started with Foundry Agents prerequisites
 
