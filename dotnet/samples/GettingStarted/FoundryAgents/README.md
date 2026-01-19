@@ -15,6 +15,15 @@ For more information about the previous classic agents and for what's new in Fou
 
 For a sample demonstrating how to use classic Foundry Agents, see the following: [Agent with Azure AI Persistent](../AgentProviders/Agent_With_AzureAIAgentsPersistent/README.md).
 
+## Agent Versioning and Static Definitions
+
+One of the key architectural changes in the new Foundry Agents compared to the classic experience is how agent definitions are handled. In the new architecture, agents have **versions** and their definitions are established at creation time. This means that the agent's configuration—including instructions, tools, and options—is fixed when the agent version is created.
+
+> [!IMPORTANT]
+> Agent versions are static and strictly adhere to their original definition. Any attempt to provide or override tools, instructions, or options during an agent run or request will be ignored by the agent, as the API does not support runtime configuration changes. All agent behavior must be defined at agent creation time.
+
+This design ensures consistency and predictability in agent behavior across all interactions with a specific agent version.
+
 ## Getting started with Foundry Agents prerequisites
 
 Before you begin, ensure you have the following prerequisites:
