@@ -25,11 +25,10 @@ AgentVersion agentVersion = aiProjectClient.Agents.CreateAgentVersion(agentName:
 // Retrieve an AIAgent for the created server side agent version.
 ChatClientAgent jokerAgent = aiProjectClient.GetAIAgent(agentVersion);
 
+// Invoke the agent with a multi-turn conversation, where the context is preserved in the thread object.
 // Create a conversation in the server
 ProjectConversationsClient conversationsClient = aiProjectClient.GetProjectOpenAIClient().GetProjectConversationsClient();
 ProjectConversation conversation = await conversationsClient.CreateProjectConversationAsync();
-
-// Invoke the agent with a multi-turn conversation, where the context is preserved in the thread object.
 
 // Providing the conversation Id is not strictly necessary, but by not providing it no information will show up in the Foundry Project UI as conversations.
 // Threads that doesn't have a conversation Id will work based on the `PreviousResponseId`.
