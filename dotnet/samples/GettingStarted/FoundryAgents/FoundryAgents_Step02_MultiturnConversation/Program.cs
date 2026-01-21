@@ -19,11 +19,8 @@ AIProjectClient aiProjectClient = new(new Uri(endpoint), new AzureCliCredential(
 // Define the agent you want to create. (Prompt Agent in this case)
 AgentVersionCreationOptions options = new(new PromptAgentDefinition(model: deploymentName) { Instructions = JokerInstructions });
 
-// Create a server side agent version with the Azure.AI.Agents SDK client.
-AgentVersion agentVersion = aiProjectClient.Agents.CreateAgentVersion(agentName: JokerName, options);
-
 // Retrieve an AIAgent for the created server side agent version.
-ChatClientAgent jokerAgent = aiProjectClient.GetAIAgent(agentVersion);
+ChatClientAgent jokerAgent = await aiProjectClient.CreateAIAgentAsync(name: JokerName, options);
 
 // Invoke the agent with a multi-turn conversation, where the context is preserved in the thread object.
 // Create a conversation in the server
