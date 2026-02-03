@@ -53,7 +53,7 @@ internal static class TestDataUtil
     }
 
     /// <summary>
-    /// Gets the agent version response JSON with optional placeholder replacements applied, including support for empty version and ID.
+    /// Gets the agent version response JSON with empty version and ID fields for testing hosted agents like MCP agents.
     /// </summary>
     public static string GetAgentVersionResponseJsonWithEmptyVersion(string? agentName = null, AgentDefinition? agentDefinition = null, string? instructions = null, string? description = null)
     {
@@ -69,7 +69,7 @@ internal static class TestDataUtil
     }
 
     /// <summary>
-    /// Gets the agent response JSON with optional placeholder replacements applied, including support for empty version and ID in the latest version.
+    /// Gets the agent response JSON with empty version and ID fields in the latest version for testing hosted agents like MCP agents.
     /// </summary>
     public static string GetAgentResponseJsonWithEmptyVersion(string? agentName = null, AgentDefinition? agentDefinition = null, string? instructions = null, string? description = null)
     {

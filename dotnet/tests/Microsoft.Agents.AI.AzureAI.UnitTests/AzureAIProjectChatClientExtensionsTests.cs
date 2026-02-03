@@ -2406,7 +2406,7 @@ public sealed class AzureAIProjectChatClientExtensionsTests
         // Assert
         Assert.NotNull(agent);
         Assert.IsType<ChatClientAgent>(agent);
-        // Verify the agent ID is generated from name and "latest"
+        // Verify the agent ID is generated from server-returned name ("agent_abc123") and "latest"
         Assert.Equal("agent_abc123:latest", agent.Id);
     }
 
@@ -2425,7 +2425,7 @@ public sealed class AzureAIProjectChatClientExtensionsTests
 
         // Assert
         Assert.NotNull(agent);
-        // Verify the agent ID is generated from name and "latest"
+        // Verify the agent ID is generated from agent record name ("agent_abc123") and "latest"
         Assert.Equal("agent_abc123:latest", agent.Id);
     }
 
@@ -2444,7 +2444,7 @@ public sealed class AzureAIProjectChatClientExtensionsTests
 
         // Assert
         Assert.NotNull(agent);
-        // Verify the agent ID is generated from name and "latest"
+        // Verify the agent ID is generated from agent version name ("agent_abc123") and "latest"
         Assert.Equal("agent_abc123:latest", agent.Id);
     }
 
