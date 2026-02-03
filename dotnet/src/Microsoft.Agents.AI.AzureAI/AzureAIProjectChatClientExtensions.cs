@@ -543,9 +543,16 @@ public static partial class AzureAIProjectChatClientExtensions
             }
         }
 
+        // Use the agent version's ID if available, otherwise generate one from name and version.
+        // This handles cases where hosted agents (like MCP agents) may not have an ID assigned.
+        var version = string.IsNullOrEmpty(agentVersion.Version) ? "latest" : agentVersion.Version;
+        var agentId = string.IsNullOrEmpty(agentVersion.Id)
+            ? $"{agentVersion.Name}:{version}"
+            : agentVersion.Id;
+
         var agentOptions = new ChatClientAgentOptions()
         {
-            Id = agentVersion.Id,
+            Id = agentId,
             Name = agentVersion.Name,
             Description = agentVersion.Description,
         };
