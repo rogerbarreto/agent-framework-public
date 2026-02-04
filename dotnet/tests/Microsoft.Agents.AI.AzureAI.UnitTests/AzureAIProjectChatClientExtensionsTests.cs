@@ -2384,6 +2384,72 @@ public sealed class AzureAIProjectChatClientExtensionsTests
 
     #endregion
 
+    #region Empty Version and ID Handling Tests
+
+    /// <summary>
+    /// Verify that GetAIAgentAsync handles an agent with empty version by using "latest" as fallback.
+    /// </summary>
+    [Fact]
+    public async Task GetAIAgentAsync_WithEmptyVersion_CreatesAgentSuccessfullyAsync()
+    {
+        // Arrange
+        AIProjectClient client = this.CreateTestAgentClientWithEmptyVersion();
+        var options = new ChatClientAgentOptions
+        {
+            Name = "test-agent",
+            ChatOptions = new ChatOptions { Instructions = "Test" }
+        };
+
+        // Act
+        ChatClientAgent agent = await client.GetAIAgentAsync(options);
+
+        // Assert
+        Assert.NotNull(agent);
+        Assert.IsType<ChatClientAgent>(agent);
+        // Verify the agent ID is generated from server-returned name ("agent_abc123") and "latest"
+        Assert.Equal("agent_abc123:latest", agent.Id);
+    }
+
+    /// <summary>
+    /// Verify that AsAIAgent with AgentRecord handles empty version by using "latest" as fallback.
+    /// </summary>
+    [Fact]
+    public void AsAIAgent_WithAgentRecordEmptyVersion_CreatesAgentWithGeneratedId()
+    {
+        // Arrange
+        AIProjectClient client = this.CreateTestAgentClientWithEmptyVersion();
+        AgentRecord agentRecord = this.CreateTestAgentRecordWithEmptyVersion();
+
+        // Act
+        var agent = client.AsAIAgent(agentRecord);
+
+        // Assert
+        Assert.NotNull(agent);
+        // Verify the agent ID is generated from agent record name ("agent_abc123") and "latest"
+        Assert.Equal("agent_abc123:latest", agent.Id);
+    }
+
+    /// <summary>
+    /// Verify that AsAIAgent with AgentVersion handles empty version by using "latest" as fallback.
+    /// </summary>
+    [Fact]
+    public void AsAIAgent_WithAgentVersionEmptyVersion_CreatesAgentWithGeneratedId()
+    {
+        // Arrange
+        AIProjectClient client = this.CreateTestAgentClientWithEmptyVersion();
+        AgentVersion agentVersion = this.CreateTestAgentVersionWithEmptyVersion();
+
+        // Act
+        var agent = client.AsAIAgent(agentVersion);
+
+        // Assert
+        Assert.NotNull(agent);
+        // Verify the agent ID is generated from agent version name ("agent_abc123") and "latest"
+        Assert.Equal("agent_abc123:latest", agent.Id);
+    }
+
+    #endregion
+
     #region ApplyToolsToAgentDefinition Tests
 
     /// <summary>
@@ -2678,6 +2744,30 @@ public sealed class AzureAIProjectChatClientExtensionsTests
         return ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(TestDataUtil.GetAgentResponseJson(agentDefinition: agentDefinition)))!;
     }
 
+    /// <summary>
+    /// Creates a test AIProjectClient with empty version fields for testing hosted MCP agents.
+    /// </summary>
+    private FakeAgentClient CreateTestAgentClientWithEmptyVersion(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
+    {
+        return new FakeAgentClient(agentName, instructions, description, agentDefinitionResponse, useEmptyVersion: true);
+    }
+
+    /// <summary>
+    /// Creates a test AgentRecord with empty version for testing hosted MCP agents.
+    /// </summary>
+    private AgentRecord CreateTestAgentRecordWithEmptyVersion(AgentDefinition? agentDefinition = null)
+    {
+        return ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(TestDataUtil.GetAgentResponseJsonWithEmptyVersion(agentDefinition: agentDefinition)))!;
+    }
+
+    /// <summary>
+    /// Creates a test AgentVersion with empty version for testing hosted MCP agents.
+    /// </summary>
+    private AgentVersion CreateTestAgentVersionWithEmptyVersion()
+    {
+        return ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(TestDataUtil.GetAgentVersionResponseJsonWithEmptyVersion()))!;
+    }
+
     private const string OpenAPISpec = """
         {
           "openapi": "3.0.3",
@@ -2721,9 +2811,9 @@ public sealed class AzureAIProjectChatClientExtensionsTests
     /// </summary>
     private sealed class FakeAgentClient : AIProjectClient
     {
-        public FakeAgentClient(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
+        public FakeAgentClient(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null, bool useEmptyVersion = false)
         {
-            this.Agents = new FakeAIProjectAgentsOperations(agentName, instructions, description, agentDefinitionResponse);
+            this.Agents = new FakeAIProjectAgentsOperations(agentName, instructions, description, agentDefinitionResponse, useEmptyVersion);
         }
 
         public override ClientConnection GetConnection(string connectionId)
@@ -2739,60 +2829,76 @@ public sealed class AzureAIProjectChatClientExtensionsTests
             private readonly string? _instructions;
             private readonly string? _description;
             private readonly AgentDefinition? _agentDefinition;
+            private readonly bool _useEmptyVersion;
 
-            public FakeAIProjectAgentsOperations(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null)
+            public FakeAIProjectAgentsOperations(string? agentName = null, string? instructions = null, string? description = null, AgentDefinition? agentDefinitionResponse = null, bool useEmptyVersion = false)
             {
                 this._agentName = agentName;
                 this._instructions = instructions;
                 this._description = description;
                 this._agentDefinition = agentDefinitionResponse;
+                this._useEmptyVersion = useEmptyVersion;
+            }
+
+            private string GetAgentResponseJson()
+            {
+                return this._useEmptyVersion
+                    ? TestDataUtil.GetAgentResponseJsonWithEmptyVersion(this._agentName, this._agentDefinition, this._instructions, this._description)
+                    : TestDataUtil.GetAgentResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+            }
+
+            private string GetAgentVersionResponseJson()
+            {
+                return this._useEmptyVersion
+                    ? TestDataUtil.GetAgentVersionResponseJsonWithEmptyVersion(this._agentName, this._agentDefinition, this._instructions, this._description)
+                    : TestDataUtil.GetAgentVersionResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
             }
 
             public override ClientResult GetAgent(string agentName, RequestOptions options)
             {
-                var responseJson = TestDataUtil.GetAgentResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentResponseJson();
                 return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200, BinaryData.FromString(responseJson)));
             }
 
             public override ClientResult<AgentRecord> GetAgent(string agentName, CancellationToken cancellationToken = default)
             {
-                var responseJson = TestDataUtil.GetAgentResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentResponseJson();
                 return ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200));
             }
 
             public override Task<ClientResult> GetAgentAsync(string agentName, RequestOptions options)
             {
-                var responseJson = TestDataUtil.GetAgentResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentResponseJson();
                 return Task.FromResult<ClientResult>(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200, BinaryData.FromString(responseJson))));
             }
 
             public override Task<ClientResult<AgentRecord>> GetAgentAsync(string agentName, CancellationToken cancellationToken = default)
             {
-                var responseJson = TestDataUtil.GetAgentResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentResponseJson();
                 return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200)));
             }
 
             public override ClientResult CreateAgentVersion(string agentName, BinaryContent content, RequestOptions? options = null)
             {
-                var responseJson = TestDataUtil.GetAgentVersionResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentVersionResponseJson();
                 return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200, BinaryData.FromString(responseJson)));
             }
 
             public override ClientResult<AgentVersion> CreateAgentVersion(string agentName, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
             {
-                var responseJson = TestDataUtil.GetAgentVersionResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentVersionResponseJson();
                 return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200));
             }
 
             public override Task<ClientResult> CreateAgentVersionAsync(string agentName, BinaryContent content, RequestOptions? options = null)
             {
-                var responseJson = TestDataUtil.GetAgentVersionResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentVersionResponseJson();
                 return Task.FromResult<ClientResult>(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200, BinaryData.FromString(responseJson))));
             }
 
             public override Task<ClientResult<AgentVersion>> CreateAgentVersionAsync(string agentName, AgentVersionCreationOptions? options = null, CancellationToken cancellationToken = default)
             {
-                var responseJson = TestDataUtil.GetAgentVersionResponseJson(this._agentName, this._agentDefinition, this._instructions, this._description);
+                var responseJson = this.GetAgentVersionResponseJson();
                 return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200)));
             }
         }
