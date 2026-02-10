@@ -14,7 +14,7 @@ from azure.identity.aio import AzureCliCredential
 from pydantic import Field
 
 """
-Shared State Function-based Middleware Example
+Shared State Function-based MiddlewareTypes Example
 
 This sample demonstrates how to implement function-based middleware within a class to share state.
 The example includes:
@@ -57,7 +57,7 @@ class MiddlewareContainer:
     async def call_counter_middleware(
         self,
         context: FunctionInvocationContext,
-        next: Callable[[FunctionInvocationContext], Awaitable[None]],
+        call_next: Callable[[FunctionInvocationContext], Awaitable[None]],
     ) -> None:
         """First middleware: increments call count in shared state."""
         # Increment the shared call count
@@ -66,18 +66,18 @@ class MiddlewareContainer:
         print(f"[CallCounter] This is function call #{self.call_count}")
 
         # Call the next middleware/function
-        await next(context)
+        await call_next(context)
 
     async def result_enhancer_middleware(
         self,
         context: FunctionInvocationContext,
-        next: Callable[[FunctionInvocationContext], Awaitable[None]],
+        call_next: Callable[[FunctionInvocationContext], Awaitable[None]],
     ) -> None:
         """Second middleware: uses shared call count to enhance function results."""
         print(f"[ResultEnhancer] Current total calls so far: {self.call_count}")
 
         # Call the next middleware/function
-        await next(context)
+        await call_next(context)
 
         # After function execution, enhance the result using shared state
         if context.result:
@@ -88,7 +88,7 @@ class MiddlewareContainer:
 
 async def main() -> None:
     """Example demonstrating shared state function-based middleware."""
-    print("=== Shared State Function-based Middleware Example ===")
+    print("=== Shared State Function-based MiddlewareTypes Example ===")
 
     # Create middleware container with shared state
     middleware_container = MiddlewareContainer()

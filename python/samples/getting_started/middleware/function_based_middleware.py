@@ -7,7 +7,7 @@ from random import randint
 from typing import Annotated
 
 from agent_framework import (
-    AgentRunContext,
+    AgentContext,
     FunctionInvocationContext,
     tool,
 )
@@ -16,7 +16,7 @@ from azure.identity.aio import AzureCliCredential
 from pydantic import Field
 
 """
-Function-based Middleware Example
+Function-based MiddlewareTypes Example
 
 This sample demonstrates how to implement middleware using simple async functions instead of classes.
 The example includes:
@@ -27,7 +27,7 @@ The example includes:
 
 Function-based middleware is ideal for simple, stateless operations and provides a more
 lightweight approach compared to class-based middleware. Both agent and function middleware
-can be implemented as async functions that accept context and next parameters.
+can be implemented as async functions that accept context and call_next parameters.
 """
 
 
@@ -42,8 +42,8 @@ def get_weather(
 
 
 async def security_agent_middleware(
-    context: AgentRunContext,
-    next: Callable[[AgentRunContext], Awaitable[None]],
+    context: AgentContext,
+    call_next: Callable[[AgentContext], Awaitable[None]],
 ) -> None:
     """Agent middleware that checks for security violations."""
     # Check for potential security violations in the query
@@ -53,16 +53,16 @@ async def security_agent_middleware(
         query = last_message.text
         if "password" in query.lower() or "secret" in query.lower():
             print("[SecurityAgentMiddleware] Security Warning: Detected sensitive information, blocking request.")
-            # Simply don't call next() to prevent execution
+            # Simply don't call call_next() to prevent execution
             return
 
     print("[SecurityAgentMiddleware] Security check passed.")
-    await next(context)
+    await call_next(context)
 
 
 async def logging_function_middleware(
     context: FunctionInvocationContext,
-    next: Callable[[FunctionInvocationContext], Awaitable[None]],
+    call_next: Callable[[FunctionInvocationContext], Awaitable[None]],
 ) -> None:
     """Function middleware that logs function calls."""
     function_name = context.function.name
@@ -70,7 +70,7 @@ async def logging_function_middleware(
 
     start_time = time.time()
 
-    await next(context)
+    await call_next(context)
 
     end_time = time.time()
     duration = end_time - start_time
@@ -80,7 +80,7 @@ async def logging_function_middleware(
 
 async def main() -> None:
     """Example demonstrating function-based middleware."""
-    print("=== Function-based Middleware Example ===")
+    print("=== Function-based MiddlewareTypes Example ===")
 
     # For authentication, run `az login` command in terminal or replace AzureCliCredential with preferred
     # authentication option.

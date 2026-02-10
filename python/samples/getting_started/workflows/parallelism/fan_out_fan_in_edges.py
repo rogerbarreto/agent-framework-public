@@ -3,17 +3,14 @@
 import asyncio
 from dataclasses import dataclass
 
-from agent_framework import (  # Core chat primitives to build LLM requests
+from agent_framework import (
     AgentExecutorRequest,  # The message bundle sent to an AgentExecutor
     AgentExecutorResponse,  # The structured result returned by an AgentExecutor
     ChatAgent,  # Tracing event for agent execution steps
     ChatMessage,  # Chat message structure
     Executor,  # Base class for custom Python executors
-    ExecutorCompletedEvent,
-    ExecutorInvokedEvent,
     WorkflowBuilder,  # Fluent builder for wiring the workflow graph
     WorkflowContext,  # Per run context and event bus
-    WorkflowOutputEvent,  # Event emitted when workflow yields output
     handler,  # Decorator to mark an Executor method as invokable
 )
 from agent_framework.azure import AzureOpenAIChatClient
@@ -126,26 +123,27 @@ def create_legal_agent() -> ChatAgent:
 async def main() -> None:
     # 1) Build a simple fan out and fan in workflow
     workflow = (
-        WorkflowBuilder()
+        WorkflowBuilder(start_executor="dispatcher")
         .register_agent(create_researcher_agent, name="researcher")
         .register_agent(create_marketer_agent, name="marketer")
         .register_agent(create_legal_agent, name="legal")
         .register_executor(lambda: DispatchToExperts(id="dispatcher"), name="dispatcher")
         .register_executor(lambda: AggregateInsights(id="aggregator"), name="aggregator")
-        .set_start_executor("dispatcher")
         .add_fan_out_edges("dispatcher", ["researcher", "marketer", "legal"])  # Parallel branches
         .add_fan_in_edges(["researcher", "marketer", "legal"], "aggregator")  # Join at the aggregator
         .build()
     )
 
     # 3) Run with a single prompt and print progress plus the final consolidated output
-    async for event in workflow.run_stream("We are launching a new budget-friendly electric bike for urban commuters."):
-        if isinstance(event, ExecutorInvokedEvent):
+    async for event in workflow.run(
+        "We are launching a new budget-friendly electric bike for urban commuters.", stream=True
+    ):
+        if event.type == "executor_invoked":
             # Show when executors are invoked and completed for lightweight observability.
             print(f"{event.executor_id} invoked")
-        elif isinstance(event, ExecutorCompletedEvent):
+        elif event.type == "executor_completed":
             print(f"{event.executor_id} completed")
-        elif isinstance(event, WorkflowOutputEvent):
+        elif event.type == "output":
             print("===== Final Aggregated Output =====")
             print(event.data)
 

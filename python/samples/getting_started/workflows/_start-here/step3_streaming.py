@@ -3,7 +3,6 @@
 import asyncio
 
 from agent_framework import AgentResponseUpdate, ChatMessage, WorkflowBuilder
-from agent_framework._workflows._events import WorkflowOutputEvent
 from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import AzureCliCredential
 
@@ -45,19 +44,20 @@ async def main():
     )
 
     # Build the workflow using the fluent builder.
-    # Set the start node and connect an edge from writer to reviewer.
-    workflow = WorkflowBuilder().set_start_executor(writer_agent).add_edge(writer_agent, reviewer_agent).build()
+    # Set the start node via constructor and connect an edge from writer to reviewer.
+    workflow = WorkflowBuilder(start_executor=writer_agent).add_edge(writer_agent, reviewer_agent).build()
 
     # Track the last author to format streaming output.
     last_author: str | None = None
 
     # Run the workflow with the user's initial message and stream events as they occur.
-    async for event in workflow.run_stream(
-        ChatMessage("user", ["Create a slogan for a new electric SUV that is affordable and fun to drive."])
+    async for event in workflow.run(
+        ChatMessage("user", ["Create a slogan for a new electric SUV that is affordable and fun to drive."]),
+        stream=True,
     ):
         # The outputs of the workflow are whatever the agents produce. So the events are expected to
         # contain `AgentResponseUpdate` from the agents in the workflow.
-        if isinstance(event, WorkflowOutputEvent) and isinstance(event.data, AgentResponseUpdate):
+        if event.type == "output" and isinstance(event.data, AgentResponseUpdate):
             update = event.data
             author = update.author_name
             if author != last_author:

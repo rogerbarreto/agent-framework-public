@@ -264,6 +264,13 @@ After the package has been released and gained a measure of confidence:
 2. Add the package to the `[all]` extra in `packages/core/pyproject.toml`
 3. Create a provider folder in `agent_framework/` with lazy loading `__init__.py`
 
+### Versioning and Core Dependency
+
+All non-core packages declare a lower bound on `agent-framework-core` (e.g., `"agent-framework-core>=1.0.0b260130"`). Follow these rules when bumping versions:
+
+- **Core version changes**: When `agent-framework-core` is updated with breaking or significant changes and its version is bumped, update the `agent-framework-core>=...` lower bound in every other package's `pyproject.toml` to match the new core version.
+- **Non-core version changes**: Non-core packages (connectors, extensions) can have their own versions incremented independently while keeping the existing core lower bound pinned. Only raise the core lower bound if the non-core package actually depends on new core APIs.
+
 ### Installation Options
 
 Connectors are distributed as separate packages and are not imported by default in the core package. Users install the specific connectors they need:
@@ -484,3 +491,56 @@ otel_messages.append(_to_otel_message(message)) # this already serializes
 message_data = message.to_dict(exclude_none=True)  # and this does so again!
 logger.info(message_data, extra={...})
 ```
+
+## Test Organization
+
+### Test Directory Structure
+
+Test folders require specific organization to avoid pytest conflicts when running tests across packages:
+
+1. **No `__init__.py` in test folders**: Test directories should NOT contain `__init__.py` files. This can cause import conflicts when pytest collects tests across multiple packages.
+
+2. **File naming**: Files starting with `test_` are treated as test files by pytest. Do not use this prefix for helper modules or utilities. If you need shared test utilities, put them in `conftest.py` or a file with a different name pattern (e.g., `helpers.py`, `fixtures.py`).
+
+3. **Package-specific conftest location**: The `tests/conftest.py` path is reserved for the core package (`packages/core/tests/conftest.py`). Other packages must place their tests in a uniquely-named subdirectory:
+
+```plaintext
+# ✅ Correct structure for non-core packages
+packages/devui/
+├── tests/
+│   └── devui/           # Unique subdirectory matching package name
+│       ├── conftest.py  # Package-specific fixtures
+│       ├── test_server.py
+│       └── test_mapper.py
+
+packages/anthropic/
+├── tests/
+│   └── anthropic/       # Unique subdirectory
+│       ├── conftest.py
+│       └── test_client.py
+
+# ❌ Incorrect - will conflict with core package
+packages/devui/
+├── tests/
+│   ├── conftest.py      # Conflicts when running all tests
+│   ├── test_server.py
+│   └── test_helpers.py  # Bad name - looks like a test file
+
+# ✅ Core package can use tests/ directly
+packages/core/
+├── tests/
+│   ├── conftest.py      # Core's conftest.py
+│   ├── core/
+│   │   └── test_agents.py
+│   └── openai/
+│       └── test_client.py
+```
+
+4. **Keep the `tests/` folder**: Even when using a subdirectory, keep the `tests/` folder at the package root. Some test discovery commands and tooling rely on this convention.
+
+### Fixture Guidelines
+
+- Use `conftest.py` for shared fixtures within a test directory
+- Factory functions with parameters should be regular functions, not fixtures (fixtures can't accept arguments)
+- Import factory functions explicitly: `from conftest import create_test_request`
+- Fixtures should use simple names that describe what they provide: `mapper`, `test_request`, `mock_client`

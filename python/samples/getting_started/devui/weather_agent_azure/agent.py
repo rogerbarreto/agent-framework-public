@@ -14,6 +14,8 @@ from agent_framework import (
     ChatResponseUpdate,
     Content,
     FunctionInvocationContext,
+    MiddlewareTermination,
+    ResponseStream,
     chat_middleware,
     function_middleware,
     tool,
@@ -35,7 +37,7 @@ def cleanup_resources():
 @chat_middleware
 async def security_filter_middleware(
     context: ChatContext,
-    next: Callable[[ChatContext], Awaitable[None]],
+    call_next: Callable[[ChatContext], Awaitable[None]],
 ) -> None:
     """Chat middleware that blocks requests containing sensitive information."""
     blocked_terms = ["password", "secret", "api_key", "token"]
@@ -52,15 +54,15 @@ async def security_filter_middleware(
                     "or other sensitive data."
                 )
 
-                if context.is_streaming:
+                if context.stream:
                     # Streaming mode: return async generator
-                    async def blocked_stream() -> AsyncIterable[ChatResponseUpdate]:
+                    async def blocked_stream(msg: str = error_message) -> AsyncIterable[ChatResponseUpdate]:
                         yield ChatResponseUpdate(
-                            contents=[Content.from_text(text=error_message)],
+                            contents=[Content.from_text(text=msg)],
                             role="assistant",
                         )
 
-                    context.result = blocked_stream()
+                    context.result = ResponseStream(blocked_stream(), finalizer=ChatResponse.from_updates)
                 else:
                     # Non-streaming mode: return complete response
                     context.result = ChatResponse(
@@ -72,16 +74,15 @@ async def security_filter_middleware(
                         ]
                     )
 
-                context.terminate = True
-                return
+                raise MiddlewareTermination
 
-    await next(context)
+    await call_next(context)
 
 
 @function_middleware
 async def atlantis_location_filter_middleware(
     context: FunctionInvocationContext,
-    next: Callable[[FunctionInvocationContext], Awaitable[None]],
+    call_next: Callable[[FunctionInvocationContext], Awaitable[None]],
 ) -> None:
     """Function middleware that blocks weather requests for Atlantis."""
     # Check if location parameter is "atlantis"
@@ -91,10 +92,9 @@ async def atlantis_location_filter_middleware(
             "Blocked! Hold up right there!! Tell the user that "
             "'Atlantis is a special place, we must never ask about the weather there!!'"
         )
-        context.terminate = True
-        return
+        raise MiddlewareTermination
 
-    await next(context)
+    await call_next(context)
 
 
 # NOTE: approval_mode="never_require" is for sample brevity. Use "always_require" in production; see samples/getting_started/tools/function_tool_with_approval.py and samples/getting_started/tools/function_tool_with_approval_and_threads.py.

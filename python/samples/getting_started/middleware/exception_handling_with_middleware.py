@@ -10,7 +10,7 @@ from azure.identity.aio import AzureCliCredential
 from pydantic import Field
 
 """
-Exception Handling with Middleware
+Exception Handling with MiddlewareTypes
 
 This sample demonstrates how to use middleware for centralized exception handling in function calls.
 The example shows:
@@ -35,13 +35,13 @@ def unstable_data_service(
 
 
 async def exception_handling_middleware(
-    context: FunctionInvocationContext, next: Callable[[FunctionInvocationContext], Awaitable[None]]
+    context: FunctionInvocationContext, call_next: Callable[[FunctionInvocationContext], Awaitable[None]]
 ) -> None:
     function_name = context.function.name
 
     try:
         print(f"[ExceptionHandlingMiddleware] Executing function: {function_name}")
-        await next(context)
+        await call_next(context)
         print(f"[ExceptionHandlingMiddleware] Function {function_name} completed successfully.")
     except TimeoutError as e:
         print(f"[ExceptionHandlingMiddleware] Caught TimeoutError: {e}")
@@ -54,7 +54,7 @@ async def exception_handling_middleware(
 
 async def main() -> None:
     """Example demonstrating exception handling with middleware."""
-    print("=== Exception Handling Middleware Example ===")
+    print("=== Exception Handling MiddlewareTypes Example ===")
 
     # For authentication, run `az login` command in terminal or replace AzureCliCredential with preferred
     # authentication option.
