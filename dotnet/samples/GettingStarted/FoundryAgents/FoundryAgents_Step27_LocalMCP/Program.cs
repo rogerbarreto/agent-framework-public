@@ -6,7 +6,6 @@
 // This sample uses the Microsoft Learn MCP endpoint to search documentation.
 
 using Azure.AI.Projects;
-using Azure.AI.Projects.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -47,23 +46,28 @@ AIAgent agent = await aiProjectClient.CreateAIAgentAsync(
 
 Console.WriteLine($"Agent '{agent.Name}' created successfully.");
 
-// First query
-string prompt1 = "How to create an Azure storage account using az cli?";
-Console.WriteLine($"\nUser: {prompt1}\n");
-AgentResponse response1 = await agent.RunAsync(prompt1);
-Console.WriteLine($"Agent: {response1}");
+try
+{
+    // First query
+    const string Prompt1 = "How does one create an Azure storage account using az cli?";
+    Console.WriteLine($"\nUser: {Prompt1}\n");
+    AgentResponse response1 = await agent.RunAsync(Prompt1);
+    Console.WriteLine($"Agent: {response1}");
 
-Console.WriteLine("\n=======================================\n");
+    Console.WriteLine("\n=======================================\n");
 
-// Second query
-string prompt2 = "What is Microsoft Agent Framework?";
-Console.WriteLine($"User: {prompt2}\n");
-AgentResponse response2 = await agent.RunAsync(prompt2);
-Console.WriteLine($"Agent: {response2}");
-
-// Cleanup by removing the agent when done
-await aiProjectClient.Agents.DeleteAgentAsync(agent.Name);
-Console.WriteLine($"\nAgent '{agent.Name}' deleted.");
+    // Second query
+    const string Prompt2 = "What is Microsoft Agent Framework?";
+    Console.WriteLine($"User: {Prompt2}\n");
+    AgentResponse response2 = await agent.RunAsync(Prompt2);
+    Console.WriteLine($"Agent: {response2}");
+}
+finally
+{
+    // Cleanup by removing the agent when done
+    await aiProjectClient.Agents.DeleteAgentAsync(agent.Name);
+    Console.WriteLine($"\nAgent '{agent.Name}' deleted.");
+}
 
 /// <summary>
 /// Wraps an MCP tool to log when it is invoked locally,
