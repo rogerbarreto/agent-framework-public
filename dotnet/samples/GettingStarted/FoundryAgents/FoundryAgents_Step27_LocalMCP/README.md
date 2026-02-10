@@ -1,12 +1,13 @@
-# Using Hosted MCP Tools with Azure Foundry Agents
+# Using Local MCP Client with Azure Foundry Agents
 
-This sample demonstrates how to use a Hosted MCP (Model Context Protocol) server tool with Azure Foundry Agents. The MCP server runs remotely and is invoked by the Azure Foundry service when needed.
+This sample demonstrates how to use a local MCP (Model Context Protocol) client with Azure Foundry Agents. Unlike the hosted MCP approach where Azure Foundry invokes the MCP server on the service side, this sample connects to the MCP server directly from the client via HTTP (Streamable HTTP transport) and passes the resolved tools to the agent.
 
 ## What this sample demonstrates
 
-- Creating an agent with a Hosted MCP tool
+- Connecting to an MCP server locally using `HttpClientTransport`
+- Discovering available tools from the MCP server client-side
+- Passing locally-resolved MCP tools to a Foundry agent
 - Using the Microsoft Learn MCP endpoint for documentation search
-- Configuring MCP tool approval modes
 - Managing agent lifecycle (creation and deletion)
 
 ## Prerequisites
@@ -39,8 +40,9 @@ dotnet run --project .\FoundryAgents_Step27_LocalMCP
 
 The sample will:
 
-1. Create an agent with the Microsoft Learn MCP tool configured
-2. Ask a question about creating an Azure storage account using az cli
-3. The agent will use the MCP tool to search Microsoft Learn documentation
-4. Display the agent's response with information from the documentation
-5. Clean up resources by deleting the agent
+1. Connect to the Microsoft Learn MCP server via HTTP and list available tools
+2. Create an agent with the locally-resolved MCP tools
+3. Ask two questions about Microsoft documentation
+4. The agent will use the MCP tools (invoked locally) to search Microsoft Learn documentation
+5. Display the agent's responses with information from the documentation
+6. Clean up resources by deleting the agent
