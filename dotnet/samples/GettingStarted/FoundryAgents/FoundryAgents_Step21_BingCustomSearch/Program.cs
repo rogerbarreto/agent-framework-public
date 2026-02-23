@@ -17,27 +17,20 @@ const string AgentInstructions = """
     You are a helpful agent that can use Bing Custom Search tools to assist users.
     Use the available Bing Custom Search tools to answer questions and perform tasks.
     """;
-const string AgentName = "CustomSearchAgent";
 
 // Get a client to create/retrieve/delete server side agents with Azure Foundry Agents.
-AIProjectClient aiProjectClient = new(new Uri(endpoint), new AzureCliCredential());
+// WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
+// In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
+// latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
+AIProjectClient aiProjectClient = new(new Uri(endpoint), new DefaultAzureCredential());
 
-// Create the server side agent with Bing Custom Search tool
-AIAgent agent = await aiProjectClient.CreateAIAgentAsync(
-    name: AgentName,
-    creationOptions: new AgentVersionCreationOptions(
-        new PromptAgentDefinition(model: deploymentName)
-        {
-            Instructions = AgentInstructions,
-            Tools = {
-                (ResponseTool)AgentTool.CreateBingCustomSearchTool(
-                    new BingCustomSearchToolParameters([
-                        new BingCustomSearchConfiguration(connectionId, instanceName)
-                    ])
-                ),
-            }
-        })
-);
+// Bing Custom Search tool parameters shared by both options
+BingCustomSearchToolParameters bingCustomSearchToolParameters = new([
+    new BingCustomSearchConfiguration(connectionId, instanceName)
+]);
+
+AIAgent agent = await CreateAgentWithMEAI();
+// AIAgent agent = await CreateAgentWithNativeSDK();
 
 Console.WriteLine($"Created agent: {agent.Name}");
 
@@ -53,3 +46,31 @@ foreach (var message in response.Messages)
 // Cleanup by deleting the agent
 await aiProjectClient.Agents.DeleteAgentAsync(agent.Name);
 Console.WriteLine($"\nDeleted agent: {agent.Name}");
+
+// --- Agent Creation Options ---
+
+// Option 1 - Using AsAITool wrapping for BingCustomSearchTool (MEAI + AgentFramework)
+async Task<AIAgent> CreateAgentWithMEAI()
+{
+    return await aiProjectClient.CreateAIAgentAsync(
+        model: deploymentName,
+        name: "BingCustomSearchAgent-MEAI",
+        instructions: AgentInstructions,
+        tools: [((ResponseTool)AgentTool.CreateBingCustomSearchTool(bingCustomSearchToolParameters)).AsAITool()]);
+}
+
+// Option 2 - Using PromptAgentDefinition with AgentTool.CreateBingCustomSearchTool (Native SDK)
+async Task<AIAgent> CreateAgentWithNativeSDK()
+{
+    return await aiProjectClient.CreateAIAgentAsync(
+        name: "BingCustomSearchAgent-NATIVE",
+        creationOptions: new AgentVersionCreationOptions(
+            new PromptAgentDefinition(model: deploymentName)
+            {
+                Instructions = AgentInstructions,
+                Tools = {
+                    (ResponseTool)AgentTool.CreateBingCustomSearchTool(bingCustomSearchToolParameters),
+                }
+            })
+    );
+}
