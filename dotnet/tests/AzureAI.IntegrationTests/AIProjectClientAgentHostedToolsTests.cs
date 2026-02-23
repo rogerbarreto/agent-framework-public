@@ -143,7 +143,7 @@ public sealed class AIProjectClientAgentHostedToolsTests() : AgentTests<AIProjec
         try
         {
             var response = await agent.RunAsync("Fetch me a list of available models.");
-            Assert.NotEmpty(response.UserInputRequests.OfType<McpServerToolApprovalRequestContent>());
+            Assert.NotEmpty(response.Messages.SelectMany(m => m.Contents).OfType<McpServerToolApprovalRequestContent>());
         }
         finally
         {

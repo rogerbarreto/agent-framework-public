@@ -83,8 +83,8 @@ public abstract class ChatClientAgentRunStreamingTests<TAgentFixture>(Func<TAgen
                 new DataContent(File.ReadAllBytes(Path.Combine("shared", "assets", "walkway.jpg")), "image/jpeg")
             ]);
 
-            var thread = agent.GetNewThread();
-            var response = (await agent.RunStreamingAsync(message, thread).ToListAsync()).ToAgentRunResponse();
+            var session = await agent.CreateSessionAsync();
+            var response = (await agent.RunStreamingAsync(message, session).ToListAsync()).ToAgentResponse();
 
             var isImageDescriptionFoundResponse = await agent.RunAsync($"Respond with Yes or No:\n Does text below looks like the description of an image?\n {response.Text}");
             Assert.Contains("Yes", isImageDescriptionFoundResponse.ToString(), StringComparison.OrdinalIgnoreCase);
