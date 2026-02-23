@@ -14,6 +14,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
+from contextlib import suppress
 from functools import partial, wraps
 from time import perf_counter, time_ns
 from typing import (
@@ -288,15 +289,18 @@ class FunctionTool(SerializationMixin):
         self.func = func
         self._instance = None  # Store the instance for bound methods
 
+        # Initialize schema cache (will be lazily populated)
+        self._input_schema_cached: dict[str, Any] | None = None
+
         # Track if schema was supplied as JSON dict (for optimization)
         if isinstance(input_model, Mapping):
             self._schema_supplied = True
-            self._input_schema: dict[str, Any] = dict(input_model)
+            self._input_schema_cached = dict(input_model)
             self.input_model: type[BaseModel] | None = None
         else:
             self._schema_supplied = False
             self.input_model = self._resolve_input_model(input_model)
-            self._input_schema = self.input_model.model_json_schema()
+            # Defer schema generation to avoid issues with forward references
         self._cached_parameters: dict[str, Any] | None = None
         self.approval_mode = approval_mode or "never_require"
         if max_invocations is not None and max_invocations < 1:
@@ -545,6 +549,19 @@ class FunctionTool(SerializationMixin):
                 span.set_attribute(OtelAttr.MEASUREMENT_FUNCTION_INVOCATION_DURATION, duration)
                 self._invocation_duration_histogram.record(duration, attributes=attributes)
                 logger.info("Function duration: %fs", duration)
+
+    @property
+    def _input_schema(self) -> dict[str, Any]:
+        """Get the input schema, generating it lazily if needed."""
+        if self._input_schema_cached is None:
+            if self.input_model is not None:
+                # Try to rebuild the model in case it has forward references
+                with suppress(Exception):
+                    self.input_model.model_rebuild(force=True, raise_errors=False)
+                self._input_schema_cached = self.input_model.model_json_schema()
+            else:
+                self._input_schema_cached = {}
+        return self._input_schema_cached
 
     def parameters(self) -> dict[str, Any]:
         """Create the JSON schema of the parameters.
@@ -1659,17 +1676,34 @@ def _extract_tools(
     return None
 
 
+def _is_hosted_tool_approval(content: Any) -> bool:
+    """Check if a function_approval_request/response is for a hosted tool (e.g. MCP).
+
+    Hosted tool approvals have a server_label in function_call.additional_properties
+    and should be passed through to the API untouched rather than processed locally.
+    """
+    fc = getattr(content, "function_call", None)
+    if fc is None:
+        return False
+    ap = getattr(fc, "additional_properties", None)
+    return bool(ap and ap.get("server_label"))
+
+
 def _collect_approval_responses(
     messages: list[Message],
 ) -> dict[str, Content]:
-    """Collect approval responses (both approved and rejected) from messages."""
+    """Collect approval responses (both approved and rejected) from messages.
+
+    Hosted tool approvals (e.g. MCP) are excluded because they must be
+    forwarded to the API as-is rather than processed locally.
+    """
     from ._types import Message
 
     fcc_todo: dict[str, Content] = {}
     for msg in messages:
         for content in msg.contents if isinstance(msg, Message) else []:
-            # Collect BOTH approved and rejected responses
-            if content.type == "function_approval_response":
+            # Collect BOTH approved and rejected responses, but skip hosted tool approvals
+            if content.type == "function_approval_response" and not _is_hosted_tool_approval(content):
                 fcc_todo[content.id] = content  # type: ignore[attr-defined, index]
     return fcc_todo
 
@@ -1698,6 +1732,9 @@ def _replace_approval_contents_with_results(
 
         for content_idx, content in enumerate(msg.contents):
             if content.type == "function_approval_request":
+                # Skip hosted tool approvals — they must pass through to the API unchanged
+                if _is_hosted_tool_approval(content):
+                    continue
                 # Don't add the function call if it already exists (would create duplicate)
                 if content.function_call.call_id in existing_call_ids:  # type: ignore[attr-defined, union-attr, operator]
                     # Just mark for removal - the function call already exists
@@ -1706,6 +1743,9 @@ def _replace_approval_contents_with_results(
                     # Put back the function call content only if it doesn't exist
                     msg.contents[content_idx] = content.function_call  # type: ignore[attr-defined, assignment]
             elif content.type == "function_approval_response":
+                # Skip hosted tool approvals — they must pass through to the API unchanged
+                if _is_hosted_tool_approval(content):
+                    continue
                 if content.approved and content.id in fcc_todo:  # type: ignore[attr-defined]
                     # Replace with the corresponding result
                     if result_idx < len(approved_function_results):
@@ -1738,10 +1778,26 @@ def _get_result_hooks_from_stream(stream: Any) -> list[Callable[[Any], Any]]:
 
 
 def _extract_function_calls(response: ChatResponse) -> list[Content]:
-    function_results = {it.call_id for it in response.messages[0].contents if it.type == "function_result"}
-    return [
-        it for it in response.messages[0].contents if it.type == "function_call" and it.call_id not in function_results
-    ]
+    function_results = {
+        item.call_id
+        for message in response.messages
+        for item in message.contents
+        if item.type == "function_result" and item.call_id
+    }
+    seen_call_ids: set[str] = set()
+    function_calls: list[Content] = []
+    for message in response.messages:
+        for item in message.contents:
+            if item.type != "function_call":
+                continue
+            if item.call_id and item.call_id in function_results:
+                continue
+            if item.call_id and item.call_id in seen_call_ids:
+                continue
+            if item.call_id:
+                seen_call_ids.add(item.call_id)
+            function_calls.append(item)
+    return function_calls
 
 
 def _prepend_fcc_messages(response: ChatResponse, fcc_messages: list[Message]) -> None:
@@ -1799,27 +1855,22 @@ def _handle_function_call_results(
 
     if had_errors:
         errors_in_a_row += 1
-        if errors_in_a_row >= max_errors:
+        reached_error_limit = errors_in_a_row >= max_errors
+        if reached_error_limit:
             logger.warning(
                 "Maximum consecutive function call errors reached (%d). "
                 "Stopping further function calls for this request.",
                 max_errors,
             )
-            return {
-                "action": "stop",
-                "errors_in_a_row": errors_in_a_row,
-                "result_message": None,
-                "update_role": None,
-                "function_call_results": None,
-            }
     else:
         errors_in_a_row = 0
+        reached_error_limit = False
 
     result_message = Message(role="tool", contents=function_call_results)
     response.messages.append(result_message)
     fcc_messages.extend(response.messages)
     return {
-        "action": "continue",
+        "action": "stop" if reached_error_limit else "continue",
         "errors_in_a_row": errors_in_a_row,
         "result_message": result_message,
         "update_role": "tool",
@@ -2002,6 +2053,7 @@ class FunctionInvocationLayer(Generic[OptionsCoT]):
             middleware_pipeline=function_middleware_pipeline,
         )
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "session"}
+
         # Make options mutable so we can update conversation_id during function invocation loop
         mutable_options: dict[str, Any] = dict(options) if options else {}
         # Remove additional_function_arguments from options passed to underlying chat client
@@ -2067,7 +2119,9 @@ class FunctionInvocationLayer(Generic[OptionsCoT]):
                     if result["action"] == "return":
                         return response
                     if result["action"] == "stop":
-                        break
+                        # Error threshold reached: force a final non-tool turn so
+                        # function_call_output items are submitted before exit.
+                        mutable_options["tool_choice"] = "none"
                     errors_in_a_row = result["errors_in_a_row"]
 
                     # When tool_choice is 'required', reset tool_choice after one iteration to avoid infinite loops
@@ -2134,6 +2188,7 @@ class FunctionInvocationLayer(Generic[OptionsCoT]):
                 )
                 errors_in_a_row = approval_result["errors_in_a_row"]
                 if approval_result["action"] == "stop":
+                    mutable_options["tool_choice"] = "none"
                     return
 
                 inner_stream = await _ensure_response_stream(
@@ -2182,7 +2237,11 @@ class FunctionInvocationLayer(Generic[OptionsCoT]):
                         contents=result["function_call_results"] or [],
                         role=role,
                     )
-                if result["action"] != "continue":
+                if result["action"] == "stop":
+                    # Error threshold reached: submit collected function_call_output
+                    # items once more with tools disabled.
+                    mutable_options["tool_choice"] = "none"
+                elif result["action"] != "continue":
                     return
 
                 # When tool_choice is 'required', reset the tool_choice after one iteration to avoid infinite loops
