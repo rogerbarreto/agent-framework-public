@@ -14,10 +14,10 @@ This sample demonstrates how to use the Bing Custom Search tool with AI agents t
 
 This sample provides two approaches for creating agents with Bing Custom Search:
 
-- **Option 1 - MEAI + AgentFramework**: Uses `AsAITool()` wrapping to create the agent with the `CreateAIAgentAsync` overload that accepts `tools:[]`. This is the portable, abstraction-first approach.
+- **Option 1 - MEAI + AgentFramework**: Uses the Agent Framework `ResponseTool` wrapped with `AsAITool()` to call the `CreateAIAgentAsync` overload that accepts `tools:[]`, while still relying on the same underlying Azure AI Projects SDK types as Option 2.
 - **Option 2 - Native SDK**: Uses `PromptAgentDefinition` with `AgentVersionCreationOptions` to create the agent directly with the Azure AI Projects SDK types.
 
-Both options produce the same result. Toggle between them by commenting/uncommenting the corresponding `CreateAgentWith*` call in `Program.cs`.
+Both options produce the same result. Toggle between them by commenting/uncommenting the corresponding `CreateAgentWith*Async` call in `Program.cs`.
 
 ## Prerequisites
 

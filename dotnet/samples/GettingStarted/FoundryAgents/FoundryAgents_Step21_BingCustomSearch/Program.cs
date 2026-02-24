@@ -29,8 +29,8 @@ BingCustomSearchToolParameters bingCustomSearchToolParameters = new([
     new BingCustomSearchConfiguration(connectionId, instanceName)
 ]);
 
-AIAgent agent = await CreateAgentWithMEAI();
-// AIAgent agent = await CreateAgentWithNativeSDK();
+AIAgent agent = await CreateAgentWithMEAIAsync();
+// AIAgent agent = await CreateAgentWithNativeSDKAsync();
 
 Console.WriteLine($"Created agent: {agent.Name}");
 
@@ -49,8 +49,8 @@ Console.WriteLine($"\nDeleted agent: {agent.Name}");
 
 // --- Agent Creation Options ---
 
-// Option 1 - Using AsAITool wrapping for BingCustomSearchTool (MEAI + AgentFramework)
-async Task<AIAgent> CreateAgentWithMEAI()
+// Option 1 - Using AsAITool wrapping for the ResponseTool returned by AgentTool.CreateBingCustomSearchTool (MEAI + AgentFramework)
+async Task<AIAgent> CreateAgentWithMEAIAsync()
 {
     return await aiProjectClient.CreateAIAgentAsync(
         model: deploymentName,
@@ -60,7 +60,7 @@ async Task<AIAgent> CreateAgentWithMEAI()
 }
 
 // Option 2 - Using PromptAgentDefinition with AgentTool.CreateBingCustomSearchTool (Native SDK)
-async Task<AIAgent> CreateAgentWithNativeSDK()
+async Task<AIAgent> CreateAgentWithNativeSDKAsync()
 {
     return await aiProjectClient.CreateAIAgentAsync(
         name: "BingCustomSearchAgent-NATIVE",
