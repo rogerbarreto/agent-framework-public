@@ -75,6 +75,7 @@ async def main() -> None:
     if knowledge_base_name:
         # Use existing Knowledge Base - simplest approach
         search_provider = AzureAISearchContextProvider(
+            source_id="search_provider",
             endpoint=search_endpoint,
             api_key=search_key,
             credential=AzureCliCredential() if not search_key else None,
@@ -91,6 +92,7 @@ async def main() -> None:
         if not azure_openai_resource_url:
             raise ValueError("AZURE_OPENAI_RESOURCE_URL required when using index_name")
         search_provider = AzureAISearchContextProvider(
+            source_id="search_provider",
             endpoint=search_endpoint,
             index_name=index_name,
             api_key=search_key,
@@ -133,6 +135,9 @@ async def main() -> None:
             async for chunk in agent.run(user_input, stream=True):
                 if chunk.text:
                     print(chunk.text, end="", flush=True)
+                for content in chunk.contents:
+                    if content.annotations:
+                        print(f"\n[Sources: {content.annotations}]", end="", flush=True)
 
             print("\n")
 

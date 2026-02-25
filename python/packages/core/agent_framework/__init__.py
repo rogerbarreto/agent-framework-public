@@ -1,5 +1,13 @@
 # Copyright (c) Microsoft. All rights reserved.
 
+"""Public API surface for Agent Framework core.
+
+This module exposes the primary abstractions for agents, chat clients, tools, sessions,
+middleware, observability, and workflows. Connector namespaces such as
+``agent_framework.azure`` and ``agent_framework.anthropic`` provide provider-specific
+integrations, many of which are lazy-loaded from optional packages.
+"""
+
 import importlib.metadata
 from typing import Final
 
@@ -12,14 +20,15 @@ __version__: Final[str] = _version
 from ._agents import Agent, BaseAgent, RawAgent, SupportsAgentRun
 from ._clients import (
     BaseChatClient,
+    BaseEmbeddingClient,
     SupportsChatGetResponse,
     SupportsCodeInterpreterTool,
     SupportsFileSearchTool,
+    SupportsGetEmbeddings,
     SupportsImageGenerationTool,
     SupportsMCPTool,
     SupportsWebSearchTool,
 )
-from ._logging import get_logger, setup_logging
 from ._mcp import MCPStdioTool, MCPStreamableHTTPTool, MCPWebsocketTool
 from ._middleware import (
     AgentContext,
@@ -34,7 +43,6 @@ from ._middleware import (
     FunctionInvocationContext,
     FunctionMiddleware,
     FunctionMiddlewareTypes,
-    MiddlewareException,
     MiddlewareTermination,
     MiddlewareType,
     MiddlewareTypes,
@@ -50,6 +58,8 @@ from ._sessions import (
     SessionContext,
     register_state_type,
 )
+from ._settings import SecretString, load_settings
+from ._skills import FileAgentSkillsProvider
 from ._telemetry import (
     AGENT_FRAMEWORK_USER_AGENT,
     APP_INFO,
@@ -61,21 +71,28 @@ from ._tools import (
     FunctionInvocationConfiguration,
     FunctionInvocationLayer,
     FunctionTool,
+    ToolTypes,
     normalize_function_invocation_configuration,
     tool,
 )
 from ._types import (
     AgentResponse,
     AgentResponseUpdate,
+    AgentRunInputs,
     Annotation,
     ChatOptions,
     ChatResponse,
     ChatResponseUpdate,
     Content,
     ContinuationToken,
+    Embedding,
+    EmbeddingGenerationOptions,
+    EmbeddingInputT,
+    EmbeddingT,
     FinalT,
     FinishReason,
     FinishReasonLiteral,
+    GeneratedEmbeddings,
     Message,
     OuterFinalT,
     OuterUpdateT,
@@ -97,60 +114,77 @@ from ._types import (
     validate_tool_mode,
     validate_tools,
 )
-from ._workflows import (
-    DEFAULT_MAX_ITERATIONS,
+from ._workflows._agent import WorkflowAgent
+from ._workflows._agent_executor import (
     AgentExecutor,
     AgentExecutorRequest,
     AgentExecutorResponse,
-    Case,
+)
+from ._workflows._agent_utils import resolve_agent_id
+from ._workflows._checkpoint import (
     CheckpointStorage,
+    FileCheckpointStorage,
+    InMemoryCheckpointStorage,
+    WorkflowCheckpoint,
+)
+from ._workflows._const import (
+    DEFAULT_MAX_ITERATIONS,
+)
+from ._workflows._edge import (
+    Case,
     Default,
     Edge,
     EdgeCondition,
-    EdgeDuplicationError,
-    Executor,
     FanInEdgeGroup,
     FanOutEdgeGroup,
-    FileCheckpointStorage,
-    FunctionExecutor,
-    GraphConnectivityError,
-    InMemoryCheckpointStorage,
-    InProcRunnerContext,
-    Runner,
-    RunnerContext,
     SingleEdgeGroup,
-    SubWorkflowRequestMessage,
-    SubWorkflowResponseMessage,
     SwitchCaseEdgeGroup,
     SwitchCaseEdgeGroupCase,
     SwitchCaseEdgeGroupDefault,
-    TypeCompatibilityError,
-    ValidationTypeEnum,
-    Workflow,
-    WorkflowAgent,
-    WorkflowBuilder,
-    WorkflowCheckpoint,
-    WorkflowCheckpointException,
-    WorkflowContext,
-    WorkflowConvergenceException,
+)
+from ._workflows._edge_runner import create_edge_runner
+from ._workflows._events import (
     WorkflowErrorDetails,
     WorkflowEvent,
     WorkflowEventSource,
     WorkflowEventType,
-    WorkflowException,
-    WorkflowExecutor,
-    WorkflowMessage,
-    WorkflowRunnerException,
-    WorkflowRunResult,
     WorkflowRunState,
-    WorkflowValidationError,
-    WorkflowViz,
-    create_edge_runner,
-    executor,
+)
+from ._workflows._executor import (
+    Executor,
     handler,
-    resolve_agent_id,
-    response_handler,
+)
+from ._workflows._function_executor import FunctionExecutor, executor
+from ._workflows._request_info_mixin import response_handler
+from ._workflows._runner import Runner
+from ._workflows._runner_context import (
+    InProcRunnerContext,
+    RunnerContext,
+    WorkflowMessage,
+)
+from ._workflows._validation import (
+    EdgeDuplicationError,
+    GraphConnectivityError,
+    TypeCompatibilityError,
+    ValidationTypeEnum,
+    WorkflowValidationError,
     validate_workflow_graph,
+)
+from ._workflows._viz import WorkflowViz
+from ._workflows._workflow import Workflow, WorkflowRunResult
+from ._workflows._workflow_builder import WorkflowBuilder
+from ._workflows._workflow_context import WorkflowContext
+from ._workflows._workflow_executor import (
+    SubWorkflowRequestMessage,
+    SubWorkflowResponseMessage,
+    WorkflowExecutor,
+)
+from .exceptions import (
+    MiddlewareException,
+    WorkflowCheckpointException,
+    WorkflowConvergenceException,
+    WorkflowException,
+    WorkflowRunnerException,
 )
 
 __all__ = [
@@ -169,11 +203,13 @@ __all__ = [
     "AgentMiddlewareTypes",
     "AgentResponse",
     "AgentResponseUpdate",
+    "AgentRunInputs",
     "AgentSession",
     "Annotation",
     "BaseAgent",
     "BaseChatClient",
     "BaseContextProvider",
+    "BaseEmbeddingClient",
     "BaseHistoryProvider",
     "Case",
     "ChatAndFunctionMiddlewareTypes",
@@ -191,9 +227,14 @@ __all__ = [
     "Edge",
     "EdgeCondition",
     "EdgeDuplicationError",
+    "Embedding",
+    "EmbeddingGenerationOptions",
+    "EmbeddingInputT",
+    "EmbeddingT",
     "Executor",
     "FanInEdgeGroup",
     "FanOutEdgeGroup",
+    "FileAgentSkillsProvider",
     "FileCheckpointStorage",
     "FinalT",
     "FinishReason",
@@ -205,6 +246,7 @@ __all__ = [
     "FunctionMiddleware",
     "FunctionMiddlewareTypes",
     "FunctionTool",
+    "GeneratedEmbeddings",
     "GraphConnectivityError",
     "InMemoryCheckpointStorage",
     "InMemoryHistoryProvider",
@@ -225,6 +267,7 @@ __all__ = [
     "RoleLiteral",
     "Runner",
     "RunnerContext",
+    "SecretString",
     "SessionContext",
     "SingleEdgeGroup",
     "SubWorkflowRequestMessage",
@@ -233,6 +276,7 @@ __all__ = [
     "SupportsChatGetResponse",
     "SupportsCodeInterpreterTool",
     "SupportsFileSearchTool",
+    "SupportsGetEmbeddings",
     "SupportsImageGenerationTool",
     "SupportsMCPTool",
     "SupportsWebSearchTool",
@@ -241,6 +285,7 @@ __all__ = [
     "SwitchCaseEdgeGroupDefault",
     "TextSpanRegion",
     "ToolMode",
+    "ToolTypes",
     "TypeCompatibilityError",
     "UpdateT",
     "UsageDetails",
@@ -264,6 +309,7 @@ __all__ = [
     "WorkflowRunnerException",
     "WorkflowValidationError",
     "WorkflowViz",
+    "__version__",
     "add_usage_details",
     "agent_middleware",
     "chat_middleware",
@@ -271,8 +317,8 @@ __all__ = [
     "detect_media_type_from_base64",
     "executor",
     "function_middleware",
-    "get_logger",
     "handler",
+    "load_settings",
     "map_chat_to_agent_update",
     "merge_chat_options",
     "normalize_function_invocation_configuration",
@@ -283,7 +329,6 @@ __all__ = [
     "register_state_type",
     "resolve_agent_id",
     "response_handler",
-    "setup_logging",
     "tool",
     "validate_chat_options",
     "validate_tool_mode",

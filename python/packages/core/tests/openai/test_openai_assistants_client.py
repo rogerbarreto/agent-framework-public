@@ -22,15 +22,11 @@ from agent_framework import (
     SupportsChatGetResponse,
     tool,
 )
-from agent_framework.exceptions import ServiceInitializationError
 from agent_framework.openai import OpenAIAssistantsClient
 
 skip_if_openai_integration_tests_disabled = pytest.mark.skipif(
-    os.getenv("RUN_INTEGRATION_TESTS", "false").lower() != "true"
-    or os.getenv("OPENAI_API_KEY", "") in ("", "test-dummy-key"),
-    reason="No real OPENAI_API_KEY provided; skipping integration tests."
-    if os.getenv("RUN_INTEGRATION_TESTS", "false").lower() == "true"
-    else "Integration tests are disabled.",
+    os.getenv("OPENAI_API_KEY", "") in ("", "test-dummy-key"),
+    reason="No real OPENAI_API_KEY provided; skipping integration tests.",
 )
 
 INTEGRATION_TEST_MODEL = "gpt-4.1-nano"
@@ -145,7 +141,7 @@ def test_init_auto_create_client(
 
 def test_init_validation_fail() -> None:
     """Test OpenAIAssistantsClient initialization with validation failure."""
-    with pytest.raises(ServiceInitializationError):
+    with pytest.raises(ValueError):
         # Force failure by providing invalid model ID type
         OpenAIAssistantsClient(model_id=123, api_key="valid-key")  # type: ignore
 
@@ -153,17 +149,15 @@ def test_init_validation_fail() -> None:
 @pytest.mark.parametrize("exclude_list", [["OPENAI_CHAT_MODEL_ID"]], indirect=True)
 def test_init_missing_model_id(openai_unit_test_env: dict[str, str]) -> None:
     """Test OpenAIAssistantsClient initialization with missing model ID."""
-    with pytest.raises(ServiceInitializationError):
-        OpenAIAssistantsClient(
-            api_key=openai_unit_test_env.get("OPENAI_API_KEY", "test-key"), env_file_path="nonexistent.env"
-        )
+    with pytest.raises(ValueError):
+        OpenAIAssistantsClient(api_key=openai_unit_test_env.get("OPENAI_API_KEY", "test-key"))
 
 
 @pytest.mark.parametrize("exclude_list", [["OPENAI_API_KEY"]], indirect=True)
 def test_init_missing_api_key(openai_unit_test_env: dict[str, str]) -> None:
     """Test OpenAIAssistantsClient initialization with missing API key."""
-    with pytest.raises(ServiceInitializationError):
-        OpenAIAssistantsClient(model_id="gpt-4", env_file_path="nonexistent.env")
+    with pytest.raises(ValueError):
+        OpenAIAssistantsClient(model_id="gpt-4")
 
 
 def test_init_with_default_headers(openai_unit_test_env: dict[str, str]) -> None:
@@ -701,6 +695,7 @@ def test_prepare_options_basic(mock_async_openai: MagicMock) -> None:
     assert run_options["model"] == "gpt-4"
     assert run_options["temperature"] == 0.7
     assert run_options["top_p"] == 0.9
+    assert "tool_choice" not in run_options
     assert tool_results is None
 
 
@@ -731,6 +726,52 @@ def test_prepare_options_with_tool_tool(mock_async_openai: MagicMock) -> None:
     assert run_options["tools"][0]["type"] == "function"
     assert "function" in run_options["tools"][0]
     assert run_options["tool_choice"] == "auto"
+
+
+def test_prepare_options_with_tools_without_tool_choice(mock_async_openai: MagicMock) -> None:
+    """Test _prepare_options keeps tool_choice unset when not provided."""
+
+    client = create_test_openai_assistants_client(mock_async_openai)
+
+    @tool(approval_mode="never_require")
+    def test_function(query: str) -> str:
+        """A test function."""
+        return f"Result for {query}"
+
+    options = {
+        "tools": [test_function],
+    }
+
+    messages = [Message(role="user", text="Hello")]
+    run_options, _ = client._prepare_options(messages, options)  # type: ignore
+
+    assert "tools" in run_options
+    assert "tool_choice" not in run_options
+
+
+def test_prepare_options_with_single_tool_tool(mock_async_openai: MagicMock) -> None:
+    """Test _prepare_options with a single FunctionTool (non-sequence)."""
+    client = create_test_openai_assistants_client(mock_async_openai)
+
+    @tool(approval_mode="never_require")
+    def test_function(query: str) -> str:
+        """A test function."""
+        return f"Result for {query}"
+
+    options = {
+        "tools": test_function,
+        "tool_choice": "auto",
+    }
+
+    messages = [Message(role="user", text="Hello")]
+    run_options, tool_results = client._prepare_options(messages, options)  # type: ignore
+
+    assert "tools" in run_options
+    assert len(run_options["tools"]) == 1
+    assert run_options["tools"][0]["type"] == "function"
+    assert "function" in run_options["tools"][0]
+    assert run_options["tool_choice"] == "auto"
+    assert tool_results is None
 
 
 def test_prepare_options_with_code_interpreter(mock_async_openai: MagicMock) -> None:
@@ -1031,6 +1072,7 @@ def get_weather(
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_get_response() -> None:
     """Test OpenAI Assistants Client response."""
@@ -1056,6 +1098,7 @@ async def test_get_response() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_get_response_tools() -> None:
     """Test OpenAI Assistants Client response with tools."""
@@ -1077,6 +1120,7 @@ async def test_get_response_tools() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_streaming() -> None:
     """Test OpenAI Assistants Client streaming response."""
@@ -1108,6 +1152,7 @@ async def test_streaming() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_streaming_tools() -> None:
     """Test OpenAI Assistants Client streaming response with tools."""
@@ -1138,6 +1183,7 @@ async def test_streaming_tools() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_with_existing_assistant() -> None:
     """Test OpenAI Assistants Client with existing assistant ID."""
@@ -1166,6 +1212,7 @@ async def test_with_existing_assistant() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 @pytest.mark.skip(reason="OpenAI file search functionality is currently broken - tracked in GitHub issue")
 async def test_file_search() -> None:
@@ -1192,6 +1239,7 @@ async def test_file_search() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 @pytest.mark.skip(reason="OpenAI file search functionality is currently broken - tracked in GitHub issue")
 async def test_file_search_streaming() -> None:
@@ -1226,6 +1274,7 @@ async def test_file_search_streaming() -> None:
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_openai_assistants_agent_basic_run():
     """Test Agent basic run functionality with OpenAIAssistantsClient."""
@@ -1243,6 +1292,7 @@ async def test_openai_assistants_agent_basic_run():
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_openai_assistants_agent_basic_run_streaming():
     """Test Agent basic streaming functionality with OpenAIAssistantsClient."""
@@ -1263,6 +1313,7 @@ async def test_openai_assistants_agent_basic_run_streaming():
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_openai_assistants_agent_session_persistence():
     """Test Agent session persistence across runs with OpenAIAssistantsClient."""
@@ -1292,6 +1343,7 @@ async def test_openai_assistants_agent_session_persistence():
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_openai_assistants_agent_existing_session_id():
     """Test Agent with existing session ID to continue conversations across agent instances."""
@@ -1337,6 +1389,7 @@ async def test_openai_assistants_agent_existing_session_id():
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_openai_assistants_agent_code_interpreter():
     """Test Agent with code interpreter through OpenAIAssistantsClient."""
@@ -1357,6 +1410,7 @@ async def test_openai_assistants_agent_code_interpreter():
 
 
 @pytest.mark.flaky
+@pytest.mark.integration
 @skip_if_openai_integration_tests_disabled
 async def test_agent_level_tool_persistence():
     """Test that agent-level tools persist across multiple runs with OpenAI Assistants Client."""

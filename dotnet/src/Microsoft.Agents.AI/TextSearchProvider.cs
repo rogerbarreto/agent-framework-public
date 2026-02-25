@@ -32,16 +32,14 @@ namespace Microsoft.Agents.AI;
 /// multi-turn context to the retrieval layer without permanently altering the conversation history.
 /// </para>
 /// </remarks>
-public sealed class TextSearchProvider : AIContextProvider
+public sealed class TextSearchProvider : MessageAIContextProvider
 {
     private const string DefaultPluginSearchFunctionName = "Search";
     private const string DefaultPluginSearchFunctionDescription = "Allows searching for additional information to help answer the user question.";
     private const string DefaultContextPrompt = "## Additional Context\nConsider the following information from source documents when responding to the user:";
     private const string DefaultCitationsPrompt = "Include citations to the source document with document name and link if document name and link is available.";
 
-    private static IEnumerable<ChatMessage> DefaultExternalOnlyFilter(IEnumerable<ChatMessage> messages)
-        => messages.Where(m => m.GetAgentRequestMessageSourceType() == AgentRequestMessageSourceType.External);
-
+    private readonly ProviderSessionState<TextSearchProviderState> _sessionState;
     private readonly Func<string, CancellationToken, Task<IEnumerable<TextSearchResult>>> _searchAsync;
     private readonly ILogger<TextSearchProvider>? _logger;
     private readonly AITool[] _tools;
@@ -50,10 +48,7 @@ public sealed class TextSearchProvider : AIContextProvider
     private readonly TextSearchProviderOptions.TextSearchBehavior _searchTime;
     private readonly string _contextPrompt;
     private readonly string _citationsPrompt;
-    private readonly string _stateKey;
     private readonly Func<IList<TextSearchResult>, string>? _contextFormatter;
-    private readonly Func<IEnumerable<ChatMessage>, IEnumerable<ChatMessage>> _searchInputMessageFilter;
-    private readonly Func<IEnumerable<ChatMessage>, IEnumerable<ChatMessage>> _storageInputMessageFilter;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TextSearchProvider"/> class.
@@ -66,7 +61,12 @@ public sealed class TextSearchProvider : AIContextProvider
         Func<string, CancellationToken, Task<IEnumerable<TextSearchResult>>> searchAsync,
         TextSearchProviderOptions? options = null,
         ILoggerFactory? loggerFactory = null)
+        : base(options?.SearchInputMessageFilter, options?.StorageInputMessageFilter)
     {
+        this._sessionState = new ProviderSessionState<TextSearchProviderState>(
+            _ => new TextSearchProviderState(),
+            options?.StateKey ?? this.GetType().Name,
+            AgentJsonUtilities.DefaultOptions);
         // Validate and assign parameters
         this._searchAsync = Throw.IfNull(searchAsync);
         this._logger = loggerFactory?.CreateLogger<TextSearchProvider>();
@@ -75,10 +75,7 @@ public sealed class TextSearchProvider : AIContextProvider
         this._searchTime = options?.SearchTime ?? TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke;
         this._contextPrompt = options?.ContextPrompt ?? DefaultContextPrompt;
         this._citationsPrompt = options?.CitationsPrompt ?? DefaultCitationsPrompt;
-        this._stateKey = options?.StateKey ?? base.StateKey;
         this._contextFormatter = options?.ContextFormatter;
-        this._searchInputMessageFilter = options?.SearchInputMessageFilter ?? DefaultExternalOnlyFilter;
-        this._storageInputMessageFilter = options?.StorageInputMessageFilter ?? DefaultExternalOnlyFilter;
 
         // Create the on-demand search tool (only used if behavior is OnDemandFunctionCalling)
         this._tools =
@@ -91,32 +88,52 @@ public sealed class TextSearchProvider : AIContextProvider
     }
 
     /// <inheritdoc />
-    public override string StateKey => this._stateKey;
+    public override string StateKey => this._sessionState.StateKey;
 
     /// <inheritdoc />
-    protected override async ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
+    protected override async ValueTask<AIContext> ProvideAIContextAsync(AIContextProvider.InvokingContext context, CancellationToken cancellationToken = default)
     {
-        var inputContext = context.AIContext;
-
         if (this._searchTime != TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke)
         {
-            // Expose the search tool for on-demand invocation, accumulated with the input context.
+            // Expose the search tool for on-demand invocation.
             return new AIContext
             {
-                Instructions = inputContext.Instructions,
-                Messages = inputContext.Messages,
-                Tools = (inputContext.Tools ?? []).Concat(this._tools)
+                Tools = this._tools
             };
         }
 
-        // Retrieve recent messages from the session state bag.
-        var recentMessagesText = context.Session?.StateBag.GetValue<TextSearchProviderState>(this._stateKey, AgentJsonUtilities.DefaultOptions)?.RecentMessagesText
+        return new AIContext
+        {
+            Messages = await this.ProvideMessagesAsync(
+                new InvokingContext(context.Agent, context.Session, context.AIContext.Messages ?? []),
+                cancellationToken).ConfigureAwait(false)
+        };
+    }
+
+    /// <inheritdoc />
+    protected override ValueTask<IEnumerable<ChatMessage>> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
+    {
+        // This code path is invoked using InvokingAsync on MessageAIContextProvider, which does not support tools and instructions,
+        // and OnDemandFunctionCalling requires tools.
+        if (this._searchTime != TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke)
+        {
+            throw new InvalidOperationException($"Using the {nameof(TextSearchProvider)} as a {nameof(MessageAIContextProvider)} is not supported when {nameof(TextSearchProviderOptions.SearchTime)} is set to {TextSearchProviderOptions.TextSearchBehavior.OnDemandFunctionCalling}.");
+        }
+
+        return base.InvokingCoreAsync(context, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    protected override async ValueTask<IEnumerable<ChatMessage>> ProvideMessagesAsync(InvokingContext context, CancellationToken cancellationToken = default)
+    {
+        // Retrieve recent messages from the session state.
+        var recentMessagesText = this._sessionState.GetOrInitializeState(context.Session).RecentMessagesText
             ?? [];
 
         // Aggregate text from memory + current request messages.
         var sbInput = new StringBuilder();
         var requestMessagesText =
-            this._searchInputMessageFilter(inputContext.Messages ?? [])
+            (context.RequestMessages ?? [])
             .Where(x => !string.IsNullOrWhiteSpace(x?.Text)).Select(x => x.Text);
         foreach (var messageText in recentMessagesText.Concat(requestMessagesText))
         {
@@ -142,7 +159,7 @@ public sealed class TextSearchProvider : AIContextProvider
 
             if (materialized.Count == 0)
             {
-                return inputContext;
+                return [];
             }
 
             // Format search results
@@ -153,27 +170,17 @@ public sealed class TextSearchProvider : AIContextProvider
                 this._logger.LogTrace("TextSearchProvider: Search Results\nInput:{Input}\nOutput:{MessageText}", input, formatted);
             }
 
-            return new AIContext
-            {
-                Instructions = inputContext.Instructions,
-                Messages =
-                    (inputContext.Messages ?? [])
-                    .Concat(
-                    [
-                        new ChatMessage(ChatRole.User, formatted).WithAgentRequestMessageSource(AgentRequestMessageSourceType.AIContextProvider, this.GetType().FullName!)
-                    ]),
-                Tools = inputContext.Tools
-            };
+            return [new ChatMessage(ChatRole.User, formatted)];
         }
         catch (Exception ex)
         {
             this._logger?.LogError(ex, "TextSearchProvider: Failed to search for data due to error");
-            return inputContext;
+            return [];
         }
     }
 
     /// <inheritdoc />
-    protected override ValueTask InvokedCoreAsync(InvokedContext context, CancellationToken cancellationToken = default)
+    protected override ValueTask StoreAIContextAsync(InvokedContext context, CancellationToken cancellationToken = default)
     {
         int limit = this._recentMessageMemoryLimit;
         if (limit <= 0)
@@ -186,16 +193,11 @@ public sealed class TextSearchProvider : AIContextProvider
             return default; // No session to store state in.
         }
 
-        if (context.InvokeException is not null)
-        {
-            return default; // Do not update memory on failed invocations.
-        }
-
-        // Retrieve existing recent messages from the session state bag.
-        var recentMessagesText = context.Session.StateBag.GetValue<TextSearchProviderState>(this._stateKey, AgentJsonUtilities.DefaultOptions)?.RecentMessagesText
+        // Retrieve existing recent messages from the session state.
+        var recentMessagesText = this._sessionState.GetOrInitializeState(context.Session).RecentMessagesText
             ?? [];
 
-        var newMessagesText = this._storageInputMessageFilter(context.RequestMessages)
+        var newMessagesText = context.RequestMessages
             .Concat(context.ResponseMessages ?? [])
             .Where(m =>
                 this._recentMessageRolesIncluded.Contains(m.Role) &&
@@ -208,11 +210,10 @@ public sealed class TextSearchProvider : AIContextProvider
             ? allMessages.Skip(allMessages.Count - limit).ToList()
             : allMessages;
 
-        // Store updated state back to the session state bag.
-        context.Session.StateBag.SetValue(
-            this._stateKey,
-            new TextSearchProviderState { RecentMessagesText = updatedMessages },
-            AgentJsonUtilities.DefaultOptions);
+        // Store updated state back to the session.
+        this._sessionState.SaveState(
+            context.Session,
+            new TextSearchProviderState { RecentMessagesText = updatedMessages });
 
         return default;
     }
@@ -311,8 +312,14 @@ public sealed class TextSearchProvider : AIContextProvider
         public object? RawRepresentation { get; set; }
     }
 
-    internal sealed class TextSearchProviderState
+    /// <summary>
+    /// Represents the per-session state of a <see cref="TextSearchProvider"/> stored in the <see cref="AgentSession.StateBag"/>.
+    /// </summary>
+    public sealed class TextSearchProviderState
     {
+        /// <summary>
+        /// Gets or sets the list of recent message texts retained for multi-turn search context.
+        /// </summary>
         public List<string>? RecentMessagesText { get; set; }
     }
 }
