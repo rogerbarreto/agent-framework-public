@@ -352,6 +352,8 @@ public static partial class AzureAIProjectChatClientExtensions
 
     #region Private
 
+    private static readonly ModelReaderWriterOptions s_modelWriterOptionsWire = new("W");
+
     /// <summary>
     /// Asynchronously retrieves an agent record by name using the protocol method to inject user-agent headers.
     /// </summary>
@@ -375,8 +377,6 @@ public static partial class AzureAIProjectChatClientExtensions
         AgentVersion? result = ModelReaderWriter.Read<AgentVersion>(rawResponse.Content, s_modelWriterOptionsWire, AzureAIProjectsOpenAIContext.Default);
         return result ?? throw new InvalidOperationException($"Failed to create agent version for agent '{agentName}'.");
     }
-
-    private static readonly ModelReaderWriterOptions s_modelWriterOptionsWire = new("W");
 
     private static async Task<ChatClientAgent> CreateAIAgentAsync(
         this AIProjectClient aiProjectClient,
