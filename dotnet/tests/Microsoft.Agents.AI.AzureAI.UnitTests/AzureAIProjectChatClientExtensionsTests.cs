@@ -3027,13 +3027,13 @@ public sealed class AzureAIProjectChatClientExtensionsTests
                 return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentRecord>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200)));
             }
 
-            public override ClientResult<AgentVersion> CreateAgentVersion(string agentName, AgentVersionCreationOptions options, BinaryData? foundryFeatures = null, CancellationToken cancellationToken = default)
+            public override ClientResult<AgentVersion> CreateAgentVersion(string agentName, AgentVersionCreationOptions? options = null, string? foundryFeatures = null, CancellationToken cancellationToken = default)
             {
                 var responseJson = this.GetAgentVersionResponseJson();
                 return ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200));
             }
 
-            public override Task<ClientResult<AgentVersion>> CreateAgentVersionAsync(string agentName, AgentVersionCreationOptions options, BinaryData? foundryFeatures = null, CancellationToken cancellationToken = default)
+            public override Task<ClientResult<AgentVersion>> CreateAgentVersionAsync(string agentName, AgentVersionCreationOptions? options = null, string? foundryFeatures = null, CancellationToken cancellationToken = default)
             {
                 var responseJson = this.GetAgentVersionResponseJson();
                 return Task.FromResult(ClientResult.FromValue(ModelReaderWriter.Read<AgentVersion>(BinaryData.FromString(responseJson))!, new MockPipelineResponse(200)));
