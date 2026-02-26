@@ -8,6 +8,8 @@ Key features:
 - Building a `ChatClientAgent` with custom instructions and tools
 - Deploying to the Foundry Hosted Agent service
 
+> For common prerequisites and setup instructions, see the [Hosted Agent Samples README](../README.md).
+
 ## Prerequisites
 
 Before running this sample, ensure you have:

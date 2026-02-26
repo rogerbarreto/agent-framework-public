@@ -7,6 +7,8 @@ Key features:
 - Persisting conversation threads across multiple requests
 - Approving or rejecting tool invocations at runtime
 
+> For common prerequisites and setup instructions, see the [Hosted Agent Samples README](../README.md).
+
 ## Prerequisites
 
 Before running this sample, ensure you have:
@@ -41,4 +43,4 @@ The sample uses `ApprovalRequiredAIFunction` to wrap standard AI function tools.
 
 Thread persistence is handled by `InMemoryAgentThreadRepository`, which stores conversation history keyed by `conversation.id`. This means the HITL flow works across multiple HTTP requests as long as each request includes the same `conversation.id`.
 
-> **Note:** HITL requires a stable `conversation.id` in every request so the agent can correlate the approval response with the original function call.
+> **Note:** HITL requires a stable `conversation.id` in every request so the agent can correlate the approval response with the original function call. Use the `run-requests.http` file in this directory to test the full approval flow.
