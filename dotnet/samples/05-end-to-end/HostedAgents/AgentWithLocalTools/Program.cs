@@ -1,13 +1,13 @@
-// Copyright (c) Microsoft. All rights reserved.
+﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Seattle Hotel Agent - A simple agent with a tool to find hotels in Seattle.
 // Uses Microsoft Agent Framework with Azure AI Foundry.
 // Ready for deployment to Foundry Hosted Agent service.
 
+using System.ClientModel.Primitives;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text;
-using System.ClientModel.Primitives;
 using Azure.AI.AgentServer.AgentFramework.Extensions;
 using Azure.AI.OpenAI;
 using Azure.AI.Projects;
@@ -85,7 +85,7 @@ string GetAvailableHotels(
 }
 
 var credential = new AzureCliCredential();
-AIProjectClient projectClient = new AIProjectClient(new Uri(endpoint), credential);
+AIProjectClient projectClient = new(new Uri(endpoint), credential);
 
 ClientConnection connection = projectClient.GetConnection(typeof(AzureOpenAIClient).FullName!);
 
@@ -126,4 +126,4 @@ var agent = new ChatClientAgent(chatClient,
 Console.WriteLine("Seattle Hotel Agent Server running on http://localhost:8088");
 await agent.RunAIAgentAsync(telemetrySourceName: "Agents");
 
-sealed record Hotel(string Name, int PricePerNight, double Rating, string Location);
+internal sealed record Hotel(string Name, int PricePerNight, double Rating, string Location);

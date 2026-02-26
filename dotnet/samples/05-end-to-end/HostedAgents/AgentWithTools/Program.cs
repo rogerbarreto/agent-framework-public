@@ -4,10 +4,10 @@
 // with an AI agent hosted using the Azure AI AgentServer SDK.
 
 using Azure.AI.AgentServer.AgentFramework.Extensions;
-using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 using Azure.AI.OpenAI;
 using Azure.Identity;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 var openAiEndpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
 var deploymentName = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ?? "gpt-4o-mini";
