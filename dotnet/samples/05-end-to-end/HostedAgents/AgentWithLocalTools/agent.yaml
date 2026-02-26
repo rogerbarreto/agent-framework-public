@@ -22,8 +22,8 @@ template:
     - name: AZURE_AI_PROJECT_ENDPOINT
       value: ${AZURE_AI_PROJECT_ENDPOINT}
     - name: MODEL_DEPLOYMENT_NAME
-      value: gpt-4.1-mini
+      value: gpt-4o-mini
 resources:
   - kind: model
-    id: gpt-4.1-mini
+    id: gpt-4o-mini
     name: chat

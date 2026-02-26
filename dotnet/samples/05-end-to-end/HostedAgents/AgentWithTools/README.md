@@ -28,7 +28,7 @@ In addition to the common environment variables in the root README:
 $env:AZURE_AI_PROJECT_ENDPOINT="https://your-resource.services.ai.azure.com/api/projects/your-project"
 
 # Chat model deployment name (defaults to gpt-4o-mini if not set)
-$env:AZURE_OPENAI_DEPLOYMENT_NAME="gpt-5.2"
+$env:AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4o-mini"
 
 # The MCP tool connection name (just the name, not the full ARM resource ID)
 $env:MCP_TOOL_CONNECTION_ID="SampleMCPTool"

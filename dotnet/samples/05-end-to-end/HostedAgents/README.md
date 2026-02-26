@@ -19,7 +19,7 @@ Before running any sample, ensure you have:
 
 1. **.NET 10 SDK** or later — [Download](https://dotnet.microsoft.com/download/dotnet/10.0)
 2. **Azure CLI** installed — [Install guide](https://learn.microsoft.com/cli/azure/install-azure-cli)
-3. **Azure OpenAI** or **Azure AI Foundry project** with a chat model deployed (e.g., `gpt-5.2`, `gpt-4o-mini`)
+3. **Azure OpenAI** or **Azure AI Foundry project** with a chat model deployed (e.g., `gpt-4o-mini`)
 
 ### Authenticate with Azure CLI
 
@@ -40,7 +40,7 @@ Most samples require one or more of these environment variables:
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | Most samples | Chat model deployment name (defaults to `gpt-4o-mini`) |
 | `AZURE_AI_PROJECT_ENDPOINT` | AgentWithTools, AgentWithLocalTools | Azure AI Foundry project endpoint |
 | `MCP_TOOL_CONNECTION_ID` | AgentWithTools | Foundry MCP tool connection name |
-| `MODEL_DEPLOYMENT_NAME` | AgentWithLocalTools | Chat model deployment name (defaults to `gpt-4.1-mini`) |
+| `MODEL_DEPLOYMENT_NAME` | AgentWithLocalTools | Chat model deployment name (defaults to `gpt-4o-mini`) |
 
 See each sample's README for the specific variables required.
 

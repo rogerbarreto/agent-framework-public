@@ -15,7 +15,7 @@ Key features:
 Before running this sample, ensure you have:
 
 1. .NET 10 SDK installed
-2. An Azure AI Foundry Project with a chat model deployed (e.g., gpt-4.1-mini)
+2. An Azure AI Foundry Project with a chat model deployed (e.g., gpt-4o-mini)
 3. Azure CLI installed and authenticated (`az login`)
 
 ## Environment Variables
@@ -26,8 +26,8 @@ Set the following environment variables:
 # Replace with your Azure AI Foundry project endpoint
 $env:AZURE_AI_PROJECT_ENDPOINT="https://your-project.services.ai.azure.com/api/projects/your-project-name"
 
-# Optional, defaults to gpt-4.1-mini
-$env:MODEL_DEPLOYMENT_NAME="gpt-4.1-mini"
+# Optional, defaults to gpt-4o-mini
+$env:MODEL_DEPLOYMENT_NAME="gpt-4o-mini"
 ```
 
 ## How It Works
