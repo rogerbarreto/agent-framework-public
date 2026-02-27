@@ -80,6 +80,18 @@ internal sealed class StreamingRunEventStream : IRunEventStream
 
             while (!linkedSource.Token.IsCancellationRequested)
             {
+                // Guard against spurious wake-ups from the input waiter timeout.
+                // Without this check, a timeout wake-up (no actual input) would create
+                // a new workflow_invoke Activity even though there is no work to process.
+                if (!this._stepRunner.HasUnprocessedMessages)
+                {
+                    await this._inputWaiter.WaitForInputAsync(TimeSpan.FromSeconds(1), linkedSource.Token).ConfigureAwait(false);
+                    continue;
+                }
+
+                // When signaled with actual input, resume running
+                this._runStatus = RunStatus.Running;
+
                 // Start a new run-stage activity for this input→processing→halt cycle
                 runActivity = this._stepRunner.TelemetryContext.StartWorkflowRunActivity();
                 runActivity?.SetTag(Tags.WorkflowId, this._stepRunner.StartExecutorId)
@@ -117,9 +129,6 @@ internal sealed class StreamingRunEventStream : IRunEventStream
                 // Wait for next input from the consumer
                 // Works for both Idle (no work) and PendingRequests (waiting for responses)
                 await this._inputWaiter.WaitForInputAsync(TimeSpan.FromSeconds(1), linkedSource.Token).ConfigureAwait(false);
-
-                // When signaled, resume running
-                this._runStatus = RunStatus.Running;
             }
         }
         catch (OperationCanceledException)
