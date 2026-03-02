@@ -2401,6 +2401,44 @@ public sealed class AzureAIProjectChatClientExtensionsTests
         Assert.NotNull(agent);
     }
 
+    /// <summary>
+    /// Verify that GetAIAgentAsync with UseProvidedChatClientAsIs=true still matches provided AIFunction tools
+    /// to server-side function definitions, instead of falling back to the ResponseToolAITool wrapper.
+    /// </summary>
+    [Fact]
+    public async Task GetAIAgentAsync_WithUseProvidedChatClientAsIs_PreservesProvidedToolsAsync()
+    {
+        // Arrange
+        PromptAgentDefinition definition = new("test-model") { Instructions = "Test" };
+        definition.Tools.Add(ResponseTool.CreateFunctionTool("my_function", BinaryData.FromString("{}"), strictModeEnabled: false));
+
+        AIProjectClient client = this.CreateTestAgentClient(agentDefinitionResponse: definition);
+
+        var providedTool = AIFunctionFactory.Create(() => "test", "my_function", "A test function");
+        var options = new ChatClientAgentOptions
+        {
+            Name = "test-agent",
+            UseProvidedChatClientAsIs = true,
+            ChatOptions = new ChatOptions
+            {
+                Instructions = "Test",
+                Tools = [providedTool]
+            },
+        };
+
+        // Act - UseProvidedChatClientAsIs is true, but provided AIFunctions should still be matched and preserved
+        ChatClientAgent agent = await client.GetAIAgentAsync(options);
+
+        // Assert
+        Assert.NotNull(agent);
+
+        // Verify the provided AIFunction was matched and preserved in ChatOptions.Tools (not replaced by AsAITool wrapper)
+        var chatOptions = agent.GetService<ChatOptions>();
+        Assert.NotNull(chatOptions);
+        Assert.NotNull(chatOptions!.Tools);
+        Assert.Contains(chatOptions.Tools, t => t is AIFunction af && af.Name == "my_function");
+    }
+
     #endregion
 
     #region Empty Version and ID Handling Tests
