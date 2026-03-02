@@ -2375,6 +2375,32 @@ public sealed class AzureAIProjectChatClientExtensionsTests
         Assert.NotNull(agent);
     }
 
+    /// <summary>
+    /// Verify that GetAIAgentAsync with UseProvidedChatClientAsIs=true skips tool validation
+    /// and does not throw even when server-side function tools exist without matching invocable tools.
+    /// </summary>
+    [Fact]
+    public async Task GetAIAgentAsync_WithUseProvidedChatClientAsIs_SkipsToolValidationAsync()
+    {
+        // Arrange
+        PromptAgentDefinition definition = new("test-model") { Instructions = "Test" };
+        definition.Tools.Add(ResponseTool.CreateFunctionTool("required_function", BinaryData.FromString("{}"), strictModeEnabled: false));
+
+        AIProjectClient client = this.CreateTestAgentClient(agentDefinitionResponse: definition);
+        var options = new ChatClientAgentOptions
+        {
+            Name = "test-agent",
+            ChatOptions = new ChatOptions { Instructions = "Test" },
+            UseProvidedChatClientAsIs = true
+        };
+
+        // Act - should not throw even without tools when UseProvidedChatClientAsIs is true
+        ChatClientAgent agent = await client.GetAIAgentAsync(options);
+
+        // Assert
+        Assert.NotNull(agent);
+    }
+
     #endregion
 
     #region Empty Version and ID Handling Tests
