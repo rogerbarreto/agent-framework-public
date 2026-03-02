@@ -206,12 +206,8 @@ internal sealed class StreamingRunEventStream : IRunEventStream
         bool blockOnPendingRequest,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Get the current epoch - we'll only respond to completion signals from this epoch or later.
-        // Note: We read the current value (not +1) because the HasUnprocessedMessages guard in the
-        // run loop prevents spurious completion signals, so there are no stale signals to filter.
-        // Using +1 would race with the run loop's Interlocked.Increment, causing the consumer to
-        // skip the valid signal when the run loop finishes before TakeEventStreamAsync starts.
-        int myEpoch = Volatile.Read(ref this._completionEpoch);
+        // Get the current epoch - we'll only respond to completion signals from this epoch or later
+        int myEpoch = Volatile.Read(ref this._completionEpoch) + 1;
 
         // Use custom async enumerable to avoid exceptions on cancellation.
         NonThrowingChannelReaderAsyncEnumerable<WorkflowEvent> eventStream = new(this._eventChannel.Reader);
