@@ -191,7 +191,7 @@ public static partial class AzureAIProjectChatClientExtensions
         AgentRecord agentRecord = await GetAgentRecordByNameAsync(aiProjectClient, options.Name, cancellationToken).ConfigureAwait(false);
         var agentVersion = agentRecord.Versions.Latest;
 
-        var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: options.UseProvidedChatClientAsIs != true);
+        var agentOptions = CreateChatClientAgentOptions(agentVersion, options, requireInvocableTools: !options.UseProvidedChatClientAsIs);
 
         return AsChatClientAgent(
             aiProjectClient,
