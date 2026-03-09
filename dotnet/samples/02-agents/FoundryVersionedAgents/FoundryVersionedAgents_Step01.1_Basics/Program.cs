@@ -2,9 +2,7 @@
 
 // This sample shows how to create and use AI agents with Microsoft Foundry Agents as the backend.
 
-using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
-using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.AzureAI;
 
 const string JokerName = "JokerAgent";
