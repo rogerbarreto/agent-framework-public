@@ -349,14 +349,7 @@ public sealed class FoundryMemoryProvider : AIContextProvider
         }
 
         TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
-        await this.WaitForUpdateAsync(updateId, interval, cancellationToken).ConfigureAwait(false);
 
-        // Only clear the pending update ID after successful completion
-        Interlocked.CompareExchange(ref this._lastPendingUpdateId, null, updateId);
-    }
-
-    private async Task WaitForUpdateAsync(string updateId, TimeSpan interval, CancellationToken cancellationToken)
-    {
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -379,7 +372,7 @@ public sealed class FoundryMemoryProvider : AIContextProvider
 
             if (status == MemoryStoreUpdateStatus.Completed || status == MemoryStoreUpdateStatus.Superseded)
             {
-                return;
+                break;
             }
 
             if (status == MemoryStoreUpdateStatus.Failed)
@@ -387,15 +380,11 @@ public sealed class FoundryMemoryProvider : AIContextProvider
                 throw new InvalidOperationException($"Memory update operation '{updateId}' failed: {response.ErrorDetails}");
             }
 
-            if (status == MemoryStoreUpdateStatus.Queued || status == MemoryStoreUpdateStatus.InProgress)
-            {
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unknown update status '{status}' for update '{updateId}'.");
-            }
+            await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
         }
+
+        // Only clear the pending update ID after successful completion.
+        Interlocked.CompareExchange(ref this._lastPendingUpdateId, null, updateId);
     }
 
     private static MessageResponseItem ToResponseItem(ChatRole role, string text)
