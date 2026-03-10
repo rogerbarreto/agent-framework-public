@@ -17,6 +17,8 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
     /// Maps OpenAI Conversations API endpoints to the specified <see cref="IEndpointRouteBuilder"/>.
     /// </summary>
     /// <param name="endpoints">The <see cref="IEndpointRouteBuilder"/> to add the OpenAI Conversations endpoints to.</param>
+    // Workaround: dotnet format does not respect IL2026/IL3050 with interceptors configuration. See https://github.com/dotnet/sdk/issues/51136
+#pragma warning disable IL2026, IL3050
     public static IEndpointConventionBuilder MapOpenAIConversations(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
@@ -70,4 +72,5 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         return group;
     }
+#pragma warning restore IL2026, IL3050
 }

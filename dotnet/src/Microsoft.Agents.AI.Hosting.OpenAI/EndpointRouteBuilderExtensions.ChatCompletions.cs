@@ -49,6 +49,8 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
     /// <param name="endpoints">The <see cref="IEndpointRouteBuilder"/> to add the OpenAI ChatCompletions endpoints to.</param>
     /// <param name="agent">The <see cref="AIAgent"/> instance to map the OpenAI ChatCompletions endpoints for.</param>
     /// <param name="path">Custom route path for the chat completions endpoint.</param>
+    // Workaround: dotnet format does not respect IL2026/IL3050 with interceptors configuration. See https://github.com/dotnet/sdk/issues/51136
+#pragma warning disable IL2026, IL3050
     public static IEndpointConventionBuilder MapOpenAIChatCompletions(
         this IEndpointRouteBuilder endpoints,
         AIAgent agent,
@@ -69,4 +71,5 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         return group;
     }
+#pragma warning restore IL2026, IL3050
 }
