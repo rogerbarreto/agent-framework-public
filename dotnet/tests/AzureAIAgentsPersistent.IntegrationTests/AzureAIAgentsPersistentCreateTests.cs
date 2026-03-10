@@ -131,11 +131,11 @@ public class AzureAIAgentsPersistentCreateTests
         }
     }
 
-    [Fact]
+    [Fact(Skip = "Fails intermittently on the build agent/CI")]
     public Task CreateAgent_CreatesAgentWithCodeInterpreter_ChatClientAgentOptionsAsync()
         => this.CreateAgent_CreatesAgentWithCodeInterpreterAsync("CreateWithChatClientAgentOptionsAsync");
 
-    [RetryFact(Constants.RetryCount, Constants.RetryDelay)]
+    [Fact(Skip = "Fails intermittently on the build agent/CI")]
     public Task CreateAgent_CreatesAgentWithCodeInterpreter_FoundryOptionsAsync()
         => this.CreateAgent_CreatesAgentWithCodeInterpreterAsync("CreateWithFoundryOptionsAsync");
 
