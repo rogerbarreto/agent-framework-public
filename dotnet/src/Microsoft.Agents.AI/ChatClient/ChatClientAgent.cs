@@ -335,12 +335,15 @@ public sealed partial class ChatClientAgent : AIAgent
             throw;
         }
 
+        string streamingMessageId = $"msg_{Guid.NewGuid():N}";
+
         while (hasUpdates)
         {
             var update = responseUpdatesEnumerator.Current;
             if (update is not null)
             {
                 update.AuthorName ??= this.Name;
+                update.MessageId ??= streamingMessageId;
 
                 responseUpdates.Add(update);
 

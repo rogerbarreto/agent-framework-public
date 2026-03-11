@@ -64,21 +64,27 @@ public static class AgentResponseExtensions
     {
         Throw.IfNull(responseUpdate);
 
-        return
-            responseUpdate.RawRepresentation as ChatResponseUpdate ??
-            new()
-            {
-                AdditionalProperties = responseUpdate.AdditionalProperties,
-                AuthorName = responseUpdate.AuthorName,
-                Contents = responseUpdate.Contents,
-                CreatedAt = responseUpdate.CreatedAt,
-                FinishReason = responseUpdate.FinishReason,
-                MessageId = responseUpdate.MessageId,
-                RawRepresentation = responseUpdate,
-                ResponseId = responseUpdate.ResponseId,
-                Role = responseUpdate.Role,
-                ContinuationToken = responseUpdate.ContinuationToken,
-            };
+        if (responseUpdate.RawRepresentation is ChatResponseUpdate raw)
+        {
+            // Recover MessageId from the wrapper if the raw representation doesn't have one.
+            // This ensures consistency when the wrapper has information the raw object lost.
+            raw.MessageId ??= responseUpdate.MessageId;
+            return raw;
+        }
+
+        return new()
+        {
+            AdditionalProperties = responseUpdate.AdditionalProperties,
+            AuthorName = responseUpdate.AuthorName,
+            Contents = responseUpdate.Contents,
+            CreatedAt = responseUpdate.CreatedAt,
+            FinishReason = responseUpdate.FinishReason,
+            MessageId = responseUpdate.MessageId,
+            RawRepresentation = responseUpdate,
+            ResponseId = responseUpdate.ResponseId,
+            Role = responseUpdate.Role,
+            ContinuationToken = responseUpdate.ContinuationToken,
+        };
     }
 
     /// <summary>

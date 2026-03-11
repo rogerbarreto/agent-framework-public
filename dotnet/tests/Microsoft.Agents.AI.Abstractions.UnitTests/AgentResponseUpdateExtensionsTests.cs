@@ -385,6 +385,52 @@ public class AgentResponseUpdateExtensionsTests
     }
 
     [Fact]
+    public void AsChatResponseUpdate_WithRawRepresentationNullMessageId_SyncsMessageIdFromWrapper()
+    {
+        // Arrange - RawRepresentation has null MessageId, wrapper has a value set after construction
+        ChatResponseUpdate originalChatResponseUpdate = new()
+        {
+            ResponseId = "original-update",
+            Contents = [new TextContent("Hello")]
+            // MessageId intentionally NOT set (null)
+        };
+        AgentResponseUpdate agentResponseUpdate = new(originalChatResponseUpdate);
+
+        // Simulate a pipeline step setting MessageId on the wrapper
+        agentResponseUpdate.MessageId = "recovered-message-id";
+
+        // Act
+        ChatResponseUpdate result = agentResponseUpdate.AsChatResponseUpdate();
+
+        // Assert - MessageId should be recovered from wrapper into RawRepresentation
+        Assert.Same(originalChatResponseUpdate, result);
+        Assert.Equal("recovered-message-id", result.MessageId);
+    }
+
+    [Fact]
+    public void AsChatResponseUpdate_WithRawRepresentationExistingMessageId_PreservesOriginal()
+    {
+        // Arrange - RawRepresentation already has MessageId set by provider
+        ChatResponseUpdate originalChatResponseUpdate = new()
+        {
+            ResponseId = "original-update",
+            MessageId = "provider-message-id",
+            Contents = [new TextContent("Hello")]
+        };
+        AgentResponseUpdate agentResponseUpdate = new(originalChatResponseUpdate);
+
+        // Simulate a pipeline step trying to override MessageId on the wrapper
+        agentResponseUpdate.MessageId = "different-message-id";
+
+        // Act
+        ChatResponseUpdate result = agentResponseUpdate.AsChatResponseUpdate();
+
+        // Assert - Provider's original MessageId should be preserved (??= won't overwrite)
+        Assert.Same(originalChatResponseUpdate, result);
+        Assert.Equal("provider-message-id", result.MessageId);
+    }
+
+    [Fact]
     public void AsChatResponseUpdate_WithoutRawRepresentation_CreatesNewChatResponseUpdate()
     {
         // Arrange

@@ -1793,6 +1793,79 @@ public partial class ChatClientAgentTests
     }
 
     /// <summary>
+    /// Verify that RunStreamingAsync generates a fallback MessageId when the provider doesn't set one.
+    /// Issue #3433: Providers like Google GenAI don't set MessageId on ChatResponseUpdate.
+    /// </summary>
+    [Fact]
+    public async Task RunStreamingAsync_WithNullMessageId_GeneratesFallbackMessageIdAsync()
+    {
+        // Arrange - Provider returns updates WITHOUT MessageId
+        ChatResponseUpdate[] returnUpdates =
+            [
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: "Hello"),
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: " world"),
+            ];
+
+        Mock<IChatClient> mockService = new();
+        mockService.Setup(
+            s => s.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>())).Returns(ToAsyncEnumerableAsync(returnUpdates));
+
+        ChatClientAgent agent = new(mockService.Object);
+
+        // Act
+        List<AgentResponseUpdate> result = [];
+        await foreach (var update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")]))
+        {
+            result.Add(update);
+        }
+
+        // Assert - All updates should have a non-null MessageId
+        Assert.Equal(2, result.Count);
+        Assert.All(result, u => Assert.False(string.IsNullOrEmpty(u.MessageId), "MessageId should not be null/empty"));
+        Assert.All(result, u => Assert.StartsWith("msg_", u.MessageId!));
+
+        // All updates in the same streaming response should share the same MessageId
+        Assert.Equal(result[0].MessageId, result[1].MessageId);
+    }
+
+    /// <summary>
+    /// Verify that RunStreamingAsync preserves provider-supplied MessageId when present.
+    /// </summary>
+    [Fact]
+    public async Task RunStreamingAsync_WithProviderMessageId_PreservesItAsync()
+    {
+        // Arrange - Provider returns updates WITH MessageId (like OpenAI)
+        ChatResponseUpdate[] returnUpdates =
+            [
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: "Hello") { MessageId = "chatcmpl-abc123" },
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: " world") { MessageId = "chatcmpl-abc123" },
+            ];
+
+        Mock<IChatClient> mockService = new();
+        mockService.Setup(
+            s => s.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>())).Returns(ToAsyncEnumerableAsync(returnUpdates));
+
+        ChatClientAgent agent = new(mockService.Object);
+
+        // Act
+        List<AgentResponseUpdate> result = [];
+        await foreach (var update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")]))
+        {
+            result.Add(update);
+        }
+
+        // Assert - Provider's MessageId should be preserved, not overwritten
+        Assert.Equal(2, result.Count);
+        Assert.All(result, u => Assert.Equal("chatcmpl-abc123", u.MessageId));
+    }
+
+    /// <summary>
     /// Verify that RunStreamingAsync uses the ChatHistoryProvider factory when the chat client returns no conversation id.
     /// </summary>
     [Fact]
