@@ -1866,6 +1866,41 @@ public partial class ChatClientAgentTests
     }
 
     /// <summary>
+    /// Verify that when only the first streaming chunk has a provider MessageId and subsequent
+    /// chunks omit it, all updates share the initial provider ID (no message splitting).
+    /// </summary>
+    [Fact]
+    public async Task RunStreamingAsync_WithProviderMessageIdOnFirstChunk_PreservesItAcrossStreamAsync()
+    {
+        // Arrange - Provider sets MessageId on the first update only
+        ChatResponseUpdate[] returnUpdates =
+            [
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: "Hello") { MessageId = "chatcmpl-abc123" },
+                new ChatResponseUpdate(role: ChatRole.Assistant, content: " world"),
+            ];
+
+        Mock<IChatClient> mockService = new();
+        mockService.Setup(
+            s => s.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>())).Returns(ToAsyncEnumerableAsync(returnUpdates));
+
+        ChatClientAgent agent = new(mockService.Object);
+
+        // Act
+        List<AgentResponseUpdate> result = [];
+        await foreach (AgentResponseUpdate update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")]))
+        {
+            result.Add(update);
+        }
+
+        // Assert - All chunks should share the first provider MessageId
+        Assert.Equal(2, result.Count);
+        Assert.All(result, u => Assert.Equal("chatcmpl-abc123", u.MessageId));
+    }
+
+    /// <summary>
     /// Verify that RunStreamingAsync uses the ChatHistoryProvider factory when the chat client returns no conversation id.
     /// </summary>
     [Fact]

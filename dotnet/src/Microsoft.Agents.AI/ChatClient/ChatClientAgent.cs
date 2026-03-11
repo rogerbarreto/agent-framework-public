@@ -335,7 +335,7 @@ public sealed partial class ChatClientAgent : AIAgent
             throw;
         }
 
-        string streamingMessageId = $"msg_{Guid.NewGuid():N}";
+        string? streamingMessageId = null;
 
         while (hasUpdates)
         {
@@ -343,7 +343,8 @@ public sealed partial class ChatClientAgent : AIAgent
             if (update is not null)
             {
                 update.AuthorName ??= this.Name;
-                update.MessageId ??= streamingMessageId;
+                streamingMessageId ??= update.MessageId ?? $"msg_{Guid.NewGuid():N}";
+                update.MessageId = streamingMessageId;
 
                 responseUpdates.Add(update);
 

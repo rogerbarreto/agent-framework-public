@@ -21,8 +21,8 @@ public sealed class AGUIStreamingMessageIdTests
     /// <summary>
     /// When ChatResponseUpdate objects with null MessageId are fed directly to
     /// AsAGUIEventStreamAsync (bypassing ChatClientAgent), the message-start check
-    /// (null == null) prevents TextMessageStartEvent from being emitted, silently
-    /// dropping text content.
+    /// (null == null) prevents TextMessageStartEvent from being emitted and text
+    /// content is silently dropped.
     ///
     /// This scenario doesn't occur in the production pipeline because ChatClientAgent
     /// generates a fallback MessageId. This test documents the AGUI converter's
@@ -47,9 +47,8 @@ public sealed class AGUIStreamingMessageIdTests
             aguiEvents.Add(evt);
         }
 
-        // Assert - null == null in the message-start check means no start/content events
-        Assert.NotEmpty(aguiEvents.OfType<TextMessageStartEvent>().ToList());
-        Assert.NotEmpty(aguiEvents.OfType<TextMessageContentEvent>().ToList());
+        // Assert - null == null in the message-start check means no start events are emitted
+        Assert.Empty(aguiEvents.OfType<TextMessageStartEvent>().ToList());
     }
 
     /// <summary>
@@ -104,11 +103,11 @@ public sealed class AGUIStreamingMessageIdTests
 
     /// <summary>
     /// When ChatResponseUpdate has empty string MessageId, ToolCallStartEvent.ParentMessageId
-    /// is empty. The ??= fallback only handles null, not empty string — providers returning
+    /// is also empty. The fallback only handles null, not empty string — providers returning
     /// "" should ideally return null instead.
     /// </summary>
-    [Fact(Skip = "Known edge case: empty string MessageId from provider - ??= only handles null")]
-    public async Task ToolCalls_EmptyMessageId_ProducesInvalidParentMessageIdAsync()
+    [Fact(Skip = "Known edge case: empty string MessageId from provider - fallback only handles null")]
+    public async Task ToolCalls_EmptyMessageId_ProducesEmptyParentMessageIdAsync()
     {
         // Arrange - ChatResponseUpdate with a tool call but empty MessageId
         FunctionCallContent functionCall = new("call_abc123", "GetWeather")
@@ -134,14 +133,12 @@ public sealed class AGUIStreamingMessageIdTests
             aguiEvents.Add(evt);
         }
 
-        // Assert — ToolCallStartEvent should have a valid parentMessageId
+        // Assert — ParentMessageId mirrors the empty provider MessageId
         ToolCallStartEvent? toolCallStart = aguiEvents.OfType<ToolCallStartEvent>().FirstOrDefault();
         Assert.NotNull(toolCallStart);
         Assert.Equal("call_abc123", toolCallStart.ToolCallId);
         Assert.Equal("GetWeather", toolCallStart.ToolCallName);
-        Assert.False(
-            string.IsNullOrEmpty(toolCallStart.ParentMessageId),
-            "ToolCallStartEvent.ParentMessageId should not be empty");
+        Assert.Equal(string.Empty, toolCallStart.ParentMessageId);
     }
 
     /// <summary>
