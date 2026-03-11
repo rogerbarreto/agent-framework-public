@@ -55,8 +55,6 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
     /// <param name="endpoints">The <see cref="IEndpointRouteBuilder"/> to add the OpenAI Responses endpoints to.</param>
     /// <param name="agent">The <see cref="AIAgent"/> instance to map the OpenAI Responses endpoints for.</param>
     /// <param name="responsesPath">Custom route path for the responses endpoint.</param>
-    // Workaround: dotnet format does not respect IL2026/IL3050 with interceptors configuration. See https://github.com/dotnet/sdk/issues/51136
-#pragma warning disable IL2026, IL3050
     public static IEndpointConventionBuilder MapOpenAIResponses(
         this IEndpointRouteBuilder endpoints,
         AIAgent agent,
@@ -107,7 +105,6 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         return group;
     }
-#pragma warning restore IL2026, IL3050
 
     /// <summary>
     /// Maps OpenAI Responses API endpoints to the specified <see cref="IEndpointRouteBuilder"/>.
@@ -121,8 +118,6 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
     /// </summary>
     /// <param name="endpoints">The <see cref="IEndpointRouteBuilder"/> to add the OpenAI Responses endpoints to.</param>
     /// <param name="responsesPath">Custom route path for the responses endpoint.</param>
-    // Workaround: dotnet format does not respect IL2026/IL3050 with interceptors configuration. See https://github.com/dotnet/sdk/issues/51136
-#pragma warning disable IL2026, IL3050
     public static IEndpointConventionBuilder MapOpenAIResponses(
         this IEndpointRouteBuilder endpoints,
         [StringSyntax("Route")] string? responsesPath)
@@ -163,7 +158,6 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         return group;
     }
-#pragma warning restore IL2026, IL3050
 
     private static void ValidateAgentName([NotNull] string agentName)
     {

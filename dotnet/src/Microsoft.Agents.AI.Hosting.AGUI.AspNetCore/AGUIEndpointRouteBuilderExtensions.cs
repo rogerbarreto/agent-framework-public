@@ -28,8 +28,6 @@ public static class AGUIEndpointRouteBuilderExtensions
     /// <param name="pattern">The URL pattern for the endpoint.</param>
     /// <param name="aiAgent">The agent instance.</param>
     /// <returns>An <see cref="IEndpointConventionBuilder"/> for the mapped endpoint.</returns>
-    // Workaround: dotnet format does not respect IL2026/IL3050 with interceptors configuration. See https://github.com/dotnet/sdk/issues/51136
-#pragma warning disable IL2026, IL3050
     public static IEndpointConventionBuilder MapAGUI(
         this IEndpointRouteBuilder endpoints,
         [StringSyntax("route")] string pattern,
@@ -82,5 +80,4 @@ public static class AGUIEndpointRouteBuilderExtensions
             return new AGUIServerSentEventsResult(events, sseLogger);
         });
     }
-#pragma warning restore IL2026, IL3050
 }
