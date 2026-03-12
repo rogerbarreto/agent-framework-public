@@ -67,8 +67,11 @@ public static class AgentResponseExtensions
         if (responseUpdate.RawRepresentation is ChatResponseUpdate raw)
         {
             // Recover MessageId from the wrapper if the raw representation doesn't have one.
-            // This ensures consistency when the wrapper has information the raw object lost.
-            raw.MessageId ??= responseUpdate.MessageId;
+            // This handles both null and empty/whitespace values from providers.
+            if (string.IsNullOrWhiteSpace(raw.MessageId) && !string.IsNullOrWhiteSpace(responseUpdate.MessageId))
+            {
+                raw.MessageId = responseUpdate.MessageId;
+            }
             return raw;
         }
 

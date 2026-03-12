@@ -425,9 +425,31 @@ public class AgentResponseUpdateExtensionsTests
         // Act
         ChatResponseUpdate result = agentResponseUpdate.AsChatResponseUpdate();
 
-        // Assert - Provider's original MessageId should be preserved (??= won't overwrite)
+        // Assert - Provider's original MessageId should be preserved
         Assert.Same(originalChatResponseUpdate, result);
         Assert.Equal("provider-message-id", result.MessageId);
+    }
+
+    [Fact]
+    public void AsChatResponseUpdate_WithRawRepresentationEmptyMessageId_SyncsMessageIdFromWrapper()
+    {
+        // Arrange - RawRepresentation has empty MessageId, wrapper has a valid value
+        ChatResponseUpdate originalChatResponseUpdate = new()
+        {
+            ResponseId = "original-update",
+            MessageId = "",
+            Contents = [new TextContent("Hello")]
+        };
+        AgentResponseUpdate agentResponseUpdate = new(originalChatResponseUpdate);
+
+        agentResponseUpdate.MessageId = "recovered-message-id";
+
+        // Act
+        ChatResponseUpdate result = agentResponseUpdate.AsChatResponseUpdate();
+
+        // Assert - Empty MessageId should be replaced by wrapper's valid value
+        Assert.Same(originalChatResponseUpdate, result);
+        Assert.Equal("recovered-message-id", result.MessageId);
     }
 
     [Fact]
