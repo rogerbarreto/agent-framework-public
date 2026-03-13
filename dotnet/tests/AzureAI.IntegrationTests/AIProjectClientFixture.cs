@@ -1,5 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+#pragma warning disable CS0618 // Tests intentionally exercise obsolete extension methods
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,7 +10,6 @@ using AgentConformance.IntegrationTests;
 using AgentConformance.IntegrationTests.Support;
 using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
-using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI.Responses;
@@ -16,6 +17,7 @@ using Shared.IntegrationTests;
 
 namespace AzureAI.IntegrationTests;
 
+[Obsolete("Use FoundryVersionedAgentFixture instead. These tests exercise obsolete AIProjectClient extension methods.")]
 public class AIProjectClientFixture : IChatClientAgentFixture
 {
     private ChatClientAgent _agent = null!;
@@ -156,25 +158,27 @@ public class AIProjectClientFixture : IChatClientAgentFixture
         }
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
+
         if (this._client is not null && this._agent is not null)
         {
-            return this._client.Agents.DeleteAgentAsync(this._agent.Name);
+            return new ValueTask(this._client.Agents.DeleteAgentAsync(this._agent.Name));
         }
 
-        return Task.CompletedTask;
+        return default;
     }
 
-    public virtual async Task InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
-        this._client = new(new Uri(TestConfiguration.GetRequiredValue(TestSettings.AzureAIProjectEndpoint)), new AzureCliCredential());
+        this._client = new(new Uri(TestConfiguration.GetRequiredValue(TestSettings.AzureAIProjectEndpoint)), TestAzureCliCredentials.CreateAzureCliCredential());
         this._agent = await this.CreateChatClientAgentAsync();
     }
 
     public async Task InitializeAsync(ChatClientAgentOptions options)
     {
-        this._client = new(new Uri(TestConfiguration.GetRequiredValue(TestSettings.AzureAIProjectEndpoint)), new AzureCliCredential());
+        this._client = new(new Uri(TestConfiguration.GetRequiredValue(TestSettings.AzureAIProjectEndpoint)), TestAzureCliCredentials.CreateAzureCliCredential());
         this._agent = await this.CreateChatClientAgentAsync(options);
     }
 }

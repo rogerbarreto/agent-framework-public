@@ -1,9 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+#pragma warning disable CS0618 // Tests intentionally exercise obsolete extension methods
+
 using System;
 using System.Threading.Tasks;
 using Azure.AI.Projects;
-using Azure.Identity;
 using Microsoft.Extensions.Configuration;
 using Shared.IntegrationTests;
 
@@ -41,7 +42,7 @@ public sealed class FoundryMemoryProviderTests : IDisposable
         if (!string.IsNullOrWhiteSpace(endpoint) &&
             !string.IsNullOrWhiteSpace(memoryStoreName))
         {
-            this._client = new AIProjectClient(new Uri(endpoint), new AzureCliCredential());
+            this._client = new AIProjectClient(new Uri(endpoint), TestAzureCliCredentials.CreateAzureCliCredential());
             this._memoryStoreName = memoryStoreName;
             this._deploymentName = deploymentName ?? "gpt-4.1-mini";
         }

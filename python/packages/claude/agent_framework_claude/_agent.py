@@ -58,7 +58,10 @@ if TYPE_CHECKING:
         PermissionMode,
         SandboxSettings,
         SdkBeta,
+        SdkPluginConfig,
+        SettingSource,
     )
+    from claude_agent_sdk.types import ThinkingConfig
 
 
 logger = logging.getLogger("agent_framework.claude")
@@ -118,9 +121,6 @@ class ClaudeAgentOptions(TypedDict, total=False):
     fallback_model: str
     """Fallback model if primary fails."""
 
-    max_thinking_tokens: int
-    """Maximum tokens for thinking blocks."""
-
     allowed_tools: list[str]
     """Allowlist of tools. If set, Claude can ONLY use tools in this list."""
 
@@ -162,6 +162,18 @@ class ClaudeAgentOptions(TypedDict, total=False):
 
     betas: list[SdkBeta]
     """Beta features to enable."""
+
+    plugins: list[SdkPluginConfig]
+    """Plugin configurations for custom commands and capabilities."""
+
+    setting_sources: list[SettingSource]
+    """Which Claude settings files to load ("user", "project", "local")."""
+
+    thinking: ThinkingConfig
+    """Extended thinking configuration (adaptive, enabled, or disabled)."""
+
+    effort: Literal["low", "medium", "high", "max"]
+    """Effort level for thinking depth."""
 
 
 OptionsT = TypeVar(
@@ -299,21 +311,17 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
         if tools is None:
             return
 
-        # Normalize to sequence
-        if isinstance(tools, str):
-            tools_list: Sequence[Any] = [tools]
-        elif isinstance(tools, Sequence):
-            tools_list = list(tools)
-        else:
-            tools_list = [tools]
-
-        for tool in tools_list:
+        non_builtin_tools: ToolTypes | Callable[..., Any] | Sequence[ToolTypes | Callable[..., Any]] = []
+        if not isinstance(tools, list):
+            tools = [tools]  # type: ignore[assignment, reportUnknownVariableType]
+        for tool in tools:  # type: ignore[reportUnknownVariableType]
             if isinstance(tool, str):
                 self._builtin_tools.append(tool)
             else:
-                # Use normalize_tools for custom tools
-                normalized = normalize_tools(tool)
-                self._custom_tools.extend(normalized)
+                non_builtin_tools.append(tool)  # type: ignore[union-attr, reportUnknownArgumentType]
+        if not non_builtin_tools:
+            return
+        self._custom_tools.extend(normalize_tools(non_builtin_tools))  # type: ignore[reportUnknownVariableType]
 
     async def __aenter__(self) -> RawClaudeAgent[OptionsT]:
         """Start the agent when entering async context."""
@@ -488,7 +496,16 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
                     result = await func_tool.invoke(arguments=args_instance)
                 else:
                     result = await func_tool.invoke(arguments=args)
-                return {"content": [{"type": "text", "text": str(result)}]}
+                content_blocks: list[dict[str, str]] = []
+                for c in result:
+                    if c.type == "text" and c.text:
+                        content_blocks.append({"type": "text", "text": c.text})
+                    elif c.type in ("data", "uri"):
+                        logger.warning(
+                            "Claude Agent SDK does not support rich content (images, audio) "
+                            "in tool results. Rich content items will be omitted."
+                        )
+                return {"content": content_blocks or [{"type": "text", "text": ""}]}
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 
@@ -573,6 +590,7 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
         *,
         stream: Literal[False] = ...,
         session: AgentSession | None = None,
+        options: OptionsT | None = None,
         **kwargs: Any,
     ) -> Awaitable[AgentResponse[Any]]: ...
 
@@ -583,6 +601,7 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
         *,
         stream: Literal[True],
         session: AgentSession | None = None,
+        options: OptionsT | None = None,
         **kwargs: Any,
     ) -> ResponseStream[AgentResponseUpdate, AgentResponse[Any]]: ...
 
@@ -592,7 +611,8 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
         *,
         stream: bool = False,
         session: AgentSession | None = None,
-        **kwargs: Any,
+        options: OptionsT | None = None,
+        **kwargs: Any,  # type: ignore
     ) -> Awaitable[AgentResponse[Any]] | ResponseStream[AgentResponseUpdate, AgentResponse[Any]]:
         """Run the agent with the given messages.
 
@@ -604,16 +624,16 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
                 returns an awaitable AgentResponse.
             session: The conversation session. If session has service_session_id set,
                 the agent will resume that session.
-            kwargs: Additional keyword arguments including 'options' for runtime options
-                (model, permission_mode can be changed per-request).
+            options: Runtime options. Model and permission_mode can be changed per request.
+            kwargs: Additional keyword arguments for compatibility with the shared agent
+                interface (e.g. compaction_strategy, tokenizer). Not used by ClaudeAgent.
 
         Returns:
             When stream=True: An ResponseStream for streaming updates.
             When stream=False: An Awaitable[AgentResponse] with the complete response.
         """
-        options = kwargs.pop("options", None)
         response = ResponseStream(
-            self._get_stream(messages, session=session, options=options, **kwargs),
+            self._get_stream(messages, session=session, options=options),
             finalizer=self._finalize_response,
         )
 
@@ -626,8 +646,7 @@ class RawClaudeAgent(BaseAgent, Generic[OptionsT]):
         messages: AgentRunInputs | None = None,
         *,
         session: AgentSession | None = None,
-        options: OptionsT | MutableMapping[str, Any] | None = None,
-        **kwargs: Any,
+        options: OptionsT | None = None,
     ) -> AsyncIterable[AgentResponseUpdate]:
         """Internal streaming implementation."""
         session = session or self.create_session()
