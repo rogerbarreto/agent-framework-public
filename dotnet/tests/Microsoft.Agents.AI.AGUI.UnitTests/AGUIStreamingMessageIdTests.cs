@@ -20,16 +20,11 @@ public sealed class AGUIStreamingMessageIdTests
 {
     /// <summary>
     /// When ChatResponseUpdate objects with null MessageId are fed directly to
-    /// AsAGUIEventStreamAsync (bypassing ChatClientAgent), the message-start check
-    /// (null == null) prevents TextMessageStartEvent from being emitted and text
-    /// content is silently dropped.
-    ///
-    /// This scenario doesn't occur in the production pipeline because ChatClientAgent
-    /// generates a fallback MessageId. This test documents the AGUI converter's
-    /// behavior for consumers using it directly.
+    /// AsAGUIEventStreamAsync, the AGUI layer generates a fallback MessageId so
+    /// that events are valid regardless of agent type or provider.
     /// </summary>
-    [Fact(Skip = "Known edge case: direct AGUI converter usage without ChatClientAgent - not in production pipeline")]
-    public async Task TextStreaming_NullMessageId_DropsContentAsync()
+    [Fact]
+    public async Task TextStreaming_NullMessageId_GeneratesFallbackInAGUILayerAsync()
     {
         // Arrange - Simulate a provider that does NOT set MessageId
         List<ChatResponseUpdate> providerUpdates =
@@ -47,8 +42,20 @@ public sealed class AGUIStreamingMessageIdTests
             aguiEvents.Add(evt);
         }
 
-        // Assert - null == null in the message-start check means no start events are emitted
-        Assert.Empty(aguiEvents.OfType<TextMessageStartEvent>().ToList());
+        // Assert - AGUI layer should generate a fallback MessageId
+        List<TextMessageStartEvent> startEvents = aguiEvents.OfType<TextMessageStartEvent>().ToList();
+        List<TextMessageContentEvent> contentEvents = aguiEvents.OfType<TextMessageContentEvent>().ToList();
+
+        Assert.Single(startEvents);
+        Assert.False(string.IsNullOrEmpty(startEvents[0].MessageId));
+
+        Assert.Equal(3, contentEvents.Count);
+        Assert.All(contentEvents, e => Assert.False(string.IsNullOrEmpty(e.MessageId)));
+
+        // All events should share the same generated MessageId
+        string?[] distinctIds = contentEvents.Select(e => e.MessageId).Distinct().ToArray();
+        Assert.Single(distinctIds);
+        Assert.Equal(startEvents[0].MessageId, distinctIds[0]);
     }
 
     /// <summary>
@@ -102,12 +109,11 @@ public sealed class AGUIStreamingMessageIdTests
     }
 
     /// <summary>
-    /// When ChatResponseUpdate has empty string MessageId, ToolCallStartEvent.ParentMessageId
-    /// is also empty. The fallback only handles null, not empty string — providers returning
-    /// "" should ideally return null instead.
+    /// When ChatResponseUpdate has empty string MessageId, the AGUI layer generates
+    /// a fallback so ToolCallStartEvent.ParentMessageId is valid.
     /// </summary>
-    [Fact(Skip = "Known edge case: empty string MessageId from provider - fallback only handles null")]
-    public async Task ToolCalls_EmptyMessageId_ProducesEmptyParentMessageIdAsync()
+    [Fact]
+    public async Task ToolCalls_EmptyMessageId_GeneratesFallbackParentMessageIdAsync()
     {
         // Arrange - ChatResponseUpdate with a tool call but empty MessageId
         FunctionCallContent functionCall = new("call_abc123", "GetWeather")
@@ -133,12 +139,14 @@ public sealed class AGUIStreamingMessageIdTests
             aguiEvents.Add(evt);
         }
 
-        // Assert — ParentMessageId mirrors the empty provider MessageId
+        // Assert — ParentMessageId should have a generated fallback
         ToolCallStartEvent? toolCallStart = aguiEvents.OfType<ToolCallStartEvent>().FirstOrDefault();
         Assert.NotNull(toolCallStart);
         Assert.Equal("call_abc123", toolCallStart.ToolCallId);
         Assert.Equal("GetWeather", toolCallStart.ToolCallName);
-        Assert.Equal(string.Empty, toolCallStart.ParentMessageId);
+        Assert.False(
+            string.IsNullOrEmpty(toolCallStart.ParentMessageId),
+            "ParentMessageId should have a generated fallback for empty provider MessageId");
     }
 
     /// <summary>

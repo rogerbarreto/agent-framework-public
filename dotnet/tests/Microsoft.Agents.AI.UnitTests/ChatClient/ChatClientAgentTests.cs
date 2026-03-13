@@ -1793,11 +1793,11 @@ public partial class ChatClientAgentTests
     }
 
     /// <summary>
-    /// Verify that RunStreamingAsync generates a fallback MessageId when the provider doesn't set one.
-    /// Issue #3433: Providers like Google GenAI don't set MessageId on ChatResponseUpdate.
+    /// Verify that RunStreamingAsync passes through null MessageId from provider without modification.
+    /// MessageId generation is handled by downstream consumers (e.g., AGUI layer), not ChatClientAgent.
     /// </summary>
     [Fact]
-    public async Task RunStreamingAsync_WithNullMessageId_GeneratesFallbackMessageIdAsync()
+    public async Task RunStreamingAsync_WithNullMessageId_PassesThroughNullAsync()
     {
         // Arrange - Provider returns updates WITHOUT MessageId
         ChatResponseUpdate[] returnUpdates =
@@ -1822,13 +1822,9 @@ public partial class ChatClientAgentTests
             result.Add(update);
         }
 
-        // Assert - All updates should have a non-null MessageId
+        // Assert - MessageId should be null (ChatClientAgent does not generate fallback IDs)
         Assert.Equal(2, result.Count);
-        Assert.All(result, u => Assert.False(string.IsNullOrEmpty(u.MessageId), "MessageId should not be null/empty"));
-        Assert.All(result, u => Assert.StartsWith("msg_", u.MessageId!));
-
-        // All updates in the same streaming response should share the same MessageId
-        Assert.Equal(result[0].MessageId, result[1].MessageId);
+        Assert.All(result, u => Assert.Null(u.MessageId));
     }
 
     /// <summary>
@@ -1861,41 +1857,6 @@ public partial class ChatClientAgentTests
         }
 
         // Assert - Provider's MessageId should be preserved, not overwritten
-        Assert.Equal(2, result.Count);
-        Assert.All(result, u => Assert.Equal("chatcmpl-abc123", u.MessageId));
-    }
-
-    /// <summary>
-    /// Verify that when only the first streaming chunk has a provider MessageId and subsequent
-    /// chunks omit it, all updates share the initial provider ID (no message splitting).
-    /// </summary>
-    [Fact]
-    public async Task RunStreamingAsync_WithProviderMessageIdOnFirstChunk_PreservesItAcrossStreamAsync()
-    {
-        // Arrange - Provider sets MessageId on the first update only
-        ChatResponseUpdate[] returnUpdates =
-            [
-                new ChatResponseUpdate(role: ChatRole.Assistant, content: "Hello") { MessageId = "chatcmpl-abc123" },
-                new ChatResponseUpdate(role: ChatRole.Assistant, content: " world"),
-            ];
-
-        Mock<IChatClient> mockService = new();
-        mockService.Setup(
-            s => s.GetStreamingResponseAsync(
-                It.IsAny<IEnumerable<ChatMessage>>(),
-                It.IsAny<ChatOptions>(),
-                It.IsAny<CancellationToken>())).Returns(ToAsyncEnumerableAsync(returnUpdates));
-
-        ChatClientAgent agent = new(mockService.Object);
-
-        // Act
-        List<AgentResponseUpdate> result = [];
-        await foreach (AgentResponseUpdate update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")]))
-        {
-            result.Add(update);
-        }
-
-        // Assert - All chunks should share the first provider MessageId
         Assert.Equal(2, result.Count);
         Assert.All(result, u => Assert.Equal("chatcmpl-abc123", u.MessageId));
     }
