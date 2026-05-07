@@ -34,8 +34,9 @@ public sealed class MemoryHostedAgentTests(MemoryHostedAgentFixture fixture) : I
         var second = await agent.RunAsync("I am travelling with my sister and we love finding scenic viewpoints.", session);
         Assert.False(string.IsNullOrWhiteSpace(second.Text));
 
-        // Memory extraction is asynchronous server-side. Give it a moment to settle before recall.
-        await Task.Delay(TimeSpan.FromSeconds(20));
+        // FoundryMemoryProvider defaults to UpdateDelay=0 (immediate trigger). Server-side ingestion
+        // typically completes within ~3 seconds; allow a small margin.
+        await Task.Delay(TimeSpan.FromSeconds(5));
 
         var recall = await agent.RunAsync("What do you already know about my upcoming trip?", session);
 
@@ -54,13 +55,14 @@ public sealed class MemoryHostedAgentTests(MemoryHostedAgentFixture fixture) : I
         await agent.RunAsync("My preferred airline is Iberia and I always fly business class.", teachingSession);
         await agent.RunAsync("I also prefer aisle seats whenever they are available.", teachingSession);
 
-        // Memory extraction is asynchronous server-side. Poll a fresh-session recall a few times
-        // before failing so the test does not flake on cold caches.
+        // FoundryMemoryProvider defaults to UpdateDelay=0 (immediate trigger). Server-side
+        // ingestion typically completes within ~3 seconds; poll a fresh-session recall a few
+        // times before failing so the test does not flake on cold caches.
         AgentResponse recall = null!;
         const int MaxAttempts = 6;
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            await Task.Delay(TimeSpan.FromSeconds(20));
+            await Task.Delay(TimeSpan.FromSeconds(5));
 
             var freshSession = await agent.CreateSessionAsync();
             recall = await agent.RunAsync("Which airline do I prefer? Reply with just the airline name.", freshSession);

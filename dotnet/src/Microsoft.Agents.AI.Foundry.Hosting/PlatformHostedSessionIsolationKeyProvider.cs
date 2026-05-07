@@ -17,10 +17,10 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <remarks>
 /// This is the implementation used in production Foundry hosted environments. When running locally
 /// outside the platform, both isolation keys are <see langword="null"/>, which causes
-/// <see cref="GetKeysAsync"/> to return a context with empty values and the hosting layer to fail
-/// the request with <see cref="System.InvalidOperationException"/>. Local development should register
-/// an alternate <see cref="HostedSessionIsolationKeyProvider"/> implementation that provides fallback
-/// values for the missing headers.
+/// <see cref="GetKeysAsync"/> to return <see langword="null"/>. The hosting layer treats a null
+/// result as a configuration error and surfaces it as a 500 from the request. Local development
+/// should register an alternate <see cref="HostedSessionIsolationKeyProvider"/> implementation
+/// that provides fallback values for the missing headers.
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
 internal sealed class PlatformHostedSessionIsolationKeyProvider : HostedSessionIsolationKeyProvider

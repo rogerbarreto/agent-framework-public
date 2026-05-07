@@ -17,12 +17,11 @@
 
 using System.ComponentModel;
 using Azure.AI.OpenAI;
-using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
+using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
-using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;

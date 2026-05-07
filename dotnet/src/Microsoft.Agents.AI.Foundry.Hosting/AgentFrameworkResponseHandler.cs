@@ -27,6 +27,12 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private readonly FoundryToolboxService? _toolboxService;
 
     /// <summary>
+    /// Cached fallback used when no <see cref="HostedSessionIsolationKeyProvider"/> is registered in DI.
+    /// Avoids a per-request allocation on the request hot path.
+    /// </summary>
+    private static readonly HostedSessionIsolationKeyProvider s_defaultIsolationKeyProvider = new PlatformHostedSessionIsolationKeyProvider();
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
     /// that resolves agents from keyed DI services.
     /// </summary>
@@ -71,7 +77,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Fresh sessions are tagged once. Resumed sessions are validated against the live request
         // to detect cross-user session leaks and in-process tampering of the persisted identity.
         var isolationKeyProvider = this._serviceProvider.GetService<HostedSessionIsolationKeyProvider>()
-            ?? new PlatformHostedSessionIsolationKeyProvider();
+            ?? s_defaultIsolationKeyProvider;
         var resolvedHostedContext = await isolationKeyProvider.GetKeysAsync(context, request, cancellationToken).ConfigureAwait(false);
         if (resolvedHostedContext is null)
         {

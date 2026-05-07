@@ -8,9 +8,10 @@ using Azure.AI.AgentServer.Responses.Models;
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
 /// <summary>
-/// Test fake that always returns a non-null <see cref="HostedSessionContext"/>, allowing tests that
-/// were written before the strict isolation-key contract to keep passing without each test having to
-/// stub <c>ResponseContext.Isolation</c>.
+/// Test fake that returns a non-null <see cref="HostedSessionContext"/> by default, allowing tests
+/// that were written before the strict isolation-key contract to keep passing without each test
+/// having to stub <c>ResponseContext.Isolation</c>. The constructor also accepts <see langword="null"/>
+/// values so individual tests can exercise the handler's null-key error path.
 /// </summary>
 internal sealed class FakeHostedSessionIsolationKeyProvider : HostedSessionIsolationKeyProvider
 {

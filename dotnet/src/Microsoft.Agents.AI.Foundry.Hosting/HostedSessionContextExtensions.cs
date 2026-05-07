@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
@@ -40,7 +41,7 @@ public static class HostedSessionContextExtensions
     /// The <see cref="HostedSessionContext"/> for the session, or <see langword="null"/> when the
     /// session was not produced by a hosted agent (or the value has not yet been written).
     /// </returns>
-    /// <exception cref="System.ArgumentNullException">Thrown when <paramref name="session"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="session"/> is <see langword="null"/>.</exception>
     public static HostedSessionContext? GetHostedContext(this AgentSession session)
     {
         Throw.IfNull(session);
@@ -58,13 +59,22 @@ public static class HostedSessionContextExtensions
     /// <remarks>
     /// Internal to the hosting assembly. Consumers must not invoke this method directly; the hosting
     /// layer is the single writer and uses validation against the live request to detect any tampering
-    /// that does occur via lower-level APIs.
+    /// that does occur via lower-level APIs. Throws when a context has already been written for this
+    /// session to enforce the write-once contract.
     /// </remarks>
-    /// <exception cref="System.ArgumentNullException">Thrown when <paramref name="session"/> or <paramref name="context"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="session"/> or <paramref name="context"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when this session already carries a <see cref="HostedSessionContext"/>.</exception>
     internal static void SetHostedContext(this AgentSession session, HostedSessionContext context)
     {
         Throw.IfNull(session);
         Throw.IfNull(context);
+
+        if (session.StateBag.TryGetValue<HostedSessionContext>(StateKey, out _, HostedSessionJsonUtilities.DefaultOptions))
+        {
+            throw new InvalidOperationException(
+                $"A {nameof(HostedSessionContext)} has already been written to this session. " +
+                "The hosted session identity is write-once; resumed sessions must validate against the existing context, not overwrite it.");
+        }
 
         session.StateBag.SetValue(StateKey, context, HostedSessionJsonUtilities.DefaultOptions);
     }

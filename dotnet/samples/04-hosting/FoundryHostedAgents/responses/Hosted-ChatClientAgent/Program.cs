@@ -4,9 +4,9 @@ using Azure.AI.Projects;
 using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
+using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
-using Hosted_Shared_Contributor_Setup;
 
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
