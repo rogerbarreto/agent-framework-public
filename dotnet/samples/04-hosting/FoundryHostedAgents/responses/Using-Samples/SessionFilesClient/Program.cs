@@ -1,18 +1,22 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Session Files Client - A REPL that demonstrates the alpha
-// Azure.AI.Projects.AgentSessionFiles API.
+// Azure.AI.Projects.AgentSessionFiles API end to end against a deployed
+// Hosted-Files agent.
 //
 // On startup, the REPL:
 //   1. Resolves a deployed Hosted-Files agent via AgentAdministrationClient.
-//   2. Creates a new session (with isolation key) and waits until it becomes Active.
-//   3. Prints the session id so the user can pair it with `azd ai agent invoke --session-id <id>`.
+//   2. Creates a new session (with isolation key) and waits until it is Active.
+//   3. Builds a per-agent ProjectResponsesClient bound to the same agent endpoint.
 //
-// Then enter REPL commands:
+// REPL commands:
 //   upload <local-path> [<remote-path>]   Upload a local file into $HOME/<remote-path>.
 //   ls [<remote-path>]                    List session files at the given path (default: ".").
 //   download <remote-path> <local-path>   Download a session file to a local path.
 //   rm <remote-path>                      Delete a session file.
+//   ask <prompt>                          Send a prompt to the agent. The request body is
+//                                         pinned to this REPL's agent_session_id so the agent
+//                                         container reads files this REPL uploaded.
 //   help                                  Show command reference.
 //   quit                                  Delete session and exit.
 //
@@ -24,11 +28,18 @@
 //   HOSTED_AGENT_VERSION       - Specific agent version (default: latest deployed version)
 
 #pragma warning disable AAIP001 // AgentSessionFiles is experimental
+#pragma warning disable OPENAI001 // CreateResponseOptions is experimental
+#pragma warning disable SCME0001 // CreateResponseOptions.Patch is for evaluation purposes
 
 using System.ClientModel.Primitives;
+using Azure.AI.Extensions.OpenAI;
 using Azure.AI.Projects.Agents;
 using Azure.Identity;
 using DotNetEnv;
+using OpenAI.Responses;
+
+// Bypass the SampleEnvironment alias for optional env vars (which prompts when missing).
+using SystemEnvironment = System.Environment;
 
 Env.TraversePath().Load();
 
@@ -36,20 +47,18 @@ string projectEndpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_END
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
 string agentName = Environment.GetEnvironmentVariable("HOSTED_AGENT_NAME")
     ?? throw new InvalidOperationException("HOSTED_AGENT_NAME is not set.");
-string? agentVersionEnv = Environment.GetEnvironmentVariable("HOSTED_AGENT_VERSION");
+string? agentVersionEnv = SystemEnvironment.GetEnvironmentVariable("HOSTED_AGENT_VERSION");
+
+const string FoundryFeatures = "HostedAgents=V1Preview,AgentEndpoints=V1Preview";
+var endpointUri = new Uri(projectEndpoint);
+var credential = new AzureCliCredential();
 
 // ── Build the AgentAdministrationClient with Foundry-Features header ─────────
 
-var options = new AgentAdministrationClientOptions();
-options.AddPolicy(
-    new FeaturePolicy("HostedAgents=V1Preview,AgentEndpoints=V1Preview"),
-    PipelinePosition.PerCall);
+var adminOptions = new AgentAdministrationClientOptions();
+adminOptions.AddPolicy(new FeaturePolicy(FoundryFeatures), PipelinePosition.PerCall);
 
-var agentsClient = new AgentAdministrationClient(
-    endpoint: new Uri(projectEndpoint),
-    tokenProvider: new AzureCliCredential(),
-    options: options);
-
+var agentsClient = new AgentAdministrationClient(endpointUri, credential, adminOptions);
 AgentSessionFiles sessionFiles = agentsClient.GetAgentSessionFiles();
 
 // ── Resolve the agent version ────────────────────────────────────────────────
@@ -61,6 +70,16 @@ ProjectsAgentVersion agentVersion = agentVersionEnv is null
 Console.ForegroundColor = ConsoleColor.Cyan;
 Console.WriteLine($"Agent: {agentVersion.Name} (version {agentVersion.Version})");
 Console.ResetColor();
+
+// ── Build the per-agent ProjectResponsesClient (Foundry-Features required) ──
+// AgentName on ProjectOpenAIClientOptions selects the per-agent URL suffix
+// `/agents/{name}/endpoint/protocols/openai`. Without it the client targets
+// the project-level URL and cannot serve a hosted agent.
+
+var openAIOptions = new ProjectOpenAIClientOptions { AgentName = agentVersion.Name };
+openAIOptions.AddPolicy(new FeaturePolicy(FoundryFeatures), PipelinePosition.PerCall);
+ProjectResponsesClient responsesClient = new ProjectOpenAIClient(endpointUri, credential, openAIOptions)
+    .GetProjectResponsesClient();
 
 // ── Create a session and wait until it is Active ─────────────────────────────
 
@@ -100,9 +119,6 @@ Console.WriteLine($"""
     Session:    {sessionId}
     Isolation:  {isolationKey}
 
-    To chat with the agent against this session, run:
-      azd ai agent invoke --session-id {sessionId} "<your prompt>"
-
     Type 'help' for commands, 'quit' to delete the session and exit.
     ══════════════════════════════════════════════════════════
     """);
@@ -138,7 +154,7 @@ try
 
         try
         {
-            await DispatchAsync(line, agentVersion.Name, sessionId, sessionFiles);
+            await DispatchAsync(line, agentVersion.Name, sessionId, sessionFiles, responsesClient);
         }
         catch (Exception ex)
         {
@@ -166,9 +182,9 @@ finally
 
 // ── Command handlers ─────────────────────────────────────────────────────────
 
-static async Task DispatchAsync(string line, string agentName, string sessionId, AgentSessionFiles files)
+static async Task DispatchAsync(string line, string agentName, string sessionId, AgentSessionFiles files, ProjectResponsesClient responses)
 {
-    string[] parts = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
+    string[] parts = line.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
     string command = parts[0].ToUpperInvariant() switch
     {
         "HELP" => "help",
@@ -176,8 +192,13 @@ static async Task DispatchAsync(string line, string agentName, string sessionId,
         "LS" or "LIST" => "ls",
         "DOWNLOAD" or "GET" => "download",
         "RM" or "DELETE" => "rm",
+        "ASK" => "ask",
         _ => parts[0],
     };
+
+    string[] args = command == "ask"
+        ? parts
+        : line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
 
     switch (command)
     {
@@ -186,19 +207,23 @@ static async Task DispatchAsync(string line, string agentName, string sessionId,
             break;
 
         case "upload":
-            await UploadAsync(parts, agentName, sessionId, files);
+            await UploadAsync(args, agentName, sessionId, files);
             break;
 
         case "ls":
-            await ListAsync(parts, agentName, sessionId, files);
+            await ListAsync(args, agentName, sessionId, files);
             break;
 
         case "download":
-            await DownloadAsync(parts, agentName, sessionId, files);
+            await DownloadAsync(args, agentName, sessionId, files);
             break;
 
         case "rm":
-            await DeleteAsync(parts, agentName, sessionId, files);
+            await DeleteAsync(args, agentName, sessionId, files);
+            break;
+
+        case "ask":
+            await AskAsync(args, sessionId, responses);
             break;
 
         default:
@@ -259,6 +284,39 @@ static async Task DeleteAsync(string[] parts, string agentName, string sessionId
     Console.WriteLine($"Deleted {parts[1]}");
 }
 
+// ── Agent invocation pinned to this REPL's agent_session_id ──────────────────
+// agent_session_id is a Foundry extension on /responses, not a typed property
+// on CreateResponseOptions, so it is injected via JsonPatch on the request body.
+// Pinning the session id is what guarantees the agent container reads the
+// files that this REPL just uploaded.
+static async Task AskAsync(string[] parts, string sessionId, ProjectResponsesClient responses)
+{
+    if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
+    {
+        Console.WriteLine("Usage: ask <prompt>");
+        return;
+    }
+
+    string prompt = parts[1];
+    var options = new CreateResponseOptions();
+    options.InputItems.Add(ResponseItem.CreateUserMessageItem(prompt));
+    options.Patch.Set("$.agent_session_id"u8, BinaryData.FromString($"\"{sessionId}\""));
+
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.Write("Agent> ");
+    Console.ResetColor();
+
+    await foreach (StreamingResponseUpdate update in responses.CreateResponseStreamingAsync(options))
+    {
+        if (update is StreamingResponseOutputTextDeltaUpdate delta)
+        {
+            Console.Write(delta.Delta);
+        }
+    }
+
+    Console.WriteLine();
+}
+
 static void PrintHelp()
 {
     Console.WriteLine("""
@@ -267,6 +325,8 @@ static void PrintHelp()
           ls [<path>]                  List entries (default path: ".").
           download <remote> <local>    Download a session file locally.
           rm <remote>                  Delete a session file.
+          ask <prompt>                 Ask the agent. Pinned to this REPL's session id, so
+                                       the agent reads files this REPL uploaded.
           help                         Show this help.
           quit                         Delete the session and exit.
         """);

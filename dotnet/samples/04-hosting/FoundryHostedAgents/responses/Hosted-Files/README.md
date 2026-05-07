@@ -10,7 +10,7 @@ The agent exposes three local C# function tools:
 | `ListFiles` | Lists files and directories under a given path inside the sandbox. |
 | `ReadFile` | Reads the full text contents of a file inside the sandbox. |
 
-Companion sample: [`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a REPL that uploads, lists, downloads, and deletes session files using the alpha `Azure.AI.Projects.AgentSessionFiles` SDK, then chats with this agent.
+Companion sample: [`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a REPL that uploads, lists, downloads, and deletes session files using the alpha `Azure.AI.Projects.AgentSessionFiles` SDK, **and chats with this agent** in the same session so file content surfaces in the agent's responses as knowledge.
 
 ## Prerequisites
 
@@ -52,15 +52,19 @@ Files must be uploaded into the session's `$HOME` before the agent can read them
 
 ### Code-first (recommended for demos)
 
-Use the companion REPL [`SessionFilesClient`](../Using-Samples/SessionFilesClient/), which exercises the alpha `Azure.AI.Projects.AgentSessionFiles` SDK directly:
+Use the companion REPL [`SessionFilesClient`](../Using-Samples/SessionFilesClient/), which wraps the alpha `Azure.AI.Projects.AgentSessionFiles` SDK and pins chat requests to the same `agent_session_id` so the agent reads what you uploaded:
 
 ```bash
 cd ../Using-Samples/SessionFilesClient
-AGENT_NAME=hosted-files AGENT_ENDPOINT=http://localhost:8088 dotnet run
+$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
+$env:HOSTED_AGENT_NAME = "hosted-files"
+dotnet run
 
-> upload ../../Hosted-Files/resources/contoso_q1_2026_report.txt
-> ls
-> What was Contoso's Q1 2026 total revenue? Quote the figure verbatim.
+files> upload ../../Hosted-Files/resources/contoso_q1_2026_report.txt
+Uploaded 6145 bytes to contoso_q1_2026_report.txt
+
+files> ask What was Contoso's Q1 2026 total revenue? Quote the figure verbatim.
+Agent> Total revenue of $1,482.6M.
 ```
 
 ### CLI-first (parity with Python sample)

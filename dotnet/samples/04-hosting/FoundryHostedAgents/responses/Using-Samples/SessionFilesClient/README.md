@@ -37,9 +37,6 @@ Agent:      hosted-files
 Session:    f23a...
 Isolation:  9c8b...
 
-To chat with the agent against this session, run:
-  azd ai agent invoke --session-id f23a... "<your prompt>"
-
 Type 'help' for commands, 'quit' to delete the session and exit.
 ══════════════════════════════════════════════════════════
 
@@ -54,31 +51,31 @@ files>
 | `ls [<path>]` | List entries at the given session path (default `"."`). |
 | `download <remote> <local>` | Download a session file locally. |
 | `rm <remote>` | Delete a session file. |
+| `ask <prompt>` | Send a prompt to the agent. The request body is pinned to this REPL's `agent_session_id` (via `CreateResponseOptions.Patch`) so the agent container reads files this REPL uploaded. |
 | `help` | Show command reference. |
 | `quit` | Delete the session and exit. |
 
-## End-to-end demo
+## End-to-end demo (file → agent knowledge)
 
-Pair this REPL with a deployed `hosted-files` agent:
+This is the canonical flow the sample is designed to show: a file uploaded by the client surfaces in the agent's response as knowledge it retrieved through its container-side `ReadFile` tool.
 
 ```text
 files> upload ../../Hosted-Files/resources/contoso_q1_2026_report.txt
-Uploaded 6145 bytes to /home/contoso_q1_2026_report.txt
+Uploaded 6145 bytes to contoso_q1_2026_report.txt
 
 files> ls
 .:
-   <DIR>  .
       6145  contoso_q1_2026_report.txt
+
+files> ask Read contoso_q1_2026_report.txt from $HOME and quote the headline total revenue figure verbatim, no commentary.
+Agent> Total revenue of $1,482.6M.
+
+files> quit
+Deleting session ...
+Session deleted.
 ```
 
-Then in another terminal, ask the agent (using the session id printed at startup):
-
-```bash
-azd ai agent invoke --session-id <session-id> \
-  "Read contoso_q1_2026_report.txt from \$HOME and quote the headline revenue figure verbatim."
-```
-
-The agent's `ReadFile` tool resolves the relative path against `$HOME`, reads the file uploaded above, and quotes the figure (`$1,482.6M`).
+The `ask` request hits the deployed Hosted-Files agent over the same `agent_session_id` the upload used. The agent's `ReadFile` tool reads `$HOME/contoso_q1_2026_report.txt`, the model quotes `$1,482.6M` verbatim from the file.
 
 ## How it works
 
@@ -86,7 +83,8 @@ The agent's `ReadFile` tool resolves the relative path against `$HOME`, reads th
 2. The latest agent version is resolved (`GetAgentVersionsAsync`).
 3. A session is created with `CreateSessionAsync(agentName, isolationKey, versionIndicator, agentSessionId)`. The isolation key is held by the REPL and required for session-mutating operations (notably `DeleteSession`).
 4. `agentsClient.GetAgentSessionFiles()` returns the `AgentSessionFiles` client used for `UploadSessionFileAsync`, `GetSessionFilesAsync`, `DownloadSessionFileAsync`, and `DeleteSessionFileAsync`.
-5. On `quit`, the REPL deletes the session.
+5. A per-agent `ProjectResponsesClient` is built with `ProjectOpenAIClientOptions { AgentName = ... }` so requests target `/agents/{name}/endpoint/protocols/openai`. The `ask` command pins `agent_session_id` into the request body via `CreateResponseOptions.Patch.Set("$.agent_session_id"u8, ...)` so the inference call lands in the same container the files were uploaded to.
+6. On `quit`, the REPL deletes the session.
 
 ## CLI parity
 
@@ -98,4 +96,4 @@ azd ai agent files upload -f contoso_q1_2026_report.txt
 azd ai agent invoke "Read contoso_q1_2026_report.txt from \$HOME and quote the headline revenue figure verbatim."
 ```
 
-`azd` auto-detects the most recent active session for upload. The REPL above gives you explicit session control via the SDK.
+`azd` auto-detects the most recent active session for upload. The REPL above gives you explicit session control via the SDK and a single in-process loop covering both upload and chat.
