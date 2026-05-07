@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/microsoft/AgentSchema/refs/heads/main/schemas/v1.0/AgentManifest.yaml
+name: hosted-files
+displayName: "Hosted Files Agent"
+
+description: >
+  A hosted agent that reads files from the per-session $HOME sandbox volume.
+  Demonstrates session-scoped file storage on Foundry hosted agents using
+  three local C# function tools (GetHomeDirectory, ListFiles, ReadFile).
+
+metadata:
+  tags:
+    - AI Agent Hosting
+    - Azure AI AgentServer
+    - Responses Protocol
+    - Session Files
+    - Local Tools
+    - Agent Framework
+
+template:
+  name: hosted-files
+  kind: hosted
+  protocols:
+    - protocol: responses
+      version: 1.0.0
+  resources:
+    cpu: "0.25"
+    memory: 0.5Gi
+parameters:
+  properties: []
+resources: []
