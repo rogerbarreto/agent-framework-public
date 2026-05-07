@@ -152,7 +152,7 @@ static string GetHomeDirectory() => SessionHome();
 
 [Description("List files and directories under the given path inside the session sandbox. Pass an empty string to list $HOME.")]
 static string[] ListFiles(
-    [Description("Path relative to $HOME (or absolute). Empty string means $HOME.")] string path)
+    [Description("Path relative to $HOME. Absolute paths and traversals (..) are rejected.")] string path)
 {
     try
     {
@@ -166,7 +166,7 @@ static string[] ListFiles(
 
 [Description("Read the full text contents of a file inside the session sandbox.")]
 static string ReadFile(
-    [Description("Path relative to $HOME (or absolute) of the file to read.")] string path)
+    [Description("Path relative to $HOME. Absolute paths and traversals (..) are rejected.")] string path)
 {
     try
     {
@@ -182,7 +182,37 @@ static string SessionHome() =>
     Environment.GetEnvironmentVariable("HOME")
     ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-static string ResolveSessionPath(string path) =>
-    string.IsNullOrWhiteSpace(path)
-        ? SessionHome()
-        : Path.IsPathRooted(path) ? path : Path.Combine(SessionHome(), path);
+// Resolve a caller-supplied path against $HOME, rejecting absolute paths and traversal segments
+// so that the model cannot read or list arbitrary container files via the ReadFile/ListFiles
+// tools (defense-in-depth against indirect prompt injection). Mirrors the canonicalize +
+// startsWith($HOME) pattern used by FileSystemAgentFileStore.ResolveSafePath.
+static string ResolveSessionPath(string path)
+{
+    string home = SessionHome();
+    string homeFull = Path.GetFullPath(home);
+    string homePrefix = homeFull.EndsWith(Path.DirectorySeparatorChar)
+        ? homeFull
+        : homeFull + Path.DirectorySeparatorChar;
+
+    if (string.IsNullOrWhiteSpace(path))
+    {
+        return homeFull;
+    }
+
+    if (Path.IsPathRooted(path))
+    {
+        throw new ArgumentException($"Absolute paths are not allowed: '{path}'.", nameof(path));
+    }
+
+    string combined = Path.Combine(homeFull, path);
+    string fullPath = Path.GetFullPath(combined);
+
+    if (!fullPath.Equals(homeFull, StringComparison.Ordinal) &&
+        !fullPath.StartsWith(homePrefix, StringComparison.Ordinal))
+    {
+        throw new ArgumentException(
+            $"Path '{path}' resolves outside the session sandbox.", nameof(path));
+    }
+
+    return fullPath;
+}
