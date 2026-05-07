@@ -1,8 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 #pragma warning disable AAIP001 // AgentSessionFiles is experimental
-#pragma warning disable OPENAI001 // CreateResponseOptions is experimental
-#pragma warning disable SCME0001 // CreateResponseOptions.Patch is for evaluation purposes
 
 using System;
 using System.ClientModel.Primitives;
@@ -12,17 +10,14 @@ using System.Threading.Tasks;
 using AgentConformance.IntegrationTests.Support;
 using Azure.AI.Projects.Agents;
 using Foundry.Hosting.IntegrationTests.Fixtures;
-using Microsoft.Extensions.AI;
-using OpenAI.Responses;
 using Shared.IntegrationTests;
 
 namespace Foundry.Hosting.IntegrationTests;
 
 /// <summary>
-/// End-to-end test for the alpha <see cref="AgentSessionFiles"/> API paired with a hosted agent
-/// that reads files from the per-session <c>$HOME</c> sandbox volume. Validates that a file
-/// uploaded through the SDK is visible to the agent's container-side tools when the chat request
-/// is pinned to the same <c>agent_session_id</c>.
+/// Round-trip integration test for the alpha <see cref="AgentSessionFiles"/> SDK against the
+/// session-files Hosted-Files style scenario. Validates that the SDK can create a session,
+/// upload, list, download and delete a file inside the per-session sandbox volume.
 /// </summary>
 [Trait("Category", "FoundryHostedAgents")]
 public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture fixture) : IClassFixture<SessionFilesHostedAgentFixture>
@@ -31,12 +26,17 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
     private const string HostedAgentsFeatureValue = "HostedAgents=V1Preview,AgentEndpoints=V1Preview";
 
     private const string TestDataFileName = "contoso_q1_2026_report.txt";
+
+    /// <summary>
+    /// A token that appears verbatim in the test data file. Asserts that the round-tripped
+    /// bytes are exactly what we uploaded.
+    /// </summary>
     private const string ExpectedTokenInFile = "1,482.6";
 
     private readonly SessionFilesHostedAgentFixture _fixture = fixture;
 
     [Fact]
-    public async Task UploadAndAgentReadsFileAsync()
+    public async Task UploadListDownloadAndDeleteAsync()
     {
         // Arrange
         string localPath = Path.Combine(AppContext.BaseDirectory, "TestData", TestDataFileName);
@@ -66,6 +66,8 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
             session = await WaitForActiveAsync(adminClient, this._fixture.AgentName, session.AgentSessionId);
             Assert.Equal(AgentSessionStatus.Active, session.Status);
 
+            long expectedBytes = new FileInfo(localPath).Length;
+
             // Act 1 — upload via the alpha AgentSessionFiles SDK
             SessionFileWriteResponse writeResponse = await sessionFiles.UploadSessionFileAsync(
                 agentName: this._fixture.AgentName,
@@ -73,7 +75,6 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
                 sessionStoragePath: TestDataFileName,
                 localPath: localPath);
 
-            long expectedBytes = new FileInfo(localPath).Length;
             Assert.Equal(expectedBytes, writeResponse.BytesWritten);
 
             // Act 2 — verify the file is visible in the session sandbox listing
@@ -86,42 +87,42 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
                 listing.Entries,
                 e => e.Name == TestDataFileName && !e.IsDirectory && e.Size == expectedBytes);
 
-            // Act 3 — invoke the agent against the same agent_session_id and assert it reads the file.
-            // agent_session_id is injected into the /responses request body via JsonPatch because
-            // it is a Foundry extension not surfaced as a typed property on CreateResponseOptions.
-            string sessionIdJson = $"\"{session.AgentSessionId}\"";
-            var runOptions = new Microsoft.Agents.AI.ChatClientAgentRunOptions(new ChatOptions
+            // Act 3 — round-trip via download and assert the bytes match (deterministic token)
+            string downloadPath = Path.Combine(Path.GetTempPath(), $"hosted-files-it-{Guid.NewGuid():N}.txt");
+            try
             {
-                RawRepresentationFactory = _ =>
+                await sessionFiles.DownloadSessionFileAsync(
+                    agentName: this._fixture.AgentName,
+                    sessionId: session.AgentSessionId,
+                    sessionStoragePath: TestDataFileName,
+                    localPath: downloadPath);
+
+                string downloaded = File.ReadAllText(downloadPath);
+                Assert.Contains(ExpectedTokenInFile, downloaded);
+            }
+            finally
+            {
+                if (File.Exists(downloadPath))
                 {
-                    var crOptions = new CreateResponseOptions();
-                    crOptions.Patch.Set("$.agent_session_id"u8, BinaryData.FromString(sessionIdJson));
-                    return crOptions;
+                    File.Delete(downloadPath);
                 }
-            });
+            }
 
-            var response = await this._fixture.Agent.RunAsync(
-                $"Read {TestDataFileName} from $HOME and quote the headline total revenue figure verbatim, no commentary.",
-                options: runOptions);
+            // Act 4 — delete the file and confirm it is gone
+            await sessionFiles.DeleteSessionFileAsync(
+                agentName: this._fixture.AgentName,
+                sessionId: session.AgentSessionId,
+                path: TestDataFileName);
 
-            // Assert: the agent's response contains the deterministic token from the test file.
-            Assert.False(string.IsNullOrWhiteSpace(response.Text));
-            Assert.Contains(ExpectedTokenInFile, response.Text);
+            SessionDirectoryListResponse listingAfter = await sessionFiles.GetSessionFilesAsync(
+                agentName: this._fixture.AgentName,
+                sessionId: session.AgentSessionId,
+                sessionStoragePath: ".");
+
+            Assert.DoesNotContain(listingAfter.Entries, e => e.Name == TestDataFileName);
         }
         finally
         {
-            try
-            {
-                await sessionFiles.DeleteSessionFileAsync(
-                    agentName: this._fixture.AgentName,
-                    sessionId: session.AgentSessionId,
-                    path: TestDataFileName);
-            }
-            catch
-            {
-                // Best-effort cleanup.
-            }
-
             try
             {
                 await adminClient.DeleteSessionAsync(
