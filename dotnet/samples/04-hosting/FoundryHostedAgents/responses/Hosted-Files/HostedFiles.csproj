@@ -16,6 +16,14 @@
     <PackageReference Include="DotNetEnv" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Bake demo resources into the published output so the deployed agent's
+         tools can read them from /app/resources/ inside the container. -->
+    <Content Include="resources\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- For contributors: uses ProjectReference to build against local source -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\..\src\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />

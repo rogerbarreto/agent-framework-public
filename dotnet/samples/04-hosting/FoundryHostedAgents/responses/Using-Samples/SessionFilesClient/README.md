@@ -1,99 +1,50 @@
 # SessionFilesClient
 
-A console REPL that exercises the alpha **`Azure.AI.Projects.AgentSessionFiles`** API to manage files inside a Foundry hosted-agent session sandbox (`$HOME`). The code-first equivalent of `azd ai agent files upload`.
+A thin chat REPL that connects to a deployed [`Hosted-Files`](../../Hosted-Files/) agent via `FoundryAgent` and lets you ask questions whose answers come from the files bundled with that agent. Same shape as [`SimpleAgent`](../SimpleAgent/) — point it at an `AGENT_ENDPOINT`, build a `FoundryAgent`, run.
 
-Use this with the [`Hosted-Files`](../../Hosted-Files/) sample agent.
+The agent's container-side `ListFiles` and `ReadFile` tools surface the bundled file contents to the model. The client knows nothing about files; that is entirely the agent's concern.
 
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- A deployed Hosted-Files agent in your Azure AI Foundry project. See [Hosted-Files/README.md](../../Hosted-Files/README.md) for deployment instructions.
+- A running [`Hosted-Files`](../../Hosted-Files/) agent (locally via `dotnet run` or deployed to Foundry)
 - Azure CLI logged in (`az login`)
 
 ## Configuration
 
 ```env
-FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projects/<your-project>
-HOSTED_AGENT_NAME=hosted-files
-# Optional - defaults to the latest deployed version
-# HOSTED_AGENT_VERSION=1
+AGENT_ENDPOINT=http://localhost:8088
+AGENT_NAME=hosted-files
 ```
 
-Place the values in a `.env` file at the project root or export them as environment variables.
+`AGENT_ENDPOINT` defaults to `http://localhost:8088`. Override with the deployed agent endpoint when chatting against Foundry.
 
 ## Run
 
 ```bash
 cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SessionFilesClient
+$env:AGENT_ENDPOINT = "http://localhost:8088"
+$env:AGENT_NAME = "hosted-files"
 dotnet run
 ```
 
-On startup the REPL creates a fresh session, waits for it to become `Active`, prints the `sessionId`, and drops you at a prompt:
+## End-to-end demo
 
-```
-══════════════════════════════════════════════════════════
-Session Files REPL
-Agent:      hosted-files
-Session:    f23a...
-Isolation:  9c8b...
-
-Type 'help' for commands, 'quit' to delete the session and exit.
-══════════════════════════════════════════════════════════
-
-files>
-```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `upload <local> [<remote>]` | Upload a local file into the session sandbox. Default `<remote>` = file name. |
-| `ls [<path>]` | List entries at the given session path (default `"."`). |
-| `download <remote> <local>` | Download a session file locally. |
-| `rm <remote>` | Delete a session file. |
-| `ask <prompt>` | Send a prompt to the agent. The request body is pinned to this REPL's `agent_session_id` (via `CreateResponseOptions.Patch`) so the agent container reads files this REPL uploaded. |
-| `help` | Show command reference. |
-| `quit` | Delete the session and exit. |
-
-## End-to-end demo (file → agent knowledge)
-
-This is the canonical flow the sample is designed to show: a file uploaded by the client surfaces in the agent's response as knowledge it retrieved through its container-side `ReadFile` tool.
+With the [`Hosted-Files`](../../Hosted-Files/) agent running:
 
 ```text
-files> upload ../../Hosted-Files/resources/contoso_q1_2026_report.txt
-Uploaded 6145 bytes to contoso_q1_2026_report.txt
+══════════════════════════════════════════════════════════
+Session Files Client
+Connected to: http://localhost:8088/
+Try: "Give me the total revenue in the contoso file."
+Type a message or 'quit' to exit
+══════════════════════════════════════════════════════════
 
-files> ls
-.:
-      6145  contoso_q1_2026_report.txt
+You> Give me the total revenue in the contoso file.
+Agent> The contoso file reports total revenue of "$1,482.6M".
 
-files> ask Read contoso_q1_2026_report.txt from $HOME and quote the headline total revenue figure verbatim, no commentary.
-Agent> Total revenue of $1,482.6M.
-
-files> quit
-Deleting session ...
-Session deleted.
+You> quit
+Goodbye!
 ```
 
-The `ask` request hits the deployed Hosted-Files agent over the same `agent_session_id` the upload used. The agent's `ReadFile` tool reads `$HOME/contoso_q1_2026_report.txt`, the model quotes `$1,482.6M` verbatim from the file.
-
-## How it works
-
-1. `AgentAdministrationClient` is built with a `Foundry-Features: HostedAgents=V1Preview,AgentEndpoints=V1Preview` header (required for the alpha API).
-2. The latest agent version is resolved (`GetAgentVersionsAsync`).
-3. A session is created with `CreateSessionAsync(agentName, isolationKey, versionIndicator, agentSessionId)`. The isolation key is held by the REPL and required for session-mutating operations (notably `DeleteSession`).
-4. `agentsClient.GetAgentSessionFiles()` returns the `AgentSessionFiles` client used for `UploadSessionFileAsync`, `GetSessionFilesAsync`, `DownloadSessionFileAsync`, and `DeleteSessionFileAsync`.
-5. A per-agent `ProjectResponsesClient` is built with `ProjectOpenAIClientOptions { AgentName = ... }` so requests target `/agents/{name}/endpoint/protocols/openai`. The `ask` command pins `agent_session_id` into the request body via `CreateResponseOptions.Patch.Set("$.agent_session_id"u8, ...)` so the inference call lands in the same container the files were uploaded to.
-6. On `quit`, the REPL deletes the session.
-
-## CLI parity
-
-The same flow with the Azure Developer CLI:
-
-```bash
-azd ai agent invoke "Hi"                              # creates a session implicitly
-azd ai agent files upload -f contoso_q1_2026_report.txt
-azd ai agent invoke "Read contoso_q1_2026_report.txt from \$HOME and quote the headline revenue figure verbatim."
-```
-
-`azd` auto-detects the most recent active session for upload. The REPL above gives you explicit session control via the SDK and a single in-process loop covering both upload and chat.
+The agent looked at its bundled files via `ListFiles`, picked `contoso_q1_2026_report.txt`, called `ReadFile`, and quoted the figure verbatim. The client only sent a chat prompt.

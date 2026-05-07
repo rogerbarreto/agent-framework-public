@@ -1,16 +1,15 @@
 # Hosted-Files
 
-A hosted agent that reads files from the **per-session `$HOME` sandbox volume**. Each Foundry hosted-agent session is backed by an isolated micro-VM with its own persistent `$HOME`. Files uploaded to a session appear there and can be read by tools running inside the agent process.
+A hosted agent that exposes a small set of files baked into its container image as knowledge accessible through local C# function tools. Demonstrates the typical "data shipped with the agent" pattern for Foundry hosted agents.
 
-The agent exposes three local C# function tools:
+The contents of [`resources/`](./resources/) are copied into the published output (see `HostedFiles.csproj`) and live at `/app/resources/` inside the container. The agent's two tools surface them to the model on demand:
 
 | Tool | Description |
 |------|-------------|
-| `GetHomeDirectory` | Returns the absolute path of `$HOME` for the current session. |
-| `ListFiles` | Lists files and directories under a given path inside the sandbox. |
-| `ReadFile` | Reads the full text contents of a file inside the sandbox. |
+| `ListFiles` | Returns the names of files available to the agent. |
+| `ReadFile` | Reads the full text contents of a file by name. |
 
-Companion sample: [`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a REPL that uploads, lists, downloads, and deletes session files using the alpha `Azure.AI.Projects.AgentSessionFiles` SDK, **and chats with this agent** in the same session so file content surfaces in the agent's responses as knowledge.
+Companion sample: [`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a thin chat REPL (same shape as [`SimpleAgent`](../Using-Samples/SimpleAgent/)) that points at the deployed Hosted-Files endpoint via `FoundryAgent` and lets you ask questions whose answers come from the bundled files.
 
 ## Prerequisites
 
@@ -46,38 +45,19 @@ AGENT_NAME=hosted-files dotnet run
 
 The agent starts on `http://localhost:8088`.
 
-## Sending files to the agent
-
-Files must be uploaded into the session's `$HOME` before the agent can read them. The bundled sample file is [`resources/contoso_q1_2026_report.txt`](./resources/contoso_q1_2026_report.txt).
-
-### Code-first (recommended for demos)
-
-Use the companion REPL [`SessionFilesClient`](../Using-Samples/SessionFilesClient/), which wraps the alpha `Azure.AI.Projects.AgentSessionFiles` SDK and pins chat requests to the same `agent_session_id` so the agent reads what you uploaded:
+## Try it from the SessionFilesClient REPL
 
 ```bash
 cd ../Using-Samples/SessionFilesClient
-$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
-$env:HOSTED_AGENT_NAME = "hosted-files"
+$env:AGENT_ENDPOINT = "http://localhost:8088"
+$env:AGENT_NAME = "hosted-files"
 dotnet run
 
-files> upload ../../Hosted-Files/resources/contoso_q1_2026_report.txt
-Uploaded 6145 bytes to contoso_q1_2026_report.txt
-
-files> ask What was Contoso's Q1 2026 total revenue? Quote the figure verbatim.
-Agent> Total revenue of $1,482.6M.
+You> Give me the total revenue in the contoso file.
+Agent> The contoso file reports total revenue of "$1,482.6M".
 ```
 
-### CLI-first (parity with Python sample)
-
-Using the Azure Developer CLI:
-
-```bash
-azd ai agent invoke "Hi!"          # creates a session
-azd ai agent files upload -f resources/contoso_q1_2026_report.txt
-azd ai agent invoke "What was Contoso's Q1 2026 total revenue? Quote the figure verbatim."
-```
-
-The `--session-id` flag selects a specific session; without it the CLI uploads to the most recently active session. Run `azd ai agent files upload -h` for the full set of options.
+The agent's `ListFiles`/`ReadFile` tools resolve relative paths against `/app/resources/`, find `contoso_q1_2026_report.txt`, and surface the figure verbatim.
 
 ## Running with Docker
 
@@ -95,16 +75,13 @@ docker run --rm -p 8088:8088 \
   hosted-files
 ```
 
+The bundled `resources/` folder is part of the published output and ships inside the image.
+
 ## NuGet package users
 
 If consuming the Agent Framework as a NuGet package, use the standard `Dockerfile` instead of `Dockerfile.contributor` and switch the `ProjectReference` entries in `HostedFiles.csproj` to `PackageReference` (commented section in the csproj).
 
-## How session files work
+## Adding more files
 
-| Layer | Lifetime | Notes |
-|-------|----------|-------|
-| `$HOME` | Lifetime of the session (TTL: 30 days) | Persists across invocations within a session. |
-| `/tmp` | Container process | Use for non-persistent scratch space. |
-| Conversation | Indefinite | Stored separately from `$HOME`. |
+Drop additional text files into [`resources/`](./resources/). The csproj `<Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />` rule picks them up on the next `dotnet build` / `docker build`.
 
-Each Foundry hosted-agent session = one container = one `$HOME`. Files uploaded with `AgentSessionFiles.UploadSessionFileAsync(agentName, sessionId, sessionStoragePath, localPath)` land at `$HOME/<sessionStoragePath>`. The agent's tools resolve relative paths against `$HOME`.
