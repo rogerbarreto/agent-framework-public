@@ -67,6 +67,39 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 ? await chatClientAgent.CreateSessionAsync(cancellationToken).ConfigureAwait(false)
                 : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
+        // 2.5. Resolve and apply the per-request hosted session identity context.
+        // Fresh sessions are tagged once. Resumed sessions are validated against the live request
+        // to detect cross-user session leaks and in-process tampering of the persisted identity.
+        var isolationKeyProvider = this._serviceProvider.GetService<HostedSessionIsolationKeyProvider>()
+            ?? new PlatformHostedSessionIsolationKeyProvider();
+        var resolvedHostedContext = await isolationKeyProvider.GetKeysAsync(context, request, cancellationToken).ConfigureAwait(false);
+        if (resolvedHostedContext is null)
+        {
+            throw new InvalidOperationException(
+                $"The registered {nameof(HostedSessionIsolationKeyProvider)} returned null for the current request. " +
+                "Ensure the Foundry platform is providing the x-agent-user-isolation-key and x-agent-chat-isolation-key headers, " +
+                "or register a custom provider that supplies fallback values for local development.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionConversationId))
+        {
+            // Resume path: the session must already carry a hosted context that matches the live request.
+            var existingHostedContext = session?.GetHostedContext();
+            if (existingHostedContext is null
+                || !string.Equals(existingHostedContext.UserId, resolvedHostedContext.UserId, StringComparison.Ordinal)
+                || !string.Equals(existingHostedContext.ChatId, resolvedHostedContext.ChatId, StringComparison.Ordinal))
+            {
+                throw new ResponsesApiException(
+                    new Error("hosted_session_identity_mismatch", "Hosted session identity context mismatch"),
+                    403);
+            }
+        }
+        else if (session is not null)
+        {
+            // Fresh path: stamp the freshly created session with the resolved identity.
+            session.SetHostedContext(resolvedHostedContext);
+        }
+
         // 3. Create the SDK event stream builder
         var stream = new ResponseEventStream(context, request);
 
