@@ -2,7 +2,7 @@
 
 A hosted agent with **Retrieval Augmented Generation (RAG)** capabilities backed by **Azure AI Search**. The agent grounds its answers in product documentation by running a keyword search against an Azure AI Search index before each model invocation, then citing the source in its response.
 
-This sample is the Azure AI Search counterpart to `Hosted-TextRag`. Where `Hosted-TextRag` uses a mock in-process search function, this sample talks to a real Azure AI Search index and bootstraps the index with three sample documents on first run.
+This sample is the Azure AI Search counterpart to `Hosted-TextRag`. Where `Hosted-TextRag` uses a mock in-process search function, this sample talks to a real Azure AI Search index that is provisioned out of band (see "Provisioning the search index" below).
 
 ## Prerequisites
 

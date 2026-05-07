@@ -153,7 +153,7 @@ static Func<string, CancellationToken, Task<IEnumerable<TextSearchProvider.TextS
             await client.SearchAsync<SearchDocument>(query, searchOptions, cancellationToken).ConfigureAwait(false);
 
         var results = new List<TextSearchProvider.TextSearchResult>();
-        await foreach (SearchResult<SearchDocument> hit in response.Value.GetResultsAsync().ConfigureAwait(false))
+        await foreach (SearchResult<SearchDocument> hit in response.Value.GetResultsAsync().WithCancellation(cancellationToken).ConfigureAwait(false))
         {
             results.Add(new TextSearchProvider.TextSearchResult
             {
