@@ -1,12 +1,23 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// Hosted Files Agent - A hosted agent that exposes file content baked into the
-// container image as knowledge accessible through three local C# tools.
+// Hosted Files Agent - A hosted agent that exposes two distinct file knowledge sources
+// through scoped, security-hardened tools:
 //
-// The contents of the project's `resources/` folder are copied into the
-// published output (see HostedFiles.csproj) and live at `/app/resources/`
-// inside the container at runtime. The agent's tools read files from that
-// directory and surface their contents to the model.
+//   * Bundled files (image-baked) — files copied into the published output via the csproj
+//     <Content Include="resources\**"> rule. Live at /app/resources/ inside the container.
+//     Author-shipped knowledge that ships with every session.
+//
+//   * Session files (per-session $HOME volume) — files uploaded at runtime via the alpha
+//     Azure.AI.Projects.AgentSessionFiles SDK. Live at $HOME inside the per-session
+//     container, which the platform sets to /home/session by default
+//     (container-image-spec.md line 127, "If you use the session files API, $HOME is
+//     also the base path for those operations").
+//
+// Each source is exposed via a separate tool pair, each rooted at its own directory.
+// Tools take a fileName, not a path: Path.GetFileName strips any directory components,
+// then a canonicalize + StartsWith(root) check enforces the boundary. The model cannot
+// be tricked into reading /etc/passwd or any path outside its tool's root, even via
+// indirect prompt injection in an uploaded file.
 //
 // Required environment variables:
 //   AZURE_AI_PROJECT_ENDPOINT         - Azure AI Foundry project endpoint
@@ -14,8 +25,10 @@
 //
 // Optional:
 //   AGENT_NAME                        - Agent name (default: hosted-files)
-//   RESOURCES_DIR                     - Override the data directory the tools
-//                                       read from (default: <baseDir>/resources)
+//   BUNDLED_FILES_DIR                 - Override the bundled-files root
+//                                       (default: <baseDir>/resources, i.e. /app/resources/)
+//   HOME                              - Standard env var; the per-session sandbox volume
+//                                       (default: /home/session in the platform-managed container)
 
 using System.ComponentModel;
 using Azure.AI.Projects;
@@ -42,29 +55,55 @@ TokenCredential credential = new ChainedTokenCredential(
     new DevTemporaryTokenCredential(),
     new DefaultAzureCredential());
 
-// ── Resources directory (baked into the image) ──────────────────────────────
+// ── File roots (canonicalized once) ──────────────────────────────────────────
 
-// Defaults to <process-base-dir>/resources, which is where the csproj's
-// CopyToOutputDirectory entries land. Inside the container that resolves to
-// /app/resources/. Override via RESOURCES_DIR if needed.
-string resourcesDir = GetOptionalEnv("RESOURCES_DIR")
-    ?? Path.Combine(AppContext.BaseDirectory, "resources");
+// Bundled root: where csproj <Content Include="resources\**"> lands at runtime.
+// In the container that resolves to /app/resources/.
+string bundledRoot = Path.GetFullPath(
+    GetOptionalEnv("BUNDLED_FILES_DIR")
+    ?? Path.Combine(AppContext.BaseDirectory, "resources"));
 
-// ── Tools: read files from the agent's bundled data directory ────────────────
+// Session root: the per-session $HOME volume mounted by the Foundry platform.
+// Files uploaded via AgentSessionFiles.UploadSessionFileAsync(sessionStoragePath: "foo")
+// land at $HOME/foo per container-image-spec.md line 172.
+string sessionRoot = Path.GetFullPath(
+    GetOptionalEnv("HOME")
+    ?? "/home/session");
 
-[Description("List the names of files available to the agent, one per line.")]
-string ListFiles()
+// ── Tools: bundled files (image-baked, /app/resources/) ──────────────────────
+
+[Description("List the names of files bundled with the agent (built-in knowledge that ships with the image).")]
+string ListBundledFiles() => SafeListNames(bundledRoot);
+
+[Description("Read the full text contents of a bundled file by name. Bundled files are built-in knowledge shipped with the agent image.")]
+string ReadBundledFile(
+    [Description("Name of the bundled file (no directory components). Must be one of the names returned by ListBundledFiles.")] string fileName)
+    => SafeRead(bundledRoot, fileName, scope: "bundled files");
+
+// ── Tools: session files (per-session $HOME) ─────────────────────────────────
+
+[Description("List the names of files uploaded into the current session sandbox by the user (e.g., via AgentSessionFiles.UploadSessionFileAsync).")]
+string ListSessionFiles() => SafeListNames(sessionRoot);
+
+[Description("Read the full text contents of a file uploaded into the current session by name. Session files are user-supplied data that lives only for the lifetime of this session.")]
+string ReadSessionFile(
+    [Description("Name of the session file (no directory components). Must be one of the names returned by ListSessionFiles.")] string fileName)
+    => SafeRead(sessionRoot, fileName, scope: "session files");
+
+// ── Path-safe helpers (defense-in-depth: GetFileName + canonicalize + StartsWith(root)) ──
+
+string SafeListNames(string root)
 {
     try
     {
-        if (!Directory.Exists(resourcesDir))
+        if (!Directory.Exists(root))
         {
             return string.Empty;
         }
 
         return string.Join(
             Environment.NewLine,
-            Directory.EnumerateFiles(resourcesDir).Select(Path.GetFileName));
+            Directory.EnumerateFiles(root).Select(Path.GetFileName));
     }
     catch (Exception ex)
     {
@@ -72,16 +111,32 @@ string ListFiles()
     }
 }
 
-[Description("Read the full text contents of a file by name.")]
-string ReadFile(
-    [Description("Name of the file to read (as returned by ListFiles).")] string fileName)
+string SafeRead(string root, string fileName, string scope)
 {
     try
     {
-        string fullPath = Path.Combine(resourcesDir, Path.GetFileName(fileName));
+        // Step 1: strip any directory components the model might have included.
+        string safeName = Path.GetFileName(fileName);
+        if (string.IsNullOrEmpty(safeName))
+        {
+            return $"File '{fileName}' not found in {scope}.";
+        }
+
+        // Step 2: combine with the root and canonicalize.
+        string fullPath = Path.GetFullPath(Path.Combine(root, safeName));
+
+        // Step 3: enforce the prefix boundary so a crafted name still cannot escape.
+        string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(rootPrefix, StringComparison.Ordinal))
+        {
+            return $"File '{fileName}' not found in {scope}.";
+        }
+
         return File.Exists(fullPath)
             ? File.ReadAllText(fullPath)
-            : $"File '{fileName}' not found.";
+            : $"File '{fileName}' not found in {scope}.";
     }
     catch (Exception ex)
     {
@@ -95,19 +150,27 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
     .AsAIAgent(
         model: deploymentName,
         instructions: """
-            You are a friendly assistant that answers questions about a small set of
-            files bundled with you.
+            You are a friendly assistant that answers questions over two file sources:
 
-            Always discover the available files with the ListFiles tool first, then
-            use ReadFile to read the file you need before answering. Quote numbers
-            and figures verbatim from the file rather than paraphrasing them.
+              - Bundled files: built-in knowledge that ships with the agent image
+                (e.g., reference reports the author packaged with you). Tools:
+                ListBundledFiles, ReadBundledFile.
+
+              - Session files: user-uploaded data for this session only (e.g., a CSV
+                the user wants you to analyse). Tools: ListSessionFiles, ReadSessionFile.
+
+            Pick the tool pair by intent. If a name could match either source, list
+            both first. Always read the file before answering; do not guess. Quote
+            numbers and figures verbatim from the file.
             """,
         name: GetOptionalEnv("AGENT_NAME") ?? "hosted-files",
-        description: "Hosted agent that answers questions over a small set of bundled files.",
+        description: "Hosted agent that answers questions over bundled (image-baked) and session-uploaded files via two scoped tool pairs.",
         tools:
         [
-            AIFunctionFactory.Create(ListFiles),
-            AIFunctionFactory.Create(ReadFile),
+            AIFunctionFactory.Create(ListBundledFiles),
+            AIFunctionFactory.Create(ReadBundledFile),
+            AIFunctionFactory.Create(ListSessionFiles),
+            AIFunctionFactory.Create(ReadSessionFile),
         ]);
 
 var builder = WebApplication.CreateBuilder(args);

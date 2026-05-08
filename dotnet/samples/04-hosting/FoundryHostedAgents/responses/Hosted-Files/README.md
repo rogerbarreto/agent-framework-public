@@ -1,15 +1,44 @@
 # Hosted-Files
 
-A hosted agent that exposes a small set of files baked into its container image as knowledge accessible through local C# function tools. Demonstrates the typical "data shipped with the agent" pattern for Foundry hosted agents.
+A hosted agent that demonstrates **two distinct file knowledge sources** through scoped, security-hardened tools:
 
-The contents of [`resources/`](./resources/) are copied into the published output (see `HostedFiles.csproj`) and live at `/app/resources/` inside the container. The agent's two tools surface them to the model on demand:
+- **Bundled files** (image-baked) — files the author packages with the agent at build time. Live at `/app/resources/` inside the container, copied from this project's [`resources/`](./resources/) folder via the csproj `<Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />` rule.
+- **Session files** (per-session `$HOME` volume) — files the user uploads at runtime via the alpha `Azure.AI.Projects.AgentSessionFiles` SDK. Live at `$HOME` inside the per-session container. The Foundry platform sets `HOME=/home/session` by default and roots the session-files API there per [`container-image-spec.md` line 172](https://github.com/microsoft/foundrysdk-specs/blob/main/specs/agents/hosted_agents/container-spec/docs/container-image-spec.md): *"If you use the session files API, `$HOME` is also the base path for those operations; any paths given in those API endpoints will be relative to `$HOME`."*
 
-| Tool | Description |
-|------|-------------|
-| `ListFiles` | Returns the names of files available to the agent. |
-| `ReadFile` | Reads the full text contents of a file by name. |
+## Tool surface
 
-Companion sample: [`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a thin chat REPL (same shape as [`SimpleAgent`](../Using-Samples/SimpleAgent/)) that points at the deployed Hosted-Files endpoint via `FoundryAgent` and lets you ask questions whose answers come from the bundled files.
+Each source is exposed via its own tool pair, rooted at its own directory. The model picks by intent.
+
+| Tool | Source | Root |
+|------|--------|------|
+| `ListBundledFiles` | Bundled (image-baked) | `/app/resources/` |
+| `ReadBundledFile` | Bundled (image-baked) | `/app/resources/` |
+| `ListSessionFiles` | Session-uploaded | `$HOME` (`/home/session`) |
+| `ReadSessionFile` | Session-uploaded | `$HOME` (`/home/session`) |
+
+## Security model — distinct tools, distinct sandboxes
+
+Each tool takes a `fileName` (no directory components allowed) and enforces three layers of defence inside the implementation:
+
+1. **`Path.GetFileName(input)`** strips any directory parts from the model-supplied name. `"../../etc/passwd"` becomes `"passwd"`.
+2. **`Path.GetFullPath(Combine(root, name))`** canonicalises the path.
+3. **`fullPath.StartsWith(root + DirectorySeparatorChar)`** rejects anything that resolves outside the tool's root.
+
+Failures return a controlled `"File '<input>' not found in <scope>."` rather than throwing or exposing the canonical path.
+
+This is why the agent has four narrowly-scoped tools instead of a single `ReadFile(path)`:
+
+- **Smaller per-tool attack surface.** Each tool has one purpose, one root, and no path-typed parameter. Even a buggy implementation can only leak its own directory.
+- **Cross-boundary access is impossible by schema.** A prompt-injection attempt to make the bundled tool read a session path (or vice versa) does not even compile in the tool schema the model sees.
+- **Read-only, non-recursive listing.** No write tools, no glob, no `..`.
+
+## Companion
+
+[`Using-Samples/SessionFilesClient`](../Using-Samples/SessionFilesClient/) — a thin chat REPL (same shape as [`SimpleAgent`](../Using-Samples/SimpleAgent/)) that points at the deployed Hosted-Files endpoint via `FoundryAgent` and lets you ask questions whose answers come from either file source.
+
+## Live proof of the session-files contract
+
+The end-to-end alpha-SDK round trip (client uploads via `AgentSessionFiles.UploadSessionFileAsync` → file arrives at `$HOME/<name>` inside the per-session container → agent's `ReadSessionFile` tool reads it → response quotes the verbatim contents) is exercised live by [`SessionFilesHostedAgentTests.UploadedFile_IsReadByHostedAgentAsync`](../../../../tests/Foundry.Hosting.IntegrationTests/SessionFilesHostedAgentTests.cs) against the matching `session-files` scenario in the integration test container.
 
 ## Prerequisites
 
@@ -47,17 +76,23 @@ The agent starts on `http://localhost:8088`.
 
 ## Try it from the SessionFilesClient REPL
 
+### Bundled files (works against any deployment, including local)
+
 ```bash
 cd ../Using-Samples/SessionFilesClient
 $env:AGENT_ENDPOINT = "http://localhost:8088"
 $env:AGENT_NAME = "hosted-files"
 dotnet run
 
-You> Give me the total revenue in the contoso file.
+You> What is the total revenue in the contoso file?
 Agent> The contoso file reports total revenue of "$1,482.6M".
 ```
 
-The agent's `ListFiles`/`ReadFile` tools resolve relative paths against `/app/resources/`, find `contoso_q1_2026_report.txt`, and surface the figure verbatim.
+The agent calls `ListBundledFiles`, sees `contoso_q1_2026_report.txt`, calls `ReadBundledFile("contoso_q1_2026_report.txt")` (which resolves under `/app/resources/`), and quotes the figure verbatim.
+
+### Session files (against a deployed agent)
+
+Upload a file to a specific session via `azd ai agent files upload` or via the alpha `AgentSessionFiles` SDK (see the integration test for the SDK call), then ask the agent about it. The agent's `ReadSessionFile` tool reads from `$HOME` and surfaces the content the same way.
 
 ## Running with Docker
 
@@ -81,7 +116,13 @@ The bundled `resources/` folder is part of the published output and ships inside
 
 If consuming the Agent Framework as a NuGet package, use the standard `Dockerfile` instead of `Dockerfile.contributor` and switch the `ProjectReference` entries in `HostedFiles.csproj` to `PackageReference` (commented section in the csproj).
 
-## Adding more files
+## Adding more bundled files
 
 Drop additional text files into [`resources/`](./resources/). The csproj `<Content Include="resources\**\*" CopyToOutputDirectory="PreserveNewest" />` rule picks them up on the next `dotnet build` / `docker build`.
 
+## Overrides
+
+| Env var | Purpose | Default |
+|---------|---------|---------|
+| `BUNDLED_FILES_DIR` | Override the bundled-files root the tools read from. | `<process base dir>/resources` (`/app/resources/` in container) |
+| `HOME` | The per-session sandbox volume root the session-files tools read from. Set by the Foundry platform; can be overridden for local testing. | `/home/session` |
