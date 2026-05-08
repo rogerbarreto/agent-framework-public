@@ -38,7 +38,7 @@ This is why the agent has four narrowly-scoped tools instead of a single `ReadFi
 
 ## Live proof of the session-files contract
 
-The end-to-end alpha-SDK round trip (client uploads via `AgentSessionFiles.UploadSessionFileAsync` → file arrives at `$HOME/<name>` inside the per-session container → agent's `ReadSessionFile` tool reads it → response quotes the verbatim contents) is exercised live by [`SessionFilesHostedAgentTests.UploadedFile_IsReadByHostedAgentAsync`](../../../../tests/Foundry.Hosting.IntegrationTests/SessionFilesHostedAgentTests.cs) against the matching `session-files` scenario in the integration test container.
+The end-to-end alpha-SDK round trip (client uploads via `AgentSessionFiles.UploadSessionFileAsync` → file arrives at `$HOME/<name>` inside the per-session container → agent's `ReadSessionFile` tool reads it → response quotes the verbatim contents) is exercised live by [`SessionFilesHostedAgentTests.UploadedFile_IsReadByHostedAgentAsync`](../../../../../tests/Foundry.Hosting.IntegrationTests/SessionFilesHostedAgentTests.cs) against the matching `session-files` scenario in the integration test container.
 
 ## Prerequisites
 
