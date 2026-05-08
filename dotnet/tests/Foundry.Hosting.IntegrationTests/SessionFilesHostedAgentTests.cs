@@ -8,7 +8,6 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AgentConformance.IntegrationTests.Support;
@@ -88,85 +87,97 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
         var conversation = await conversations.CreateProjectConversationAsync();
         string conversationId = conversation.Value.Id;
 
-        // Step 2 — warm-up call. Provisions the per-session container under the conversation and
-        // lets us read back the resolved agent_session_id from the response header.
-        var agent = responses.AsIChatClient().AsAIAgent(name: this._fixture.AgentName);
-        var convOptions = new ChatClientAgentRunOptions(new ChatOptions { ConversationId = conversationId });
-
-        var warmup = await agent.RunAsync(
-            "Reply with the single word 'ready' and nothing else.",
-            options: convOptions);
-        Assert.False(string.IsNullOrWhiteSpace(warmup.Text));
-
-        string agentSessionId = headerCapture.LastValue
-            ?? throw new InvalidOperationException(
-                $"Expected '{SessionIdHeader}' response header on warm-up but got none.");
-
-        // Step 3 — upload the file via the alpha AgentSessionFiles SDK to that exact session's $HOME.
-        SessionFileWriteResponse writeResponse = await sessionFiles.UploadSessionFileAsync(
-            agentName: this._fixture.AgentName,
-            sessionId: agentSessionId,
-            sessionStoragePath: TestDataFileName,
-            localPath: localPath);
-
-        long expectedBytes = new FileInfo(localPath).Length;
-        Assert.Equal(expectedBytes, writeResponse.BytesWritten);
-
-        SessionDirectoryListResponse listing = await sessionFiles.GetSessionFilesAsync(
-            agentName: this._fixture.AgentName,
-            sessionId: agentSessionId,
-            sessionStoragePath: ".");
-        Assert.Contains(
-            listing.Entries,
-            e => e.Name == TestDataFileName && !e.IsDirectory && e.Size == expectedBytes);
-
-        // Step 4 — invoke the agent again on the SAME conversation. The platform routes back to
-        // the same agent_session_id container, so the agent's ReadFile tool sees the upload.
-        // The platform mutates session/conversation revision when AgentSessionFiles uploads land,
-        // so an immediate /responses follow-up races and 400's with "modified concurrently. Please
-        // retry." — the response message literally tells us to retry. Bounded retry handles it.
-        var readOptions = new CreateResponseOptions { AgentConversationId = conversationId };
-        readOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(
-            $"Read {TestDataFileName} from $HOME and quote the headline total revenue figure verbatim, no commentary."));
-
-        ClientResult<ResponseResult> rawResponse = null!;
-        const int MaxAttempts = 5;
-        for (int attempt = 1; attempt <= MaxAttempts; attempt++)
-        {
-            try
-            {
-                rawResponse = await responses.CreateResponseAsync(readOptions);
-                break;
-            }
-            catch (ClientResultException ex) when (
-                ex.Status == 400 &&
-                ex.Message.Contains("modified concurrently", StringComparison.OrdinalIgnoreCase) &&
-                attempt < MaxAttempts)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
-            }
-        }
-
-        string responseText = rawResponse.Value.GetOutputText() ?? string.Empty;
-
-        Assert.Equal(agentSessionId, headerCapture.LastValue);
-
-        // Assert: the response contains the deterministic token from the file.
-        Assert.False(string.IsNullOrWhiteSpace(responseText));
-        Assert.Contains(ExpectedTokenInFile, responseText);
-
-        // Best-effort cleanup of the uploaded file. The session itself is left for TTL expiry —
-        // the platform owns its lifecycle (no isolation key in our hands).
         try
         {
-            await sessionFiles.DeleteSessionFileAsync(
-                agentName: this._fixture.AgentName,
-                sessionId: agentSessionId,
-                path: TestDataFileName);
+            // Step 2 — warm-up call. Provisions the per-session container under the conversation and
+            // lets us read back the resolved agent_session_id from the response header.
+            var agent = responses.AsIChatClient().AsAIAgent(name: this._fixture.AgentName);
+            var convOptions = new ChatClientAgentRunOptions(new ChatOptions { ConversationId = conversationId });
+
+            var warmup = await agent.RunAsync(
+                "Reply with the single word 'ready' and nothing else.",
+                options: convOptions);
+            Assert.False(string.IsNullOrWhiteSpace(warmup.Text));
+
+            string agentSessionId = headerCapture.LastValue
+                ?? throw new InvalidOperationException(
+                    $"Expected '{SessionIdHeader}' response header on warm-up but got none.");
+
+            try
+            {
+                // Step 3 — upload the file via the alpha AgentSessionFiles SDK to that exact session's $HOME.
+                SessionFileWriteResponse writeResponse = await sessionFiles.UploadSessionFileAsync(
+                    agentName: this._fixture.AgentName,
+                    sessionId: agentSessionId,
+                    sessionStoragePath: TestDataFileName,
+                    localPath: localPath);
+
+                long expectedBytes = new FileInfo(localPath).Length;
+                Assert.Equal(expectedBytes, writeResponse.BytesWritten);
+
+                SessionDirectoryListResponse listing = await sessionFiles.GetSessionFilesAsync(
+                    agentName: this._fixture.AgentName,
+                    sessionId: agentSessionId,
+                    sessionStoragePath: ".");
+                Assert.Contains(
+                    listing.Entries,
+                    e => e.Name == TestDataFileName && !e.IsDirectory && e.Size == expectedBytes);
+
+                // Step 4 — invoke the agent again on the SAME conversation. The platform routes back to
+                // the same agent_session_id container, so the agent's ReadFile tool sees the upload.
+                // The platform mutates session/conversation revision when AgentSessionFiles uploads land,
+                // so an immediate /responses follow-up races and 400's with "modified concurrently. Please
+                // retry." — the response message literally tells us to retry. Bounded retry handles it.
+                var readOptions = new CreateResponseOptions { AgentConversationId = conversationId };
+                readOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(
+                    $"Read {TestDataFileName} from $HOME and quote the headline total revenue figure verbatim, no commentary."));
+
+                ClientResult<ResponseResult> rawResponse = null!;
+                const int MaxAttempts = 5;
+                for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+                {
+                    try
+                    {
+                        rawResponse = await responses.CreateResponseAsync(readOptions);
+                        break;
+                    }
+                    catch (ClientResultException ex) when (
+                        ex.Status == 400 &&
+                        ex.Message.Contains("modified concurrently", StringComparison.OrdinalIgnoreCase) &&
+                        attempt < MaxAttempts)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
+                    }
+                }
+
+                string responseText = rawResponse.Value.GetOutputText() ?? string.Empty;
+
+                Assert.Equal(agentSessionId, headerCapture.LastValue);
+
+                // Assert: the response contains the deterministic token from the file.
+                Assert.False(string.IsNullOrWhiteSpace(responseText));
+                Assert.Contains(ExpectedTokenInFile, responseText);
+            }
+            finally
+            {
+                // Best-effort cleanup of the uploaded file. The session itself is left for TTL expiry —
+                // the platform owns its lifecycle (no isolation key in our hands).
+                try
+                {
+                    await sessionFiles.DeleteSessionFileAsync(
+                        agentName: this._fixture.AgentName,
+                        sessionId: agentSessionId,
+                        path: TestDataFileName);
+                }
+                catch
+                {
+                    // Ignore.
+                }
+            }
         }
-        catch
+        finally
         {
-            // Ignore.
+            await this._fixture.DeleteConversationAsync(conversationId);
         }
     }
 
@@ -181,30 +192,16 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
 
         public string? LastValue => Volatile.Read(ref this._lastValue);
 
-        public string? LastRequestBody { get; private set; }
-
         public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
         {
-            this.CaptureRequest(message);
             ProcessNext(message, pipeline, currentIndex);
             this.Capture(message);
         }
 
         public override async ValueTask ProcessAsync(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
         {
-            this.CaptureRequest(message);
             await ProcessNextAsync(message, pipeline, currentIndex).ConfigureAwait(false);
             this.Capture(message);
-        }
-
-        private void CaptureRequest(PipelineMessage message)
-        {
-            if (message.Request.Content is not null)
-            {
-                using var ms = new MemoryStream();
-                message.Request.Content.WriteTo(ms);
-                this.LastRequestBody = Encoding.UTF8.GetString(ms.ToArray());
-            }
         }
 
         private void Capture(PipelineMessage message)
