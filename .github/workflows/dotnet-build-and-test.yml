@@ -273,6 +273,8 @@ jobs:
             -c ${{ matrix.configuration }} `
             --no-build -v Normal `
             --report-xunit-trx `
+            --report-junit `
+            --results-directory ../IntegrationTestResults/ `
             --ignore-exit-code 8 `
             --filter-not-trait "Category=IntegrationDisabled" `
             --filter-not-trait "Category=FoundryHostedAgents" `
@@ -294,6 +296,10 @@ jobs:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.AZURE_AI_PROJECT_ENDPOINT }}
           AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_AI_MODEL_DEPLOYMENT_NAME }}
           AZURE_AI_BING_CONNECTION_ID: ${{ vars.AZURE_AI_BING_CONNECTION_ID }}
+          # Anthropic Models
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_CHAT_MODEL_NAME: ${{ vars.ANTHROPIC_CHAT_MODEL_NAME }}
+          ANTHROPIC_REASONING_MODEL_NAME: ${{ vars.ANTHROPIC_REASONING_MODEL_NAME }}
 
       # Generate test reports and check coverage
       - name: Generate test reports
@@ -316,6 +322,14 @@ jobs:
         shell: pwsh
         run: ./dotnet/eng/scripts/dotnet-check-coverage.ps1 -JsonReportPath "TestResults/Reports/Summary.json" -CoverageThreshold $env:COVERAGE_THRESHOLD
 
+      - name: Upload integration test results
+        if: always() && github.event_name != 'pull_request' && matrix.integration-tests
+        uses: actions/upload-artifact@v7
+        with:
+          name: dotnet-test-results-${{ matrix.targetFramework }}-${{ matrix.os }}
+          path: IntegrationTestResults/**/*.junit
+          if-no-files-found: ignore
+
   # The Foundry hosted-agent IT is costly (it builds a container, pushes to ACR, and provisions
   # live agents on a separate Foundry project). Running it in its own job keeps the overall
   # workflow time roughly flat: it executes in parallel to dotnet-build and dotnet-test and is
@@ -326,7 +340,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: integration
     env:
-      targetFramework: net10.0
       configuration: Release
     steps:
       - uses: actions/checkout@v6
@@ -343,31 +356,15 @@ jobs:
         with:
           global-json-file: ${{ github.workspace }}/dotnet/global.json
 
-      - name: Generate test solution (no samples)
-        shell: pwsh
-        run: |
-          ./dotnet/eng/scripts/New-FilteredSolution.ps1 `
-            -Solution dotnet/agent-framework-dotnet.slnx `
-            -TargetFramework $env:targetFramework `
-            -Configuration $env:configuration `
-            -ExcludeSamples `
-            -OutputPath dotnet/filtered.slnx `
-            -Verbose
-
-      - name: Generate Foundry hosted IT filtered solution
-        shell: pwsh
-        run: |
-          ./dotnet/eng/scripts/New-FilteredSolution.ps1 `
-            -Solution dotnet/filtered.slnx `
-            -TargetFramework $env:targetFramework `
-            -Configuration $env:configuration `
-            -TestProjectNameFilter "Foundry.Hosting.IntegrationTests*" `
-            -OutputPath dotnet/filtered-foundry-hosted.slnx `
-            -Verbose
-
+      # Build the test csproj directly instead of a filtered slnx + -f override.
+      # The test project pins TargetFrameworks=net10.0 and its ProjectReference closure
+      # gives MSBuild a single-rooted graph, so each multi-targeted dependency is invoked
+      # exactly once for net10.0. This avoids the MSB3026/MSB3491/MSB4018/MSB3883 file-lock
+      # collisions caused by parallel inner-builds racing on shared bin/obj output paths
+      # under the previous slnx + global TFM override approach.
       - name: Build Foundry hosted IT (and its deps)
         shell: bash
-        run: dotnet build dotnet/filtered-foundry-hosted.slnx -c "$configuration" -f "$targetFramework" --warnaserror
+        run: dotnet build dotnet/tests/Foundry.Hosting.IntegrationTests/Foundry.Hosting.IntegrationTests.csproj -c "$configuration" --warnaserror
 
       - name: Azure CLI Login
         uses: azure/login@v2
@@ -379,6 +376,13 @@ jobs:
       # We rebuild and push the test container image on every IT run so framework code changes
       # are picked up; the image tag is content-hashed across the test container source AND its
       # framework project references, so identical content is a no-op push.
+      #
+      # The script always passes --no-dependencies to dotnet publish so publish never re-touches
+      # the framework lib DLLs the prior "Build Foundry hosted IT (and its deps)" step produced.
+      # This structurally eliminates the MSB3026 collision that VBCSCompiler from the prebuild
+      # would otherwise cause by holding file handles to those DLLs. Do not remove the prebuild
+      # step: the subsequent `dotnet test --no-build` step and the publish's ProjectReference
+      # resolution both depend on the prebuilt outputs being present.
       - name: Build and push Foundry Hosted Agents test container
         id: build-foundry-hosted-image
         shell: pwsh
@@ -394,8 +398,7 @@ jobs:
         shell: pwsh
         working-directory: dotnet
         run: |
-          dotnet test --solution ./filtered-foundry-hosted.slnx `
-            -f $env:targetFramework `
+          dotnet test --project tests/Foundry.Hosting.IntegrationTests/Foundry.Hosting.IntegrationTests.csproj `
             -c $env:configuration `
             --no-build -v Normal `
             --report-xunit-trx `
@@ -448,3 +451,64 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: core.setFailed('Integration Tests Cancelled!')
+
+  # Integration test trend report (aggregates JUnit XML results from dotnet test jobs)
+  dotnet-integration-test-report:
+    name: Integration Test Report
+    if: >
+      always() &&
+      github.event_name != 'pull_request' &&
+      (contains(join(needs.*.result, ','), 'success') ||
+       contains(join(needs.*.result, ','), 'failure'))
+    needs: [dotnet-test]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/python-setup
+            python
+      - name: Set up python and install the project
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: "3.13"
+          os: ${{ runner.os }}
+      - name: Download all test results from current run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dotnet-test-results-*
+          path: dotnet-test-results/
+      - name: Restore report history cache
+        uses: actions/cache/restore@v4
+        with:
+          path: python/dotnet-integration-report-history.json
+          key: dotnet-integration-report-history-${{ github.run_id }}
+          restore-keys: |
+            dotnet-integration-report-history-
+      - name: Generate trend report
+        run: >
+          uv run python scripts/integration_test_report/aggregate.py
+          ../dotnet-test-results/
+          dotnet-integration-report-history.json
+          dotnet-integration-test-report.md
+      - name: Post to Job Summary
+        if: always()
+        run: cat dotnet-integration-test-report.md >> $GITHUB_STEP_SUMMARY
+      - name: Save report history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: python/dotnet-integration-report-history.json
+          key: dotnet-integration-report-history-${{ github.run_id }}
+      - name: Upload trend report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dotnet-integration-test-report
+          path: |
+            python/dotnet-integration-test-report.md
+            python/dotnet-integration-report-history.json
