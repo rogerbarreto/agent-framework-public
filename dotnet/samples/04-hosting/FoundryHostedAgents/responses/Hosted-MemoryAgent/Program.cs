@@ -42,20 +42,13 @@ TokenCredential credential = new ChainedTokenCredential(
 
 AIProjectClient projectClient = new(projectEndpoint, credential);
 
-// FoundryMemoryProvider stores and retrieves user-private memories. The stateInitializer is invoked
-// once per session to choose the FoundryMemoryProviderScope. Here we read the platform-injected
-// user isolation key from the HostedSessionContext that the hosting layer placed on the session,
-// so each end user has their own isolated bucket of memories that persists across sessions.
+// FoundryMemoryProvider partitions memories per end user via a built-in HostedFoundryMemoryProviderScopes
+// helper that reads the platform-injected user isolation key from the HostedSessionContext that the
+// hosting layer placed on the session.
 FoundryMemoryProvider memoryProvider = new(
     projectClient,
     memoryStoreName,
-    stateInitializer: session =>
-    {
-        var hostedContext = session?.GetHostedContext()
-            ?? throw new InvalidOperationException(
-                "HostedSessionContext was not provided by the hosting layer. Ensure a HostedSessionIsolationKeyProvider is registered.");
-        return new(new FoundryMemoryProviderScope(hostedContext.UserId));
-    });
+    stateInitializer: HostedFoundryMemoryProviderScopes.PerUser());
 
 // Provision the memory store on startup if it does not already exist. EnsureMemoryStoreCreatedAsync
 // is idempotent. Doing this once at start avoids per-request latency.

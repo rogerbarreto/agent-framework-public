@@ -193,12 +193,7 @@ static async Task<AIAgent> CreateMemoryAgentAsync(AIProjectClient client, string
     var memoryProvider = new FoundryMemoryProvider(
         client,
         memoryStoreName,
-        stateInitializer: session =>
-        {
-            var hostedContext = session?.GetHostedContext()
-                ?? throw new InvalidOperationException("HostedSessionContext was not provided by the hosting layer.");
-            return new(new FoundryMemoryProviderScope(hostedContext.UserId));
-        });
+        stateInitializer: HostedFoundryMemoryProviderScopes.PerUser());
 
     await memoryProvider.EnsureMemoryStoreCreatedAsync(deployment, embedding, "Memory store for hosted-memory IT scenario.").ConfigureAwait(false);
 
