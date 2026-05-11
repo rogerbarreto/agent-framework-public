@@ -46,7 +46,8 @@ $Scenarios = @(
     'toolbox',
     'mcp-toolbox',
     'custom-storage',
-    'azure-search-rag'
+    'azure-search-rag',
+    'session-files'
 )
 
 # Resolve project ARM scope from the endpoint.
