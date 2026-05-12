@@ -12,37 +12,41 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
 /// Dependency-injection helpers that register a <see cref="FoundryMemoryProvider"/> wired with a
-/// built-in <see cref="HostedFoundryMemoryProviderScopes"/> strategy.
+/// <see cref="HostedFoundryMemoryProviderScopes"/> strategy.
 /// </summary>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
 public static class HostedFoundryMemoryProviderServiceCollectionExtensions
 {
     /// <summary>
     /// Registers a singleton <see cref="FoundryMemoryProvider"/> wired to the supplied
-    /// <see cref="AIProjectClient"/> and a <see cref="HostedFoundryMemoryProviderScopes"/> helper
-    /// selected by <paramref name="scope"/>.
+    /// <see cref="AIProjectClient"/> and the supplied <paramref name="stateInitializer"/>.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="client">The <see cref="AIProjectClient"/> used to talk to Foundry Memory.</param>
     /// <param name="memoryStoreName">The name of the memory store in Microsoft Foundry.</param>
-    /// <param name="scope">The scope strategy. Defaults to <see cref="HostedFoundryMemoryScope.PerUser"/>.</param>
+    /// <param name="stateInitializer">
+    /// Strategy that selects the per-session <see cref="FoundryMemoryProviderScope"/>. When
+    /// <see langword="null"/>, the extension uses <see cref="HostedFoundryMemoryProviderScopes.PerUser"/>.
+    /// Pass any other helper (or a custom delegate) to override.
+    /// </param>
     /// <param name="options">Optional <see cref="FoundryMemoryProviderOptions"/>.</param>
     /// <returns>The same <see cref="IServiceCollection"/> for chaining.</returns>
     public static IServiceCollection AddHostedFoundryMemoryProvider(
         this IServiceCollection services,
         AIProjectClient client,
         string memoryStoreName,
-        HostedFoundryMemoryScope scope = HostedFoundryMemoryScope.PerUser,
+        Func<AgentSession?, FoundryMemoryProvider.State>? stateInitializer = null,
         FoundryMemoryProviderOptions? options = null)
     {
         Throw.IfNull(services);
         Throw.IfNull(client);
         Throw.IfNullOrWhitespace(memoryStoreName);
 
+        var initializer = stateInitializer ?? HostedFoundryMemoryProviderScopes.PerUser();
         services.AddSingleton(sp => new FoundryMemoryProvider(
             client,
             memoryStoreName,
-            ResolveScopeInitializer(scope),
+            initializer,
             options,
             sp.GetService<ILoggerFactory>()));
         return services;
@@ -56,33 +60,29 @@ public static class HostedFoundryMemoryProviderServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="memoryStoreName">The name of the memory store in Microsoft Foundry.</param>
-    /// <param name="scope">The scope strategy. Defaults to <see cref="HostedFoundryMemoryScope.PerUser"/>.</param>
+    /// <param name="stateInitializer">
+    /// Strategy that selects the per-session <see cref="FoundryMemoryProviderScope"/>. When
+    /// <see langword="null"/>, the extension uses <see cref="HostedFoundryMemoryProviderScopes.PerUser"/>.
+    /// Pass any other helper (or a custom delegate) to override.
+    /// </param>
     /// <param name="options">Optional <see cref="FoundryMemoryProviderOptions"/>.</param>
     /// <returns>The same <see cref="IServiceCollection"/> for chaining.</returns>
     public static IServiceCollection AddHostedFoundryMemoryProvider(
         this IServiceCollection services,
         string memoryStoreName,
-        HostedFoundryMemoryScope scope = HostedFoundryMemoryScope.PerUser,
+        Func<AgentSession?, FoundryMemoryProvider.State>? stateInitializer = null,
         FoundryMemoryProviderOptions? options = null)
     {
         Throw.IfNull(services);
         Throw.IfNullOrWhitespace(memoryStoreName);
 
+        var initializer = stateInitializer ?? HostedFoundryMemoryProviderScopes.PerUser();
         services.AddSingleton(sp => new FoundryMemoryProvider(
             sp.GetRequiredService<AIProjectClient>(),
             memoryStoreName,
-            ResolveScopeInitializer(scope),
+            initializer,
             options,
             sp.GetService<ILoggerFactory>()));
         return services;
     }
-
-    private static Func<AgentSession?, FoundryMemoryProvider.State> ResolveScopeInitializer(HostedFoundryMemoryScope scope) =>
-        scope switch
-        {
-            HostedFoundryMemoryScope.PerUser => HostedFoundryMemoryProviderScopes.PerUser(),
-            HostedFoundryMemoryScope.PerChat => HostedFoundryMemoryProviderScopes.PerChat(),
-            HostedFoundryMemoryScope.PerUserAndChat => HostedFoundryMemoryProviderScopes.PerUserAndChat(),
-            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, $"Unknown {nameof(HostedFoundryMemoryScope)} value.")
-        };
 }

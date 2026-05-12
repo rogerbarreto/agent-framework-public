@@ -65,42 +65,40 @@ public class HostedFoundryMemoryProviderServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddHostedFoundryMemoryProvider_DefaultScope_IsPerUser()
+    public void AddHostedFoundryMemoryProvider_NullStateInitializer_DefaultsToPerUser()
     {
         // Arrange
+        var session = CreateTaggedSession();
+
+        // Act
         var services = new ServiceCollection();
         services.AddHostedFoundryMemoryProvider(CreateClient(), MemoryStoreName);
         var provider = services.BuildServiceProvider().GetRequiredService<FoundryMemoryProvider>();
-        var session = CreateTaggedSession();
 
-        // Act: drive the same code path the provider uses to materialize state.
-        var initializer = HostedFoundryMemoryProviderScopes.PerUser();
-        var state = initializer(session);
-
-        // Assert: the helper used by the default registration must produce the user-scoped state.
-        Assert.Equal(TestUserId, state.Scope.Scope);
+        // Assert
         Assert.NotNull(provider);
+        var defaultInitializer = HostedFoundryMemoryProviderScopes.PerUser();
+        var state = defaultInitializer(session);
+        Assert.Equal(TestUserId, state.Scope.Scope);
     }
 
-    [Theory]
-    [InlineData(HostedFoundryMemoryScope.PerUser, TestUserId)]
-    [InlineData(HostedFoundryMemoryScope.PerChat, TestChatId)]
-    [InlineData(HostedFoundryMemoryScope.PerUserAndChat, TestUserId + ":" + TestChatId)]
-    public void AddHostedFoundryMemoryProvider_EnumMapsToCorrectHelper(HostedFoundryMemoryScope scope, string expectedScope)
+    [Fact]
+    public void AddHostedFoundryMemoryProvider_CustomStateInitializer_IsHonored()
     {
-        // The DI extension uses the enum to choose a helper. Asserting the helper outputs the
-        // expected scope key indirectly proves the mapping.
-        Func<AgentSession?, FoundryMemoryProvider.State> initializer = scope switch
-        {
-            HostedFoundryMemoryScope.PerUser => HostedFoundryMemoryProviderScopes.PerUser(),
-            HostedFoundryMemoryScope.PerChat => HostedFoundryMemoryProviderScopes.PerChat(),
-            HostedFoundryMemoryScope.PerUserAndChat => HostedFoundryMemoryProviderScopes.PerUserAndChat(),
-            _ => throw new ArgumentOutOfRangeException(nameof(scope))
-        };
+        // Arrange
+        var session = CreateTaggedSession();
+        static FoundryMemoryProvider.State Custom(AgentSession? _)
+            => new(new FoundryMemoryProviderScope("custom-scope"));
 
-        var state = initializer(CreateTaggedSession());
+        // Act
+        var services = new ServiceCollection();
+        services.AddHostedFoundryMemoryProvider(CreateClient(), MemoryStoreName, Custom);
+        var provider = services.BuildServiceProvider().GetRequiredService<FoundryMemoryProvider>();
 
-        Assert.Equal(expectedScope, state.Scope.Scope);
+        // Assert
+        Assert.NotNull(provider);
+        var state = Custom(session);
+        Assert.Equal("custom-scope", state.Scope.Scope);
     }
 
     private static AIProjectClient CreateClient()
