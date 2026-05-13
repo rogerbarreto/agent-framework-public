@@ -59,8 +59,10 @@ Behaviour added to `AgentFrameworkResponseHandler.CreateAsync`:
 
 1. Resolve `HostedSessionIsolationKeyProvider` from DI; fall back to `PlatformHostedSessionIsolationKeyProvider`.
 2. Call `GetKeysAsync(context, request, cancellationToken)`. A `null` result throws `InvalidOperationException` (becomes 500). A null/whitespace `UserId` or `ChatId` is rejected by `HostedSessionContext`'s constructor.
-3. Fresh sessions (no incoming `previous_response_id`/conversation id) are tagged via `SetHostedContext`.
-4. Resumed sessions must already carry a `HostedSessionContext` whose `UserId` and `ChatId` match the resolved values exactly. Mismatch (including missing-on-resume and any field difference) throws `ResponsesApiException` with status 403 and body `Hosted session identity context mismatch`.
+3. Branch on the **session's existing context**, not on whether a `conversation_id` was supplied:
+   - **No session (`session is null`):** nothing to stamp; skip.
+   - **Session present but un-stamped (`GetHostedContext() is null`):** treat as fresh. This covers both newly-created sessions and pre-existing sessions whose `conversation_id` was provisioned externally (e.g. via `conversations.CreateProjectConversationAsync()`) before the first hosted-agent request. Stamp the resolved identity now.
+   - **Session present with stamped context:** strict resume. The persisted `UserId` and `ChatId` must equal the resolved values exactly. Mismatch throws `ResponsesApiException` with status 403 and body `Hosted session identity context mismatch`.
 
 ## Consequences
 
@@ -73,7 +75,7 @@ Positive:
 Negative:
 
 - Every existing hosted sample fails locally without a `HostedSessionIsolationKeyProvider` registered, because the platform headers are absent outside the platform. Mitigated by shipping `Hosted_Shared_Contributor_Setup` with `DevTemporaryLocalSessionIsolationKeyProvider` and `AddDevTemporaryLocalContributorSetup`, and migrating all 9 existing responses samples.
-- Sessions persisted before this change cannot be resumed (they lack a `HostedSessionContext` and 403 on first resume). This is a deliberate trade-off to enforce the strict contract uniformly.
+- An attacker who can plant an un-stamped session under a victim's `conversation_id` *before* the victim's first hosted-agent request would be stamped with the attacker's identity on that first request. This is not a regression vs. behaviour without this contract, and is mitigated in practice because the `conversation_id` namespace is allocated by the platform per project. Once a session is stamped, the strict equality check fully defends the resume path.
 
 ## Out of scope
 

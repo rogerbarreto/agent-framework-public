@@ -185,9 +185,13 @@ public class HostedSessionIdentityContextTests
     }
 
     [Fact]
-    public async Task Handler_ResumeSession_WithoutPriorContext_Returns403Async()
+    public async Task Handler_ResumeSession_WithoutPriorContext_StampsAsFreshAsync()
     {
-        // Arrange: store an untagged session (predates the strict contract).
+        // Arrange: store an untagged session. This case arises in production when the platform
+        // (or the caller) creates a Foundry conversation_id externally, and the very first
+        // hosted-agent request for that conversation hits the handler before any context is
+        // stamped. Such a session is treated as "fresh" rather than "resume" because there is
+        // no prior identity to defend; the stamp made now is what future resumes will validate.
         var capturingAgent = new HostedContextCapturingAgent();
         var sessionStore = new InMemoryAgentSessionStore();
         const string ConversationId = "untagged-chat-id";
@@ -198,9 +202,15 @@ public class HostedSessionIdentityContextTests
         var handler = BuildHandler(capturingAgent, fakeProvider, sessionStore);
         var (resumeRequest, resumeContext) = BuildResumeRequest(ConversationId);
 
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<ResponsesApiException>(() => DrainAsync(handler.CreateAsync(resumeRequest, resumeContext.Object, CancellationToken.None)));
-        Assert.Equal(403, ex.StatusCode);
+        // Act
+        await DrainAsync(handler.CreateAsync(resumeRequest, resumeContext.Object, CancellationToken.None));
+
+        // Assert
+        Assert.NotNull(capturingAgent.LastSession);
+        var ctx = capturingAgent.LastSession.GetHostedContext();
+        Assert.NotNull(ctx);
+        Assert.Equal("alice", ctx.UserId);
+        Assert.Equal("chat-A", ctx.ChatId);
     }
 
     [Fact]

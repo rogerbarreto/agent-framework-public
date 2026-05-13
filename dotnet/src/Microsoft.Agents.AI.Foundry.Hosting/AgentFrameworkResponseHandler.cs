@@ -87,23 +87,26 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 "or register a custom provider that supplies fallback values for local development.");
         }
 
-        if (!string.IsNullOrWhiteSpace(sessionConversationId))
+        if (session is not null)
         {
-            // Resume path: the session must already carry a hosted context that matches the live request.
-            var existingHostedContext = session?.GetHostedContext();
-            if (existingHostedContext is null
-                || !string.Equals(existingHostedContext.UserId, resolvedHostedContext.UserId, StringComparison.Ordinal)
+            var existingHostedContext = session.GetHostedContext();
+            if (existingHostedContext is null)
+            {
+                // Fresh path: the session has no hosted context yet (either freshly created here,
+                // or freshly loaded for a conversation_id that the platform supplied without any
+                // prior hosted-agent request having stamped a context). Stamp it now.
+                session.SetHostedContext(resolvedHostedContext);
+            }
+            else if (!string.Equals(existingHostedContext.UserId, resolvedHostedContext.UserId, StringComparison.Ordinal)
                 || !string.Equals(existingHostedContext.ChatId, resolvedHostedContext.ChatId, StringComparison.Ordinal))
             {
+                // Resume path: the persisted identity must match the live request. A mismatch
+                // signals either a cross-user session leak or in-process tampering of the
+                // persisted identity. Reject the request hard.
                 throw new ResponsesApiException(
                     new Error("hosted_session_identity_mismatch", "Hosted session identity context mismatch"),
                     403);
             }
-        }
-        else if (session is not null)
-        {
-            // Fresh path: stamp the freshly created session with the resolved identity.
-            session.SetHostedContext(resolvedHostedContext);
         }
 
         // 3. Create the SDK event stream builder
