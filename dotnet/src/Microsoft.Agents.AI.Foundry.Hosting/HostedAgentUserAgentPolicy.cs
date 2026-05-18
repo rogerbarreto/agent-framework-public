@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Reflection;
@@ -9,14 +10,23 @@ using Microsoft.Extensions.AI;
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
-/// Pipeline policy that appends the hosted-agent <c>User-Agent</c> segment
-/// (e.g. <c>"foundry-hosting/agent-framework-dotnet/{version}"</c>) to outgoing requests.
+/// Pipeline policy that emits the hosted-agent <c>User-Agent</c> segment
+/// (<c>"foundry-hosting/agent-framework-dotnet/{version}"</c>), matching Python's hosted
+/// contract (<c>foundry-hosting/agent-framework-python/{version}</c>, see
+/// <c>python/packages/core/agent_framework/_telemetry.py</c>: the hosted prefix is joined
+/// with the base agent-framework segment into a single combined User-Agent value).
 /// </summary>
 /// <remarks>
 /// <para>
 /// The supplement value is computed once from the Microsoft.Agents.AI.Foundry.Hosting
 /// assembly's informational version. The policy is idempotent on retries: if the segment
 /// is already present in the <c>User-Agent</c> header, the policy does not append it again.
+/// </para>
+/// <para>
+/// When a bare <c>agent-framework-dotnet/{version}</c> segment is already present (stamped by
+/// the framework-wide <c>AgentFrameworkUserAgentPolicy</c> registered by
+/// <c>FoundryChatClient</c>), this policy <em>replaces</em> that segment with the combined
+/// hosted form so the wire never carries both forms simultaneously, preserving Python parity.
 /// </para>
 /// <para>
 /// This policy is added at hosted-agent resolution time via the MEAI 10.5.1
@@ -29,6 +39,9 @@ internal sealed class HostedAgentUserAgentPolicy : PipelinePolicy
     public static HostedAgentUserAgentPolicy Instance { get; } = new HostedAgentUserAgentPolicy();
 
     private static readonly string s_supplementValue = CreateSupplementValue();
+
+    /// <summary>Bare segment stamped by <c>AgentFrameworkUserAgentPolicy</c> in the non-hosted scenario; this policy upgrades it in-place when both run.</summary>
+    private const string BareAgentFrameworkPrefix = "agent-framework-dotnet/";
 
     public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
     {
@@ -46,10 +59,29 @@ internal sealed class HostedAgentUserAgentPolicy : PipelinePolicy
     {
         if (message.Request.Headers.TryGetValue("User-Agent", out var existing) && !string.IsNullOrEmpty(existing))
         {
-            // Guard against double-append on retries or when the policy
-            // is registered on multiple pipeline positions.
-            if (existing.Contains(s_supplementValue))
+            // Guard against double-append on retries or when the policy is registered on
+            // multiple pipeline positions.
+            if (existing!.Contains(s_supplementValue))
             {
+                return;
+            }
+
+            // If the bare agent-framework segment is present (stamped by
+            // AgentFrameworkUserAgentPolicy when not hosted), upgrade it in place to the
+            // combined hosted form so the wire never carries both segments simultaneously.
+            // Mirrors Python where get_user_agent() returns a single combined string when the
+            // hosted prefix is registered.
+            var idx = existing!.IndexOf(BareAgentFrameworkPrefix, StringComparison.Ordinal);
+            if (idx >= 0)
+            {
+                var end = existing.IndexOf(' ', idx);
+                if (end < 0)
+                {
+                    end = existing.Length;
+                }
+
+                var replaced = string.Concat(existing.AsSpan(0, idx), s_supplementValue.AsSpan(), existing.AsSpan(end));
+                message.Request.Headers.Set("User-Agent", replaced);
                 return;
             }
 
