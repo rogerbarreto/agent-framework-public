@@ -374,7 +374,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_ExposesProjectOpenAIClient_ButNotAIProjectClient()
+    public void Mode3_HostedAgentEndpoint_ExposesProjectOpenAIClientAndAIProjectClient()
     {
         // Act
         var chatClient = new FoundryChatClient(
@@ -384,11 +384,72 @@ public sealed class FoundryChatClientTests
 
         // Assert
         Assert.NotNull(chatClient.GetService<ProjectOpenAIClient>());
-        // Mode 3 builds its own ProjectOpenAIClient directly; no AIProjectClient is involved.
-        Assert.Null(chatClient.GetService<AIProjectClient>());
+        // After the materialization change, mode 3 also exposes a working AIProjectClient
+        // built from the parsed project root. This makes the helper surface symmetric across
+        // all three construction modes.
+        Assert.NotNull(chatClient.GetService<AIProjectClient>());
         Assert.Null(chatClient.GetService<AgentReference>());
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
         Assert.Null(chatClient.GetService<ProjectsAgentRecord>());
+    }
+
+    [Fact]
+    public void Mode3_HostedAgentEndpoint_MaterializedAIProjectClient_TargetsParsedProjectRoot()
+    {
+        // The mode-3 ctor must derive the project root from the agent endpoint URL and
+        // construct the AIProjectClient against that root, NOT the agent endpoint itself.
+        var agentEndpoint = new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai");
+        var chatClient = new FoundryChatClient(
+            agentEndpoint: agentEndpoint,
+            credential: new FakeAuthenticationTokenProvider(),
+            clientOptions: null);
+
+        var aiProjectClient = chatClient.GetService<AIProjectClient>();
+        Assert.NotNull(aiProjectClient);
+        // AIProjectClient does not expose its endpoint publicly, so we rely on reflection on
+        // the well-known private field. If the SDK field shape changes this guard fails loudly.
+        var field = typeof(AIProjectClient).GetField("_endpoint", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var actualEndpoint = (Uri)field!.GetValue(aiProjectClient!)!;
+        Assert.Equal("https://example.com/api/projects/myproj", actualEndpoint.AbsoluteUri.TrimEnd('/'));
+    }
+
+    [Fact]
+    public void Mode3_HostedAgentEndpoint_MaterializedAIProjectClient_IsReusedAcrossGetServiceCalls()
+    {
+        // Repeated GetService<AIProjectClient>() calls must return the same instance — the
+        // materialized client is cached in the existing _aiProjectClient field, not built on
+        // demand each call.
+        var chatClient = new FoundryChatClient(
+            agentEndpoint: new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai"),
+            credential: new FakeAuthenticationTokenProvider(),
+            clientOptions: null);
+
+        var first = chatClient.GetService<AIProjectClient>();
+        var second = chatClient.GetService<AIProjectClient>();
+        Assert.NotNull(first);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void Mode1_PureResponses_AIProjectClient_IsTheSuppliedInstance()
+    {
+        // Regression check: mode 1 must continue to expose the AIProjectClient the caller
+        // supplied via the constructor, NOT a freshly-materialized one.
+        var supplied = CreateProjectClient();
+        var chatClient = new FoundryChatClient(supplied, "gpt-4o-mini");
+        Assert.Same(supplied, chatClient.GetService<AIProjectClient>());
+    }
+
+    [Fact]
+    public void Mode2_AgentReference_AIProjectClient_IsTheSuppliedInstance()
+    {
+        // Regression check: mode 2 must continue to expose the AIProjectClient the caller
+        // supplied via the constructor.
+        var supplied = CreateProjectClient();
+        var agentRef = new AgentReference("agent-name", "1");
+        var chatClient = new FoundryChatClient(supplied, agentRef, defaultModelId: null, baseChatOptions: null);
+        Assert.Same(supplied, chatClient.GetService<AIProjectClient>());
     }
 
     [Fact]

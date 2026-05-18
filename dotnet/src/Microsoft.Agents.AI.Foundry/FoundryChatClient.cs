@@ -5,6 +5,7 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +15,9 @@ using Azure.AI.Projects.Agents;
 using Microsoft.Extensions.AI;
 using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
+using OpenAI.Files;
 using OpenAI.Responses;
+using OpenAI.VectorStores;
 
 #pragma warning disable OPENAI001
 
@@ -43,7 +46,7 @@ namespace Microsoft.Agents.AI.Foundry;
 /// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
-internal sealed class FoundryChatClient : DelegatingChatClient
+public sealed class FoundryChatClient : DelegatingChatClient
 {
     private readonly ChatClientMetadata _metadata;
     private readonly AIProjectClient? _aiProjectClient;
@@ -131,6 +134,7 @@ internal sealed class FoundryChatClient : DelegatingChatClient
         : base(inner.ChatClient)
     {
         this._projectOpenAIClient = inner.PerAgentClient;
+        this._aiProjectClient = inner.AIProjectClient;
         this.HostedAgentName = inner.AgentName;
         this._metadata = new ChatClientMetadata("microsoft.foundry");
         TryRegisterAgentFrameworkUserAgentPolicy(this.InnerClient);
@@ -182,6 +186,119 @@ internal sealed class FoundryChatClient : DelegatingChatClient
             yield return chunk;
         }
     }
+
+    #region File and vector-store helpers (mirrors Python's foundry_chat_client surface)
+
+    /// <summary>
+    /// Uploads a single file to the project for the supplied purpose. The upload is performed
+    /// against the project-level <see cref="AIProjectClient"/> reachable via
+    /// <see cref="GetService(Type, object?)"/>, so this method works uniformly across all three
+    /// FoundryChatClient construction modes.
+    /// </summary>
+    /// <param name="filePath">Absolute or relative path to the file to upload. The file must exist.</param>
+    /// <param name="purpose">The file upload purpose (e.g. <see cref="FileUploadPurpose.Assistants"/>).</param>
+    /// <param name="cancellationToken">A token that can cancel the upload.</param>
+    /// <returns>The created <see cref="OpenAIFile"/> as returned by the service.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="filePath"/> is <see langword="null"/>.</exception>
+    /// <exception cref="FileNotFoundException">The file at <paramref name="filePath"/> does not exist.</exception>
+    public async Task<OpenAIFile> UploadFileAsync(string filePath, FileUploadPurpose purpose, CancellationToken cancellationToken = default)
+    {
+        Throw.IfNull(filePath);
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: '{filePath}'.", filePath);
+        }
+
+        var fileClient = this.GetOpenAIFileClient();
+        // Use the Stream overload to honor cancellation; the (string, purpose) overload has no
+        // CancellationToken parameter in the OpenAI SDK.
+        using var stream = File.OpenRead(filePath);
+        var result = await fileClient.UploadFileAsync(stream, Path.GetFileName(filePath), purpose, cancellationToken).ConfigureAwait(false);
+        return result.Value;
+    }
+
+    /// <summary>Deletes a file previously uploaded to the project.</summary>
+    /// <param name="fileId">The file id returned by <see cref="UploadFileAsync(string, FileUploadPurpose, CancellationToken)"/>.</param>
+    /// <param name="cancellationToken">A token that can cancel the delete.</param>
+    /// <returns>The deletion result.</returns>
+    /// <exception cref="ArgumentException"><paramref name="fileId"/> is <see langword="null"/> or whitespace.</exception>
+    public async Task<FileDeletionResult> DeleteFileAsync(string fileId, CancellationToken cancellationToken = default)
+    {
+        Throw.IfNullOrWhitespace(fileId);
+        var fileClient = this.GetOpenAIFileClient();
+        var result = await fileClient.DeleteFileAsync(fileId, cancellationToken).ConfigureAwait(false);
+        return result.Value;
+    }
+
+    /// <summary>
+    /// Uploads the supplied files, creates a vector store containing them, waits until the
+    /// store is fully ready, and returns the <see cref="VectorStore"/>. Mirrors Python's
+    /// <c>foundry_chat_client.create_vector_store(name, files, expires_after_days)</c>.
+    /// </summary>
+    /// <param name="name">The vector store name.</param>
+    /// <param name="filePaths">Paths to files to upload and attach to the store.</param>
+    /// <param name="expiresAfter">Optional last-active-at expiration window. When supplied, the vector store expires this many days after its last use.</param>
+    /// <param name="cancellationToken">A token that can cancel the orchestration.</param>
+    /// <returns>The created and fully-ready <see cref="VectorStore"/>.</returns>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is <see langword="null"/> or whitespace, or <paramref name="filePaths"/> is <see langword="null"/>.</exception>
+    public async Task<VectorStore> CreateVectorStoreAsync(string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, CancellationToken cancellationToken = default)
+    {
+        Throw.IfNullOrWhitespace(name);
+        Throw.IfNull(filePaths);
+
+        var fileIds = new List<string>();
+        foreach (var path in filePaths)
+        {
+            var uploaded = await this.UploadFileAsync(path, FileUploadPurpose.Assistants, cancellationToken).ConfigureAwait(false);
+            fileIds.Add(uploaded.Id);
+        }
+
+        var options = new VectorStoreCreationOptions
+        {
+            Name = name,
+        };
+        foreach (var id in fileIds)
+        {
+            options.FileIds.Add(id);
+        }
+        if (expiresAfter is { } window)
+        {
+            options.ExpirationPolicy = new VectorStoreExpirationPolicy(VectorStoreExpirationAnchor.LastActiveAt, (int)Math.Ceiling(window.TotalDays));
+        }
+
+        var vectorStoreClient = this.GetVectorStoreClient();
+        var result = await vectorStoreClient.CreateVectorStoreAsync(options, cancellationToken).ConfigureAwait(false);
+        return result.Value;
+    }
+
+    /// <summary>Deletes a vector store. The associated files (if any) are not deleted by this method; call <see cref="DeleteFileAsync(string, CancellationToken)"/> separately to clean them up.</summary>
+    /// <param name="vectorStoreId">The vector store id.</param>
+    /// <param name="cancellationToken">A token that can cancel the delete.</param>
+    /// <returns>The deletion result.</returns>
+    /// <exception cref="ArgumentException"><paramref name="vectorStoreId"/> is <see langword="null"/> or whitespace.</exception>
+    public async Task<VectorStoreDeletionResult> DeleteVectorStoreAsync(string vectorStoreId, CancellationToken cancellationToken = default)
+    {
+        Throw.IfNullOrWhitespace(vectorStoreId);
+        var vectorStoreClient = this.GetVectorStoreClient();
+        var result = await vectorStoreClient.DeleteVectorStoreAsync(vectorStoreId, cancellationToken).ConfigureAwait(false);
+        return result.Value;
+    }
+
+    private OpenAIFileClient GetOpenAIFileClient()
+    {
+        var projectClient = this._aiProjectClient
+            ?? throw new InvalidOperationException("This FoundryChatClient does not have an AIProjectClient available. File and vector-store helpers require an AIProjectClient.");
+        return projectClient.GetProjectOpenAIClient().GetOpenAIFileClient();
+    }
+
+    private VectorStoreClient GetVectorStoreClient()
+    {
+        var projectClient = this._aiProjectClient
+            ?? throw new InvalidOperationException("This FoundryChatClient does not have an AIProjectClient available. File and vector-store helpers require an AIProjectClient.");
+        return projectClient.GetProjectOpenAIClient().GetVectorStoreClient();
+    }
+
+    #endregion
 
     /// <summary>
     /// Parses an agent endpoint URI of shape
@@ -336,7 +453,7 @@ internal sealed class FoundryChatClient : DelegatingChatClient
         Throw.IfNull(agentEndpoint);
         Throw.IfNull(credential);
 
-        var (agentName, _) = ParseAgentEndpoint(agentEndpoint);
+        var (agentName, projectRoot) = ParseAgentEndpoint(agentEndpoint);
 
         var perAgentOptions = clientOptions ?? new ProjectOpenAIClientOptions();
         perAgentOptions.Endpoint = agentEndpoint;
@@ -346,7 +463,16 @@ internal sealed class FoundryChatClient : DelegatingChatClient
         var perAgentClient = new ProjectOpenAIClient(authPolicy, perAgentOptions);
 
         var chatClient = perAgentClient.GetProjectResponsesClient().AsIChatClient();
-        return new HostedAgentEndpointInner(chatClient, perAgentClient, agentName);
+
+        // Materialize a project-level AIProjectClient from the parsed project root so
+        // GetService<AIProjectClient>() returns non-null for all FoundryChatClient
+        // construction modes. Project-level helpers (file upload, vector store create/delete)
+        // depend on this. RBAC for those calls is at the project level; if the supplied
+        // credential lacks project-scope permissions, the SDK surfaces a clean 401/403 at
+        // call time.
+        var aiProjectClient = new AIProjectClient(projectRoot, credential);
+
+        return new HostedAgentEndpointInner(chatClient, perAgentClient, aiProjectClient, agentName);
     }
 
     /// <summary>Best-effort registration of <see cref="AgentFrameworkUserAgentPolicy"/> via the MEAI <see cref="OpenAIRequestPolicies"/> hook with at-most-once dedup per pipeline.</summary>
@@ -370,15 +496,17 @@ internal sealed class FoundryChatClient : DelegatingChatClient
 
     private readonly struct HostedAgentEndpointInner
     {
-        public HostedAgentEndpointInner(IChatClient chatClient, ProjectOpenAIClient perAgentClient, string agentName)
+        public HostedAgentEndpointInner(IChatClient chatClient, ProjectOpenAIClient perAgentClient, AIProjectClient aiProjectClient, string agentName)
         {
             this.ChatClient = chatClient;
             this.PerAgentClient = perAgentClient;
+            this.AIProjectClient = aiProjectClient;
             this.AgentName = agentName;
         }
 
         public IChatClient ChatClient { get; }
         public ProjectOpenAIClient PerAgentClient { get; }
+        public AIProjectClient AIProjectClient { get; }
         public string AgentName { get; }
     }
 }
