@@ -54,7 +54,9 @@ public sealed class FoundryChatClientTests
 
         // Assert
         Assert.Same(projectClient, chatClient.GetService<AIProjectClient>());
-        Assert.NotNull(chatClient.GetService<ProjectOpenAIClient>());
+        // ProjectOpenAIClient is intentionally NOT exposed via GetService — callers retrieve
+        // it from the AIProjectClient themselves (aiProjectClient.GetProjectOpenAIClient()).
+        Assert.Null(chatClient.GetService<ProjectOpenAIClient>());
     }
 
     [Fact]
@@ -114,7 +116,9 @@ public sealed class FoundryChatClientTests
         // Assert
         Assert.Same(agentRef, chatClient.GetService<AgentReference>());
         Assert.Same(projectClient, chatClient.GetService<AIProjectClient>());
-        Assert.NotNull(chatClient.GetService<ProjectOpenAIClient>());
+        // ProjectOpenAIClient is intentionally NOT exposed via GetService — see comment in
+        // Mode1_PureResponses_ExposesAIProjectClient_ViaGetService.
+        Assert.Null(chatClient.GetService<ProjectOpenAIClient>());
         // Version/Record were not provided via this ctor.
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
         Assert.Null(chatClient.GetService<ProjectsAgentRecord>());
@@ -383,7 +387,9 @@ public sealed class FoundryChatClientTests
             clientOptions: null);
 
         // Assert
-        Assert.NotNull(chatClient.GetService<ProjectOpenAIClient>());
+        // ProjectOpenAIClient is intentionally NOT exposed via GetService — callers retrieve
+        // it from the AIProjectClient themselves (aiProjectClient.GetProjectOpenAIClient()).
+        Assert.Null(chatClient.GetService<ProjectOpenAIClient>());
         // After the materialization change, mode 3 also exposes a working AIProjectClient
         // built from the parsed project root. This makes the helper surface symmetric across
         // all three construction modes.

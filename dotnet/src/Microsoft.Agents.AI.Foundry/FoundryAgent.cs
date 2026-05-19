@@ -40,22 +40,6 @@ namespace Microsoft.Agents.AI.Foundry;
 public sealed class FoundryAgent : DelegatingAIAgent
 {
     /// <summary>
-    /// The cached <see cref="AIProjectClient"/> when one was supplied or constructed by the active
-    /// constructor. Null when the agent was constructed via the agent-endpoint constructor, which
-    /// does not build a full <see cref="AIProjectClient"/>.
-    /// </summary>
-    private readonly AIProjectClient? _aiProjectClient;
-
-    /// <summary>
-    /// Project-scoped <see cref="ProjectOpenAIClient"/>. Always non-null. Used for project-level
-    /// operations such as <see cref="CreateConversationSessionAsync(CancellationToken)"/>.
-    /// In agent-endpoint mode this is built directly from the project root derived from the
-    /// supplied agent endpoint; in project-endpoint mode it is the cached client returned by
-    /// <see cref="AIProjectClient"/>.
-    /// </summary>
-    private readonly ProjectOpenAIClient _projectOpenAIClient;
-
-    /// <summary>
     /// Initializes a new instance of the <see cref="FoundryAgent"/> class using the direct Responses API path.
     /// </summary>
     /// <param name="projectEndpoint">The Microsoft Foundry project endpoint.</param>
@@ -84,10 +68,8 @@ public sealed class FoundryAgent : DelegatingAIAgent
         : base(CreateInnerAgent(
             CreateProjectClient(projectEndpoint, credential, clientOptions),
             model, instructions, name, description, tools, clientFactory, loggerFactory, services,
-            out var aiProjectClient))
+            out _))
     {
-        this._aiProjectClient = aiProjectClient;
-        this._projectOpenAIClient = aiProjectClient.GetProjectOpenAIClient();
     }
 
     /// <summary>
@@ -129,17 +111,6 @@ public sealed class FoundryAgent : DelegatingAIAgent
         IServiceProvider? services = null)
         : base(CreateInnerAgentFromAgentEndpoint(agentEndpoint, credential, clientOptions, tools, clientFactory, services))
     {
-        // The inner FoundryChatClient now materializes an AIProjectClient from the parsed
-        // project root (the project-level handle, NOT the per-agent one), so we can reuse it
-        // here instead of building a second project-level ProjectOpenAIClient. Single network
-        // handle per logical role.
-        //
-        // Use base.GetService so this lookup bypasses the FoundryAgent override below (which
-        // returns the still-uninitialised _aiProjectClient field at ctor time).
-        this._aiProjectClient = base.GetService(typeof(AIProjectClient)) as AIProjectClient
-            ?? throw new InvalidOperationException(
-                "Expected the inner FoundryChatClient to expose a materialized AIProjectClient for the hosted agent endpoint mode.");
-        this._projectOpenAIClient = this._aiProjectClient.GetProjectOpenAIClient();
     }
 
     /// <summary>
@@ -148,8 +119,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
     internal FoundryAgent(AIProjectClient aiProjectClient, ChatClientAgent innerAgent)
         : base(WireClientHeaders(Throw.IfNull(innerAgent)))
     {
-        this._aiProjectClient = Throw.IfNull(aiProjectClient);
-        this._projectOpenAIClient = aiProjectClient.GetProjectOpenAIClient();
+        _ = Throw.IfNull(aiProjectClient);
     }
 
     #region Convenience methods
@@ -182,7 +152,13 @@ public sealed class FoundryAgent : DelegatingAIAgent
     /// <returns>A <see cref="ChatClientAgentSession"/> linked to the newly created server-side conversation.</returns>
     public async Task<ChatClientAgentSession> CreateConversationSessionAsync(CancellationToken cancellationToken = default)
     {
-        var conversationsClient = this._projectOpenAIClient.GetProjectConversationsClient();
+        // The inner FoundryChatClient surfaces an AIProjectClient via GetService for all
+        // three construction modes (Plan #2 mode-3 materialization). Resolve it through the
+        // delegating chain at call time instead of caching a private reference on this agent.
+        var aiProjectClient = this.GetService<AIProjectClient>()
+            ?? throw new InvalidOperationException(
+                "FoundryAgent inner chain does not expose an AIProjectClient; cannot create a project-level conversation session.");
+        var conversationsClient = aiProjectClient.GetProjectOpenAIClient().GetProjectConversationsClient();
 
         var conversation = (await conversationsClient.CreateProjectConversationAsync(options: null, cancellationToken).ConfigureAwait(false)).Value;
 
@@ -195,22 +171,6 @@ public sealed class FoundryAgent : DelegatingAIAgent
         ?? throw new InvalidOperationException("FoundryAgent inner chain does not contain a ChatClientAgent.");
 
     #endregion
-
-    /// <inheritdoc/>
-    public override object? GetService(Type serviceType, object? serviceKey = null)
-    {
-        if (serviceKey is null && serviceType == typeof(AIProjectClient))
-        {
-            return this._aiProjectClient;
-        }
-
-        if (serviceKey is null && serviceType == typeof(ProjectOpenAIClient))
-        {
-            return this._projectOpenAIClient;
-        }
-
-        return base.GetService(serviceType, serviceKey);
-    }
 
     #region Private helpers
 

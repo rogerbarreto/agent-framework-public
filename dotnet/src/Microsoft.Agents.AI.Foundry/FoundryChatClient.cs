@@ -153,8 +153,6 @@ public sealed class FoundryChatClient : DelegatingChatClient
             ? this._metadata
             : (serviceKey is null && serviceType == typeof(AIProjectClient))
             ? this._aiProjectClient
-            : (serviceKey is null && serviceType == typeof(ProjectOpenAIClient))
-            ? this._projectOpenAIClient
             : (serviceKey is null && serviceType == typeof(AgentReference))
             ? this._agentReference
             : (serviceKey is null && serviceType == typeof(ProjectsAgentVersion))
