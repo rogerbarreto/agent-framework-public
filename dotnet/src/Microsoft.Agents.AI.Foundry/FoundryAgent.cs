@@ -270,7 +270,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
         Throw.IfNull(credential);
 
         IChatClient chatClient = new FoundryChatClient(agentEndpoint, credential, clientOptions);
-        var agentName = ((FoundryChatClient)chatClient).HostedAgentName!;
+        var agentName = ((FoundryChatClient)chatClient).AgentName!;
 
         if (clientFactory is not null)
         {

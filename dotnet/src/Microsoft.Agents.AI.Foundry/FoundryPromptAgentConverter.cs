@@ -52,13 +52,6 @@ internal static class FoundryPromptAgentConverter
                 "ToPromptAgentAsync requires a FoundryChatClient-backed agent. " +
                 "The supplied agent's chat client does not expose a FoundryChatClient via GetService<FoundryChatClient>().");
 
-        if (foundryChatClient.HostedAgentName is not null)
-        {
-            throw new InvalidOperationException(
-                "ToPromptAgentAsync is not supported for agents constructed from a hosted agent endpoint URL; " +
-                "no local definition exists to convert.");
-        }
-
         // Mode 2 with cached server-side version (constructed via ProjectsAgentVersion or ProjectsAgentRecord).
         if (foundryChatClient.GetService<ProjectsAgentVersion>() is { } cachedVersion)
         {
@@ -76,6 +69,16 @@ internal static class FoundryPromptAgentConverter
                 .GetAgentAsync(agentReference.Name, cancellationToken)
                 .ConfigureAwait(false);
             return record.Value.GetLatestVersion().Definition;
+        }
+
+        // Mode 3 (hosted agent endpoint URL): AgentName is set (parsed from URL) but no
+        // AgentReference exists locally. The agent definition lives only on the server and is
+        // not retrievable through this chat client, so conversion is not supported here.
+        if (foundryChatClient.AgentName is not null)
+        {
+            throw new InvalidOperationException(
+                "ToPromptAgentAsync is not supported for agents constructed from a hosted agent endpoint URL; " +
+                "no local definition exists to convert.");
         }
 
         // Mode 1 (pure responses): synthesise from ChatOptions.

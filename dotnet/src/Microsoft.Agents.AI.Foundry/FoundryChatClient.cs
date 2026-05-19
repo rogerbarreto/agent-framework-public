@@ -50,7 +50,6 @@ public sealed class FoundryChatClient : DelegatingChatClient
 {
     private readonly ChatClientMetadata _metadata;
     private readonly AIProjectClient? _aiProjectClient;
-    private readonly ProjectOpenAIClient _projectOpenAIClient;
     private readonly AgentReference? _agentReference;
     private readonly ProjectsAgentVersion? _agentVersion;
     private readonly ProjectsAgentRecord? _agentRecord;
@@ -68,7 +67,6 @@ public sealed class FoundryChatClient : DelegatingChatClient
             .AsIChatClient())
     {
         this._aiProjectClient = aiProjectClient;
-        this._projectOpenAIClient = aiProjectClient.GetProjectOpenAIClient();
         this._metadata = new ChatClientMetadata("microsoft.foundry", defaultModelId: modelId);
         TryRegisterAgentFrameworkUserAgentPolicy(this.InnerClient);
     }
@@ -84,9 +82,9 @@ public sealed class FoundryChatClient : DelegatingChatClient
     {
         this._aiProjectClient = aiProjectClient;
         this._agentReference = agentReference;
-        this._projectOpenAIClient = aiProjectClient.GetProjectOpenAIClient();
         this._metadata = new ChatClientMetadata("microsoft.foundry", defaultModelId: defaultModelId);
         this._baseChatOptions = baseChatOptions;
+        this.AgentName = agentReference.Name;
         TryRegisterAgentFrameworkUserAgentPolicy(this.InnerClient);
     }
 
@@ -133,18 +131,37 @@ public sealed class FoundryChatClient : DelegatingChatClient
     private FoundryChatClient(HostedAgentEndpointInner inner)
         : base(inner.ChatClient)
     {
-        this._projectOpenAIClient = inner.PerAgentClient;
         this._aiProjectClient = inner.AIProjectClient;
-        this.HostedAgentName = inner.AgentName;
+        this.AgentName = inner.AgentName;
         this._metadata = new ChatClientMetadata("microsoft.foundry");
         TryRegisterAgentFrameworkUserAgentPolicy(this.InnerClient);
     }
 
     /// <summary>
-    /// Gets the hosted-agent name parsed from the agent endpoint URL when the chat client was
-    /// constructed in mode 3, or <see langword="null"/> for modes 1 and 2.
+    /// Gets the agent name associated with this chat client.
     /// </summary>
-    internal string? HostedAgentName { get; }
+    /// <remarks>
+    /// <para>Set in two cases:</para>
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// Mode 2 (server-side agent reference): the value of <see cref="AgentReference.Name"/>
+    /// supplied at construction.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// Mode 3 (hosted agent endpoint URL): the agent name segment parsed from the supplied
+    /// agent endpoint URI.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// Returns <see langword="null"/> for mode 1 (pure responses via a project-level model id),
+    /// where no agent name exists.
+    /// </para>
+    /// </remarks>
+    internal string? AgentName { get; }
 
     /// <inheritdoc/>
     public override object? GetService(Type serviceType, object? serviceKey = null)
@@ -454,7 +471,7 @@ public sealed class FoundryChatClient : DelegatingChatClient
         }
         var aiProjectClient = new AIProjectClient(projectRoot, credential, aiProjectClientOptions);
 
-        return new HostedAgentEndpointInner(chatClient, perAgentClient, aiProjectClient, agentName);
+        return new HostedAgentEndpointInner(chatClient, aiProjectClient, agentName);
     }
 
     /// <summary>Best-effort registration of <see cref="AgentFrameworkUserAgentPolicy"/> via the MEAI <see cref="OpenAIRequestPolicies"/> hook with at-most-once dedup per pipeline.</summary>
@@ -478,16 +495,14 @@ public sealed class FoundryChatClient : DelegatingChatClient
 
     private readonly struct HostedAgentEndpointInner
     {
-        public HostedAgentEndpointInner(IChatClient chatClient, ProjectOpenAIClient perAgentClient, AIProjectClient aiProjectClient, string agentName)
+        public HostedAgentEndpointInner(IChatClient chatClient, AIProjectClient aiProjectClient, string agentName)
         {
             this.ChatClient = chatClient;
-            this.PerAgentClient = perAgentClient;
             this.AIProjectClient = aiProjectClient;
             this.AgentName = agentName;
         }
 
         public IChatClient ChatClient { get; }
-        public ProjectOpenAIClient PerAgentClient { get; }
         public AIProjectClient AIProjectClient { get; }
         public string AgentName { get; }
     }

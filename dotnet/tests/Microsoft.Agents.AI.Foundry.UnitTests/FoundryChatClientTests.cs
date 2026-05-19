@@ -72,6 +72,9 @@ public sealed class FoundryChatClientTests
         Assert.Null(chatClient.GetService<AgentReference>());
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
         Assert.Null(chatClient.GetService<ProjectsAgentRecord>());
+        // No agent name exists in mode 1 — only mode 2 (from AgentReference.Name) and mode 3
+        // (parsed from URL) populate FoundryChatClient.AgentName.
+        Assert.Null(chatClient.AgentName);
     }
 
     [Fact]
@@ -122,6 +125,21 @@ public sealed class FoundryChatClientTests
         // Version/Record were not provided via this ctor.
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
         Assert.Null(chatClient.GetService<ProjectsAgentRecord>());
+    }
+
+    [Fact]
+    public void Mode2_AgentReference_PopulatesAgentNameFromAgentReference()
+    {
+        // Arrange
+        var projectClient = CreateProjectClient();
+        var agentRef = new AgentReference("my-server-side-agent", "1");
+
+        // Act
+        var chatClient = new FoundryChatClient(projectClient, agentRef, defaultModelId: null, baseChatOptions: null);
+
+        // Assert: AgentName is general-purpose across modes 2 and 3. In mode 2 it mirrors
+        // AgentReference.Name so callers have a uniform handle regardless of construction mode.
+        Assert.Equal("my-server-side-agent", chatClient.AgentName);
     }
 
     [Fact]
@@ -357,7 +375,7 @@ public sealed class FoundryChatClientTests
             clientOptions: null);
 
         // Assert
-        Assert.Equal("myagent", chatClient.HostedAgentName);
+        Assert.Equal("myagent", chatClient.AgentName);
     }
 
     [Fact]
