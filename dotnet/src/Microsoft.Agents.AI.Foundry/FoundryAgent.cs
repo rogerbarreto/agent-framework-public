@@ -114,6 +114,23 @@ public sealed class FoundryAgent : DelegatingAIAgent
     }
 
     /// <summary>
+    /// Internal constructor used by the <c>AsAIAgent(this AIProjectClient, Uri, ...)</c>
+    /// extension where the caller already has an <see cref="AIProjectClient"/> and the agent
+    /// endpoint URI. Reuses the supplied client's pipeline (no new credential or transport is
+    /// stamped) and surfaces the agent through a <see cref="FoundryChatClient"/> just like the
+    /// public agent-endpoint ctor.
+    /// </summary>
+    internal FoundryAgent(
+        AIProjectClient aiProjectClient,
+        Uri agentEndpoint,
+        IList<AITool>? tools = null,
+        Func<IChatClient, IChatClient>? clientFactory = null,
+        IServiceProvider? services = null)
+        : base(CreateInnerAgentFromAgentEndpointReusingProjectClient(aiProjectClient, agentEndpoint, tools, clientFactory, services))
+    {
+    }
+
+    /// <summary>
     /// Internal constructor used by <c>AsAIAgent</c> extension methods that already have an <see cref="AIProjectClient"/> and a configured <see cref="ChatClientAgent"/>.
     /// </summary>
     internal FoundryAgent(AIProjectClient aiProjectClient, ChatClientAgent innerAgent)
@@ -270,6 +287,39 @@ public sealed class FoundryAgent : DelegatingAIAgent
         Throw.IfNull(credential);
 
         IChatClient chatClient = new FoundryChatClient(agentEndpoint, credential, clientOptions);
+        var agentName = ((FoundryChatClient)chatClient).AgentName!;
+
+        if (clientFactory is not null)
+        {
+            chatClient = clientFactory(chatClient);
+        }
+
+        ChatClientAgentOptions agentOptions = new()
+        {
+            Id = agentName,
+            Name = agentName,
+            ChatOptions = new() { Tools = tools },
+        };
+
+        return WireClientHeaders(new ChatClientAgent(chatClient, agentOptions, services: services));
+    }
+
+    /// <summary>
+    /// Variant of <see cref="CreateInnerAgentFromAgentEndpoint"/> that reuses an existing
+    /// <see cref="AIProjectClient"/>'s pipeline instead of stamping a fresh credential. Used by
+    /// the <c>AsAIAgent(AIProjectClient, Uri agentEndpoint, ...)</c> extension overload.
+    /// </summary>
+    private static AIAgent CreateInnerAgentFromAgentEndpointReusingProjectClient(
+        AIProjectClient aiProjectClient,
+        Uri agentEndpoint,
+        IList<AITool>? tools,
+        Func<IChatClient, IChatClient>? clientFactory,
+        IServiceProvider? services)
+    {
+        Throw.IfNull(aiProjectClient);
+        Throw.IfNull(agentEndpoint);
+
+        IChatClient chatClient = new FoundryChatClient(aiProjectClient, agentEndpoint, clientOptions: null);
         var agentName = ((FoundryChatClient)chatClient).AgentName!;
 
         if (clientFactory is not null)

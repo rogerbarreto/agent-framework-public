@@ -53,12 +53,6 @@ public sealed class FoundryChatClientVectorStoreTests
         return (new FoundryChatClient(projectClient, agentRef, defaultModelId: "gpt-4o", baseChatOptions: null), recorder);
     }
 
-    private static FoundryChatClient CreateMode3()
-        => new(
-            agentEndpoint: new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai"),
-            credential: new FakeAuthenticationTokenProvider(),
-            clientOptions: null);
-
     private static string MakeTempFile(string contents = "hello world")
     {
         var path = Path.Combine(Path.GetTempPath(), $"fcc-test-{Guid.NewGuid():N}.txt");
@@ -101,18 +95,33 @@ public sealed class FoundryChatClientVectorStoreTests
     [Fact]
     public async Task UploadFileAsync_Mode3_UploadsViaMaterializedProjectClientAsync()
     {
-        // Regression-prevention for Q2 Agent Endpoint mode (Mode 3) materialization: file uploads must work on the Agent Endpoint mode (Mode 3)
-        // because the materialized AIProjectClient is now reachable. We cannot fully exercise the
-        // wire here (the Agent Endpoint mode's AIProjectClient is built internally with a real DefaultTransport),
-        // so we assert the call surfaces with the expected exception family (auth/network) and
-        // NOT InvalidOperationException complaining about a missing AIProjectClient.
-        var chatClient = CreateMode3();
+        // Q-E: Mode 3 (Agent Endpoint) now honors caller-supplied transports via
+        // ProjectOpenAIClientOptions.Transport, so we can use a fake transport here instead of
+        // depending on DNS/network availability against example.com.
+        var sawUpload = false;
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.Contains("/files", StringComparison.Ordinal))
+            {
+                sawUpload = true;
+                return MakeJsonResponse(FakeFileJson("file_mode3"));
+            }
+            return MakeJsonResponse("{}");
+        });
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var chatClient = new FoundryChatClient(
+            agentEndpoint: new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai"),
+            credential: new FakeAuthenticationTokenProvider(),
+            clientOptions: new ProjectOpenAIClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+
         var path = MakeTempFile();
         try
         {
-            var ex = await Assert.ThrowsAnyAsync<Exception>(() =>
-                chatClient.UploadFileAsync(path, FileUploadPurpose.Assistants, CancellationToken.None));
-            Assert.IsNotType<InvalidOperationException>(ex);
+            var result = await chatClient.UploadFileAsync(path, FileUploadPurpose.Assistants, CancellationToken.None);
+            Assert.True(sawUpload);
+            Assert.Equal("file_mode3", result.Id);
         }
         finally { File.Delete(path); }
     }
@@ -364,6 +373,167 @@ public sealed class FoundryChatClientVectorStoreTests
             chatClient.CreateVectorStoreAsync("x", Array.Empty<string>(), expiresAfter: null, cts.Token));
     }
 
+    [Fact]
+    public async Task CreateVectorStoreAsync_PollsUntilStoreLeavesInProgress_Async()
+    {
+        // Q-A regression: when the create response returns status=in_progress, the helper must
+        // poll GET /vector_stores/{id} until status changes before returning. Otherwise the
+        // caller receives a half-built store.
+        var pollCount = 0;
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/vector_stores") && req.Method == HttpMethod.Post)
+            {
+                // First response: status=in_progress.
+                return Task.FromResult(MakeJsonResponse(FakeVectorStoreJsonWithStatus("vs_abc", name: "x", status: "in_progress")));
+            }
+            if (req.RequestUri.AbsolutePath.Contains("/vector_stores/vs_abc") && req.Method == HttpMethod.Get)
+            {
+                pollCount++;
+                // Stay in_progress for two polls, then complete on the third.
+                var status = pollCount < 3 ? "in_progress" : "completed";
+                return Task.FromResult(MakeJsonResponse(FakeVectorStoreJsonWithStatus("vs_abc", name: "x", status: status)));
+            }
+            return Task.FromResult(MakeJsonResponse("{}"));
+        });
+
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var chatClient = new FoundryChatClient(projectClient, "gpt-4o-mini");
+
+        var store = await chatClient.CreateVectorStoreAsync("x", Array.Empty<string>());
+
+        Assert.NotEqual(OpenAI.VectorStores.VectorStoreStatus.InProgress, store.Status);
+        Assert.True(pollCount >= 3, $"Expected at least 3 GET polls before status leaves in_progress; saw {pollCount}.");
+    }
+
+    [Fact]
+    public async Task CreateVectorStoreAsync_MidUploadFailure_DeletesAlreadyUploadedFilesAsync()
+    {
+        // Q-B regression: when the upload loop throws partway through (e.g. file 3 of 5 is
+        // missing or the network fails), the helper must DELETE the already-uploaded files so
+        // they do not accumulate as orphaned resources. The exception must still propagate.
+        var uploadCount = 0;
+        var deleted = new List<string>();
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            // DELETE first so we don't match the upload-collection /files path against this.
+            if (req.Method == HttpMethod.Delete)
+            {
+                var segments = req.RequestUri!.AbsolutePath.Split('/');
+                var fileId = segments[segments.Length - 1];
+                deleted.Add(fileId);
+                return MakeJsonResponse(FakeFileDeletedJson(fileId));
+            }
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.Contains("/files", StringComparison.Ordinal))
+            {
+                uploadCount++;
+                if (uploadCount == 3)
+                {
+                    // 400 is non-retriable; the SDK retry policy ignores it. 5xx would trigger
+                    // retries and confuse the assertion on upload count.
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent("{\"error\":{\"code\":\"BadRequest\",\"message\":\"upload-failed-on-3\"}}", Encoding.UTF8, "application/json"),
+                    };
+                }
+                return MakeJsonResponse(FakeFileJson($"file_{uploadCount}"));
+            }
+            return MakeJsonResponse("{}");
+        });
+
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var chatClient = new FoundryChatClient(projectClient, "gpt-4o-mini");
+
+        var paths = new[] { MakeTempFile("a"), MakeTempFile("b"), MakeTempFile("c"), MakeTempFile("d"), MakeTempFile("e") };
+        try
+        {
+            await Assert.ThrowsAnyAsync<Exception>(() => chatClient.CreateVectorStoreAsync("knowledge-base", paths));
+
+            // Three upload attempts: two succeeded, the third threw.
+            Assert.Equal(3, uploadCount);
+            // The two successful uploads must have been deleted as part of best-effort cleanup.
+            Assert.Equal(2, deleted.Count);
+            Assert.Contains("file_1", deleted);
+            Assert.Contains("file_2", deleted);
+        }
+        finally
+        {
+            foreach (var p in paths)
+            {
+                File.Delete(p);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CreateVectorStoreAsync_MidUploadFailure_CleanupSwallowsDeleteErrorsAsync()
+    {
+        // Q-B follow-on: if a cleanup DELETE itself fails, the helper must still propagate the
+        // original upload exception — not the cleanup exception. The caller cares about the
+        // upload failure; cleanup is best-effort.
+        var uploadCount = 0;
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            if (req.Method == HttpMethod.Delete)
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":\"DeleteFailed\",\"message\":\"cleanup-failed\"}}", Encoding.UTF8, "application/json"),
+                };
+            }
+            if (req.Method == HttpMethod.Post && req.RequestUri!.AbsolutePath.Contains("/files", StringComparison.Ordinal))
+            {
+                uploadCount++;
+                if (uploadCount == 2)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent("{\"error\":{\"code\":\"BadRequest\",\"message\":\"upload-failed\"}}", Encoding.UTF8, "application/json"),
+                    };
+                }
+                return MakeJsonResponse(FakeFileJson($"file_{uploadCount}"));
+            }
+            return MakeJsonResponse("{}");
+        });
+
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var chatClient = new FoundryChatClient(projectClient, "gpt-4o-mini");
+
+        var paths = new[] { MakeTempFile("a"), MakeTempFile("b") };
+        try
+        {
+            var ex = await Assert.ThrowsAnyAsync<Exception>(() => chatClient.CreateVectorStoreAsync("kb", paths));
+
+            // The original upload-failure message must surface, not the cleanup-failure message.
+            Assert.DoesNotContain("cleanup-failed", ex.Message ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            foreach (var p in paths)
+            {
+                File.Delete(p);
+            }
+        }
+    }
+
     // ----- DeleteVectorStoreAsync -----
 
     [Fact]
@@ -416,7 +586,10 @@ public sealed class FoundryChatClientVectorStoreTests
         => $"{{\"id\":\"{id}\",\"object\":\"file\",\"deleted\":true}}";
 
     private static string FakeVectorStoreJson(string id, string name)
-        => $"{{\"id\":\"{id}\",\"object\":\"vector_store\",\"created_at\":1700000000,\"name\":\"{name}\",\"usage_bytes\":0,\"file_counts\":{{\"in_progress\":0,\"completed\":0,\"failed\":0,\"cancelled\":0,\"total\":0}},\"status\":\"completed\",\"last_active_at\":1700000000}}";
+        => FakeVectorStoreJsonWithStatus(id, name, status: "completed");
+
+    private static string FakeVectorStoreJsonWithStatus(string id, string name, string status)
+        => $"{{\"id\":\"{id}\",\"object\":\"vector_store\",\"created_at\":1700000000,\"name\":\"{name}\",\"usage_bytes\":0,\"file_counts\":{{\"in_progress\":0,\"completed\":0,\"failed\":0,\"cancelled\":0,\"total\":0}},\"status\":\"{status}\",\"last_active_at\":1700000000}}";
 
     private static string FakeVectorStoreDeletedJson(string id)
         => $"{{\"id\":\"{id}\",\"object\":\"vector_store.deleted\",\"deleted\":true}}";

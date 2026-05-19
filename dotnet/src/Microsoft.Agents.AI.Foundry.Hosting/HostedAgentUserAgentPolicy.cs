@@ -43,6 +43,9 @@ internal sealed class HostedAgentUserAgentPolicy : PipelinePolicy
     /// <summary>Bare segment stamped by <c>AgentFrameworkUserAgentPolicy</c> in the non-hosted scenario; this policy upgrades it in-place when both run.</summary>
     private const string BareAgentFrameworkPrefix = "agent-framework-dotnet/";
 
+    /// <summary>Combined hosted segment that this policy emits. Recognized in-place so callers whose pipelines already carry a (possibly different-version) combined segment get it replaced rather than double-prefixed (Q-D fix).</summary>
+    private const string CombinedHostedPrefix = "foundry-hosting/agent-framework-dotnet/";
+
     public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
     {
         AppendHeader(message);
@@ -66,12 +69,32 @@ internal sealed class HostedAgentUserAgentPolicy : PipelinePolicy
                 return;
             }
 
+            // Combined-form check first: if the caller's pipeline already has
+            // `foundry-hosting/agent-framework-dotnet/{version}` (with a version that differs
+            // from ours — otherwise the .Contains above would have returned early), replace the
+            // entire combined span in place. Without this, the bare-prefix search below would
+            // match `agent-framework-dotnet/` *inside* the combined segment and produce a
+            // malformed `foundry-hosting/foundry-hosting/agent-framework-dotnet/...` value.
+            var combinedIdx = existing.IndexOf(CombinedHostedPrefix, StringComparison.Ordinal);
+            if (combinedIdx >= 0)
+            {
+                var combinedEnd = existing.IndexOf(' ', combinedIdx);
+                if (combinedEnd < 0)
+                {
+                    combinedEnd = existing.Length;
+                }
+
+                var replacedCombined = string.Concat(existing.AsSpan(0, combinedIdx), s_supplementValue.AsSpan(), existing.AsSpan(combinedEnd));
+                message.Request.Headers.Set("User-Agent", replacedCombined);
+                return;
+            }
+
             // If the bare agent-framework segment is present (stamped by
             // AgentFrameworkUserAgentPolicy when not hosted), upgrade it in place to the
             // combined hosted form so the wire never carries both segments simultaneously.
             // Mirrors Python where get_user_agent() returns a single combined string when the
             // hosted prefix is registered.
-            var idx = existing!.IndexOf(BareAgentFrameworkPrefix, StringComparison.Ordinal);
+            var idx = existing.IndexOf(BareAgentFrameworkPrefix, StringComparison.Ordinal);
             if (idx >= 0)
             {
                 var end = existing.IndexOf(' ', idx);

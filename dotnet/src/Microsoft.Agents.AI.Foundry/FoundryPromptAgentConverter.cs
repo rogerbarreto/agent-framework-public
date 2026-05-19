@@ -58,12 +58,23 @@ internal static class FoundryPromptAgentConverter
             return cachedVersion.Definition;
         }
 
-        // Prompt Agent (Mode 2) AgentReference-only: fetch the latest version from the service.
+        // Prompt Agent (Mode 2) AgentReference-only: fetch the agent definition from the service.
+        // Honor a pinned AgentReference.Version when present (Q-C fix); fall back to the latest
+        // version only when the reference is unpinned ("", null, or "latest").
         if (foundryChatClient.GetService<AgentReference>() is { } agentReference)
         {
             var aiProjectClient = foundryChatClient.GetService<AIProjectClient>()
                 ?? throw new InvalidOperationException(
-                    "Cannot fetch the latest agent version because the FoundryChatClient does not expose an AIProjectClient.");
+                    "Cannot fetch the agent version because the FoundryChatClient does not expose an AIProjectClient.");
+
+            if (!string.IsNullOrWhiteSpace(agentReference.Version)
+                && !string.Equals(agentReference.Version, "latest", StringComparison.OrdinalIgnoreCase))
+            {
+                var pinnedVersion = await aiProjectClient.AgentAdministrationClient
+                    .GetAgentVersionAsync(agentReference.Name, agentReference.Version, cancellationToken)
+                    .ConfigureAwait(false);
+                return pinnedVersion.Value.Definition;
+            }
 
             var record = await aiProjectClient.AgentAdministrationClient
                 .GetAgentAsync(agentReference.Name, cancellationToken)

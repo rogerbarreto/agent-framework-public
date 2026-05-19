@@ -308,6 +308,46 @@ public sealed class HostedOutboundUserAgentTests : IAsyncDisposable
         Assert.Equal(-1, second);
     }
 
+    [Fact]
+    public async Task HostedAgentUserAgentPolicy_ReplacesDifferentVersionCombinedSegment_InPlaceAsync()
+    {
+        // Q-D regression: when the User-Agent already carries the COMBINED hosted form with a
+        // different version (e.g. an older registration or caller-supplied baseline), the policy
+        // must replace the entire combined span — not just the bare suffix — so we never emit
+        // the malformed `foundry-hosting/foundry-hosting/agent-framework-dotnet/...` shape.
+        using var handler = new InspectingHandler();
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+
+        var pipeline = ClientPipeline.Create(
+            new ClientPipelineOptions { Transport = new HttpClientPipelineTransport(httpClient) },
+            perCallPolicies: [new SetUserAgentPolicy("foundry-hosting/agent-framework-dotnet/0.0.1 MEAI/10.5.1"), HostedAgentUserAgentPolicy.Instance],
+            perTryPolicies: default,
+            beforeTransportPolicies: default);
+
+        // Act
+        var message = pipeline.CreateMessage();
+        message.Request.Method = "POST";
+        message.Request.Uri = new Uri("https://example.test/anything");
+        await pipeline.SendAsync(message);
+
+        // Assert: no doubled foundry-hosting/ prefix.
+        Assert.NotNull(handler.LastUserAgent);
+        Assert.DoesNotContain("foundry-hosting/foundry-hosting/", handler.LastUserAgent, StringComparison.Ordinal);
+
+        // The combined segment must appear exactly once, and the trailing MEAI segment must be
+        // preserved in place (i.e. the policy only rewrote the combined span, not anything after it).
+        var firstCombined = handler.LastUserAgent!.IndexOf("foundry-hosting/agent-framework-dotnet/", StringComparison.Ordinal);
+        Assert.True(firstCombined >= 0);
+        var secondCombined = handler.LastUserAgent.IndexOf("foundry-hosting/agent-framework-dotnet/", firstCombined + 1, StringComparison.Ordinal);
+        Assert.Equal(-1, secondCombined);
+        Assert.Contains(" MEAI/10.5.1", handler.LastUserAgent, StringComparison.Ordinal);
+
+        // And the version that survives must be the runtime supplement value's version, not 0.0.1.
+        Assert.DoesNotContain("foundry-hosting/agent-framework-dotnet/0.0.1", handler.LastUserAgent, StringComparison.Ordinal);
+    }
+
     private sealed class InspectingHandler : HttpClientHandler
     {
         public string? LastUserAgent { get; private set; }

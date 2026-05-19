@@ -139,6 +139,21 @@ public sealed class FoundryChatClient : DelegatingChatClient
     {
     }
 
+    /// <summary>
+    /// Initializes a new instance for the Agent Endpoint mode (Mode 3) by reusing an existing
+    /// <see cref="AIProjectClient"/>'s pipeline. Equivalent to the
+    /// <see cref="FoundryChatClient(Uri, AuthenticationTokenProvider, ProjectOpenAIClientOptions?)"/>
+    /// constructor but skips building a fresh per-agent pipeline: the project-level
+    /// <see cref="ProjectOpenAIClient"/> on <paramref name="aiProjectClient"/> is used directly.
+    /// </summary>
+    /// <param name="aiProjectClient">The project client already configured at the project root containing <paramref name="agentEndpoint"/>.</param>
+    /// <param name="agentEndpoint">The per-agent endpoint URI. Same shape constraints as the other agent-endpoint ctor.</param>
+    /// <param name="clientOptions">Optional per-agent client options applied to the per-agent <c>GetProjectResponsesClientForAgentEndpoint</c> call.</param>
+    internal FoundryChatClient(AIProjectClient aiProjectClient, Uri agentEndpoint, ProjectOpenAIClientOptions? clientOptions)
+        : this(BuildAgentEndpointInnerFromProjectClient(aiProjectClient, agentEndpoint, clientOptions))
+    {
+    }
+
     private FoundryChatClient(AgentEndpointInner inner)
         : base(inner.ChatClient)
     {
@@ -258,14 +273,29 @@ public sealed class FoundryChatClient : DelegatingChatClient
 
     /// <summary>
     /// Uploads the supplied files, creates a vector store containing them, waits until the
-    /// store is fully ready, and returns the <see cref="VectorStore"/>. Mirrors Python's
+    /// store finishes ingesting its files (status leaves <see cref="VectorStoreStatus.InProgress"/>),
+    /// and returns the <see cref="VectorStore"/>. Mirrors Python's
     /// <c>foundry_chat_client.create_vector_store(name, files, expires_after_days)</c>.
     /// </summary>
     /// <param name="name">The vector store name.</param>
     /// <param name="filePaths">Paths to files to upload and attach to the store.</param>
     /// <param name="expiresAfter">Optional last-active-at expiration window. When supplied, the vector store expires this many days after its last use.</param>
     /// <param name="cancellationToken">A token that can cancel the orchestration.</param>
-    /// <returns>The created and fully-ready <see cref="VectorStore"/>.</returns>
+    /// <returns>The created and fully-ready <see cref="VectorStore"/>. The returned instance reflects the state observed after polling completes; it may be in <see cref="VectorStoreStatus.Completed"/> (typical), <see cref="VectorStoreStatus.Expired"/>, or any other terminal status returned by the service. Only <see cref="VectorStoreStatus.InProgress"/> is polled.</returns>
+    /// <remarks>
+    /// <para>
+    /// File-upload semantics are best-effort: when one of the per-file uploads throws, this method
+    /// makes a best-effort attempt to delete the files it has already uploaded so they do not
+    /// accumulate as orphaned resources on the project, then rethrows the original exception. The
+    /// cleanup itself does not throw — its failures are silently ignored because the caller is
+    /// already receiving a more meaningful exception from the original upload failure.
+    /// </para>
+    /// <para>
+    /// Cancellation aborts the polling loop with an <see cref="OperationCanceledException"/>; any
+    /// already-uploaded files and the partially-created vector store remain on the project and are
+    /// the caller's responsibility to clean up.
+    /// </para>
+    /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="name"/> is <see langword="null"/> or whitespace, or <paramref name="filePaths"/> is <see langword="null"/>.</exception>
     public async Task<VectorStore> CreateVectorStoreAsync(string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, CancellationToken cancellationToken = default)
     {
@@ -273,10 +303,23 @@ public sealed class FoundryChatClient : DelegatingChatClient
         Throw.IfNull(filePaths);
 
         var fileIds = new List<string>();
-        foreach (var path in filePaths)
+        try
         {
-            var uploaded = await this.UploadFileAsync(path, FileUploadPurpose.Assistants, cancellationToken).ConfigureAwait(false);
-            fileIds.Add(uploaded.Id);
+            foreach (var path in filePaths)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var uploaded = await this.UploadFileAsync(path, FileUploadPurpose.Assistants, cancellationToken).ConfigureAwait(false);
+                fileIds.Add(uploaded.Id);
+            }
+        }
+        catch
+        {
+            // Q-B: best-effort cleanup of files already uploaded before the mid-loop failure so
+            // they do not accumulate as orphaned resources on the project. Swallow cleanup
+            // exceptions — the caller is already going to see the original upload exception, and
+            // there is nothing useful we can do with a secondary delete failure.
+            await this.BestEffortDeleteFilesAsync(fileIds).ConfigureAwait(false);
+            throw;
         }
 
         var options = new VectorStoreCreationOptions
@@ -293,8 +336,57 @@ public sealed class FoundryChatClient : DelegatingChatClient
         }
 
         var vectorStoreClient = this.GetVectorStoreClient();
-        var result = await vectorStoreClient.CreateVectorStoreAsync(options, cancellationToken).ConfigureAwait(false);
-        return result.Value;
+        var createResult = await vectorStoreClient.CreateVectorStoreAsync(options, cancellationToken).ConfigureAwait(false);
+        var created = createResult.Value;
+
+        // Q-A: poll until the vector store leaves the in-progress state. Without this the helper
+        // hands the caller a vector store whose file ingestion may still be running, defeating
+        // the purpose of the one-call wrapper.
+        return await WaitForVectorStoreReadyAsync(vectorStoreClient, created, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task BestEffortDeleteFilesAsync(IEnumerable<string> fileIds)
+    {
+        foreach (var id in fileIds)
+        {
+            try
+            {
+                // Pass CancellationToken.None: cleanup runs in the catch path; the caller's
+                // token may already be cancelled and we still want to do our best to free
+                // orphaned resources before propagating the original exception.
+                await this.DeleteFileAsync(id, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Silently ignore cleanup failures; see XML doc on CreateVectorStoreAsync.
+            }
+        }
+    }
+
+    private static async Task<VectorStore> WaitForVectorStoreReadyAsync(VectorStoreClient client, VectorStore initial, CancellationToken cancellationToken)
+    {
+        if (initial.Status != VectorStoreStatus.InProgress)
+        {
+            return initial;
+        }
+
+        var delay = TimeSpan.FromMilliseconds(250);
+        var maxDelay = TimeSpan.FromSeconds(2);
+        var current = initial;
+        while (current.Status == VectorStoreStatus.InProgress)
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            var refreshed = await client.GetVectorStoreAsync(current.Id, cancellationToken).ConfigureAwait(false);
+            current = refreshed.Value;
+
+            if (delay < maxDelay)
+            {
+                var next = TimeSpan.FromMilliseconds(delay.TotalMilliseconds * 2);
+                delay = next < maxDelay ? next : maxDelay;
+            }
+        }
+
+        return current;
     }
 
     /// <summary>Deletes a vector store. The associated files (if any) are not deleted by this method; call <see cref="DeleteFileAsync(string, CancellationToken)"/> separately to clean them up.</summary>
@@ -482,6 +574,28 @@ public sealed class FoundryChatClient : DelegatingChatClient
         }
         var aiProjectClient = new AIProjectClient(projectRoot, credential, aiProjectClientOptions);
 
+        return new AgentEndpointInner(chatClient, aiProjectClient, agentName);
+    }
+
+    private static AgentEndpointInner BuildAgentEndpointInnerFromProjectClient(
+        AIProjectClient aiProjectClient,
+        Uri agentEndpoint,
+        ProjectOpenAIClientOptions? clientOptions)
+    {
+        Throw.IfNull(aiProjectClient);
+        Throw.IfNull(agentEndpoint);
+
+        var (agentName, _) = ParseAgentEndpoint(agentEndpoint);
+
+        var perAgentOptions = clientOptions ?? new ProjectOpenAIClientOptions();
+        perAgentOptions.Endpoint = agentEndpoint;
+        perAgentOptions.AgentName = agentName;
+
+        var chatClient = aiProjectClient.GetProjectOpenAIClient()
+            .GetProjectResponsesClientForAgentEndpoint(agentName, options: perAgentOptions)
+            .AsIChatClient();
+
+        // Reuse the caller's AIProjectClient verbatim — no new pipeline is materialized.
         return new AgentEndpointInner(chatClient, aiProjectClient, agentName);
     }
 

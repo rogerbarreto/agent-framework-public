@@ -2,8 +2,6 @@
 
 using System;
 using System.ClientModel.Primitives;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -263,6 +261,90 @@ public sealed class FoundryPromptAgentConverterTests
 
         var def = await foundryAgent.ToPromptAgentAsync();
         Assert.True(fetched);
+        Assert.NotNull(def);
+    }
+
+    [Fact]
+    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_PromptAgentOnly_PinnedVersion_FetchesPinnedVersionAsync()
+    {
+        // Q-C regression: when AgentReference.Version is set, the converter must call
+        // GET /agents/{name}/versions/{version} and return that pinned version's definition,
+        // NOT GET /agents/{name} -> GetLatestVersion() which would silently substitute the
+        // server's latest. We probe both paths from the same handler and assert exactly one was hit.
+        var fetchedLatest = false;
+        var fetchedPinned = false;
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            // Pinned-version path: …/agents/{name}/versions/{version}
+            if (req.Method == HttpMethod.Get && req.RequestUri!.AbsolutePath.Contains("/agents/agent-name/versions/2", StringComparison.Ordinal))
+            {
+                fetchedPinned = true;
+                var pinnedDef = new DeclarativeAgentDefinition("gpt-pinned") { Instructions = "Pinned-version instructions." };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(TestDataUtil.GetAgentVersionResponseJson(agentName: "agent-name", agentDefinition: pinnedDef), Encoding.UTF8, "application/json"),
+                };
+            }
+            // Latest-version path: …/agents/{name}
+            if (req.Method == HttpMethod.Get && req.RequestUri!.AbsolutePath.EndsWith("/agents/agent-name", StringComparison.Ordinal))
+            {
+                fetchedLatest = true;
+                var latestDef = new DeclarativeAgentDefinition("gpt-latest") { Instructions = "Latest-version instructions." };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(TestDataUtil.GetAgentResponseJson(agentName: "agent-name", agentDefinition: latestDef), Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        });
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var foundryAgent = projectClient.AsAIAgent(new AgentReference("agent-name", "2"));
+
+        var def = await foundryAgent.ToPromptAgentAsync();
+
+        Assert.True(fetchedPinned, "Pinned-version endpoint (.../agents/agent-name/versions/2) must be called when AgentReference.Version is set.");
+        Assert.False(fetchedLatest, "Latest-version endpoint (.../agents/agent-name) must NOT be called when AgentReference.Version is set.");
+        var declarative = Assert.IsType<DeclarativeAgentDefinition>(def);
+        Assert.Equal("gpt-pinned", declarative.Model);
+        Assert.Equal("Pinned-version instructions.", declarative.Instructions);
+    }
+
+    [Fact]
+    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_PromptAgentOnly_UnpinnedVersionKeyword_FetchesLatestAsync()
+    {
+        // Q-C boundary: AgentReference.Version == "latest" must fall back to the GET /agents/{name}
+        // path (the latest-version path), NOT GET /agents/{name}/versions/latest.
+        var fetchedLatest = false;
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            if (req.Method == HttpMethod.Get && req.RequestUri!.AbsolutePath.EndsWith("/agents/agent-name", StringComparison.Ordinal))
+            {
+                fetchedLatest = true;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(TestDataUtil.GetAgentResponseJson(agentName: "agent-name"), Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        });
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var foundryAgent = projectClient.AsAIAgent(new AgentReference("agent-name", "latest"));
+
+        var def = await foundryAgent.ToPromptAgentAsync();
+
+        Assert.True(fetchedLatest);
         Assert.NotNull(def);
     }
 
