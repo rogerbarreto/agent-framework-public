@@ -101,9 +101,9 @@ public sealed class FoundryChatClientVectorStoreTests
     [Fact]
     public async Task UploadFileAsync_Mode3_UploadsViaMaterializedProjectClientAsync()
     {
-        // Regression-prevention for Q2 mode-3 materialization: file uploads must work on mode 3
+        // Regression-prevention for Q2 Agent Endpoint mode (Mode 3) materialization: file uploads must work on the Agent Endpoint mode (Mode 3)
         // because the materialized AIProjectClient is now reachable. We cannot fully exercise the
-        // wire here (mode 3's AIProjectClient is built internally with a real DefaultTransport),
+        // wire here (the Agent Endpoint mode's AIProjectClient is built internally with a real DefaultTransport),
         // so we assert the call surfaces with the expected exception family (auth/network) and
         // NOT InvalidOperationException complaining about a missing AIProjectClient.
         var chatClient = CreateMode3();

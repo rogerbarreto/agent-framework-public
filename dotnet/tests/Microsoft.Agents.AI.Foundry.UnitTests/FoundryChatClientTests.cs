@@ -18,17 +18,17 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests;
 
 /// <summary>
 /// Unit tests for the internal <see cref="FoundryChatClient"/>. Covers the three construction
-/// modes (pure responses, server-side agent reference, hosted agent endpoint), the GetService
+/// modes (Responses Agent, Prompt Agent, Agent Endpoint), the GetService
 /// returns per mode, the metadata-tagging contract, the agent-framework user-agent registration,
-/// the mode-3 URL parsing happy and error paths, and end-to-end behavior through the public
+/// the Agent Endpoint mode (Mode 3) URL parsing happy and error paths, and end-to-end behavior through the public
 /// <c>AsAIAgent(AgentReference)</c> extension that constructs a FoundryChatClient internally.
 /// </summary>
 public sealed class FoundryChatClientTests
 {
-    #region Mode 1: pure responses (AIProjectClient + modelId)
+    #region the Responses Agent mode (Mode 1): Responses Agent (AIProjectClient + modelId)
 
     [Fact]
-    public void Mode1_PureResponses_StampsFoundryProviderName()
+    public void Mode1_ResponsesAgent_StampsFoundryProviderName()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -44,7 +44,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode1_PureResponses_ExposesAIProjectClient_ViaGetService()
+    public void Mode1_ResponsesAgent_ExposesAIProjectClient_ViaGetService()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -60,7 +60,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode1_PureResponses_ReturnsNullForAgentSpecificServices()
+    public void Mode1_ResponsesAgent_ReturnsNullForAgentSpecificServices()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -72,25 +72,25 @@ public sealed class FoundryChatClientTests
         Assert.Null(chatClient.GetService<AgentReference>());
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
         Assert.Null(chatClient.GetService<ProjectsAgentRecord>());
-        // No agent name exists in mode 1 — only mode 2 (from AgentReference.Name) and mode 3
+        // No agent name exists in the Responses Agent mode (Mode 1) — only the Prompt Agent mode (Mode 2) (from AgentReference.Name) and the Agent Endpoint mode (Mode 3)
         // (parsed from URL) populate FoundryChatClient.AgentName.
         Assert.Null(chatClient.AgentName);
     }
 
     [Fact]
-    public void Mode1_PureResponses_ThrowsOnNullProjectClient()
+    public void Mode1_ResponsesAgent_ThrowsOnNullProjectClient()
         => Assert.Throws<ArgumentNullException>(() => new FoundryChatClient(aiProjectClient: null!, "gpt-4o-mini"));
 
     [Fact]
-    public void Mode1_PureResponses_ThrowsOnEmptyModelId()
+    public void Mode1_ResponsesAgent_ThrowsOnEmptyModelId()
         => Assert.Throws<ArgumentException>(() => new FoundryChatClient(CreateProjectClient(), modelId: ""));
 
     #endregion
 
-    #region Mode 2: server-side agent (direct unit tests)
+    #region the Prompt Agent mode (Mode 2): Prompt Agent (direct unit tests)
 
     [Fact]
-    public void Mode2_AgentReference_StampsFoundryProviderNameAndDefaultModelId()
+    public void Mode2_PromptAgent_StampsFoundryProviderNameAndDefaultModelId()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -107,7 +107,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode2_AgentReference_ExposesAgentReference_ViaGetService()
+    public void Mode2_PromptAgent_ExposesAgentReference_ViaGetService()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -120,7 +120,7 @@ public sealed class FoundryChatClientTests
         Assert.Same(agentRef, chatClient.GetService<AgentReference>());
         Assert.Same(projectClient, chatClient.GetService<AIProjectClient>());
         // ProjectOpenAIClient is intentionally NOT exposed via GetService — see comment in
-        // Mode1_PureResponses_ExposesAIProjectClient_ViaGetService.
+        // Mode1_ResponsesAgent_ExposesAIProjectClient_ViaGetService.
         Assert.Null(chatClient.GetService<ProjectOpenAIClient>());
         // Version/Record were not provided via this ctor.
         Assert.Null(chatClient.GetService<ProjectsAgentVersion>());
@@ -128,7 +128,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode2_AgentReference_PopulatesAgentNameFromAgentReference()
+    public void Mode2_PromptAgent_PopulatesAgentNameFromAgentReference()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -137,13 +137,13 @@ public sealed class FoundryChatClientTests
         // Act
         var chatClient = new FoundryChatClient(projectClient, agentRef, defaultModelId: null, baseChatOptions: null);
 
-        // Assert: AgentName is general-purpose across modes 2 and 3. In mode 2 it mirrors
+        // Assert: AgentName is general-purpose across the Prompt Agent (Mode 2) and Agent Endpoint (Mode 3) modes. In the Prompt Agent mode (Mode 2) it mirrors
         // AgentReference.Name so callers have a uniform handle regardless of construction mode.
         Assert.Equal("my-server-side-agent", chatClient.AgentName);
     }
 
     [Fact]
-    public void Mode2_AgentReference_AllowsNullDefaultModelIdAndBaseChatOptions()
+    public void Mode2_PromptAgent_AllowsNullDefaultModelIdAndBaseChatOptions()
     {
         // Arrange
         var projectClient = CreateProjectClient();
@@ -155,13 +155,13 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode2_AgentReference_ThrowsOnNullAgentReference()
+    public void Mode2_PromptAgent_ThrowsOnNullAgentReference()
         => Assert.Throws<ArgumentNullException>(() =>
             new FoundryChatClient(CreateProjectClient(), agentReference: null!, defaultModelId: null, baseChatOptions: null));
 
     #endregion
 
-    #region Mode 2: end-to-end round-trip via AsAIAgent(AgentReference) extension
+    #region the Prompt Agent mode (Mode 2): Prompt Agent end-to-end round-trip via AsAIAgent(AgentReference) extension
 
     // The end-to-end tests below exercise the same FoundryChatClient mode-2 behaviors above,
     // but through the public AsAIAgent(AgentReference) extension that constructs a FoundryChatClient
@@ -363,10 +363,10 @@ public sealed class FoundryChatClientTests
 
     #endregion
 
-    #region Mode 3: hosted agent endpoint
+    #region the Agent Endpoint mode (Mode 3): Agent Endpoint
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_ParsesAgentNameFromUrl()
+    public void Mode3_AgentEndpoint_ParsesAgentNameFromUrl()
     {
         // Arrange + Act
         var chatClient = new FoundryChatClient(
@@ -379,7 +379,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_StampsFoundryProviderName()
+    public void Mode3_AgentEndpoint_StampsFoundryProviderName()
     {
         // Act
         var chatClient = new FoundryChatClient(
@@ -396,7 +396,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_ExposesProjectOpenAIClientAndAIProjectClient()
+    public void Mode3_AgentEndpoint_ExposesProjectOpenAIClientAndAIProjectClient()
     {
         // Act
         var chatClient = new FoundryChatClient(
@@ -408,7 +408,7 @@ public sealed class FoundryChatClientTests
         // ProjectOpenAIClient is intentionally NOT exposed via GetService — callers retrieve
         // it from the AIProjectClient themselves (aiProjectClient.GetProjectOpenAIClient()).
         Assert.Null(chatClient.GetService<ProjectOpenAIClient>());
-        // After the materialization change, mode 3 also exposes a working AIProjectClient
+        // After the materialization change, the Agent Endpoint mode (Mode 3) also exposes a working AIProjectClient
         // built from the parsed project root. This makes the helper surface symmetric across
         // all three construction modes.
         Assert.NotNull(chatClient.GetService<AIProjectClient>());
@@ -418,9 +418,9 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_MaterializedAIProjectClient_TargetsParsedProjectRoot()
+    public void Mode3_AgentEndpoint_MaterializedAIProjectClient_TargetsParsedProjectRoot()
     {
-        // The mode-3 ctor must derive the project root from the agent endpoint URL and
+        // The Agent Endpoint mode (Mode 3) ctor must derive the project root from the agent endpoint URL and
         // construct the AIProjectClient against that root, NOT the agent endpoint itself.
         var agentEndpoint = new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai");
         var chatClient = new FoundryChatClient(
@@ -439,7 +439,7 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_MaterializedAIProjectClient_IsReusedAcrossGetServiceCalls()
+    public void Mode3_AgentEndpoint_MaterializedAIProjectClient_IsReusedAcrossGetServiceCalls()
     {
         // Repeated GetService<AIProjectClient>() calls must return the same instance — the
         // materialized client is cached in the existing _aiProjectClient field, not built on
@@ -456,9 +456,9 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode1_PureResponses_AIProjectClient_IsTheSuppliedInstance()
+    public void Mode1_ResponsesAgent_AIProjectClient_IsTheSuppliedInstance()
     {
-        // Regression check: mode 1 must continue to expose the AIProjectClient the caller
+        // Regression check: the Responses Agent mode (Mode 1) must continue to expose the AIProjectClient the caller
         // supplied via the constructor, NOT a freshly-materialized one.
         var supplied = CreateProjectClient();
         var chatClient = new FoundryChatClient(supplied, "gpt-4o-mini");
@@ -466,9 +466,9 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode2_AgentReference_AIProjectClient_IsTheSuppliedInstance()
+    public void Mode2_PromptAgent_AIProjectClient_IsTheSuppliedInstance()
     {
-        // Regression check: mode 2 must continue to expose the AIProjectClient the caller
+        // Regression check: the Prompt Agent mode (Mode 2) must continue to expose the AIProjectClient the caller
         // supplied via the constructor.
         var supplied = CreateProjectClient();
         var agentRef = new AgentReference("agent-name", "1");
@@ -477,12 +477,12 @@ public sealed class FoundryChatClientTests
     }
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_ThrowsOnNullEndpoint()
+    public void Mode3_AgentEndpoint_ThrowsOnNullEndpoint()
         => Assert.Throws<ArgumentNullException>(() =>
             new FoundryChatClient(agentEndpoint: null!, credential: new FakeAuthenticationTokenProvider(), clientOptions: null));
 
     [Fact]
-    public void Mode3_HostedAgentEndpoint_ThrowsOnNullCredential()
+    public void Mode3_AgentEndpoint_ThrowsOnNullCredential()
         => Assert.Throws<ArgumentNullException>(() =>
             new FoundryChatClient(
                 agentEndpoint: new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai"),

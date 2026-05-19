@@ -24,10 +24,10 @@ using OpenAI.VectorStores;
 namespace Microsoft.Agents.AI.Foundry;
 
 /// <summary>
-/// Internal Foundry chat-client decorator that unifies the three Foundry chat-client construction
-/// modes (pure responses, server-side agent reference, hosted agent endpoint) behind a single
-/// type and centralises Foundry-specific concerns: <c>microsoft.foundry</c> telemetry tagging,
-/// <c>agent-framework-dotnet/{version}</c> User-Agent stamping, and (for server-side agents)
+/// Foundry chat-client decorator that unifies the three Foundry chat-client construction
+/// modes (Responses Agent, Prompt Agent, Agent Endpoint) behind a single type and centralizes
+/// Foundry-specific concerns: <c>microsoft.foundry</c> telemetry tagging,
+/// <c>agent-framework-dotnet/{version}</c> User-Agent stamping, and (for Prompt Agents)
 /// per-request payload mutation that injects the agent reference and strips per-request
 /// overrides that the server owns.
 /// </summary>
@@ -40,9 +40,17 @@ namespace Microsoft.Agents.AI.Foundry;
 /// segment are uniform across paths.
 /// </para>
 /// <para>
-/// The type is intentionally <see langword="internal"/> for now. The public surface remains the
-/// existing <c>FoundryAgent</c> and <c>AsAIAgent</c> shapes; promotion is deferred until external
-/// callers express need.
+/// The three construction modes are:
+/// </para>
+/// <list type="bullet">
+///   <item><description><b>Responses Agent</b> (Mode 1): direct Responses API call against a project-level model id; no server-side agent definition exists. Constructed from <c>(AIProjectClient, modelId)</c>.</description></item>
+///   <item><description><b>Prompt Agent</b> (Mode 2): server-side agent definition (a <see cref="ProjectsAgentDefinition"/>, typically a <see cref="DeclarativeAgentDefinition"/>) invoked by <see cref="AgentReference"/> against the project Responses URL. Constructed from <see cref="AgentReference"/>, <see cref="ProjectsAgentVersion"/>, or <see cref="ProjectsAgentRecord"/>.</description></item>
+///   <item><description><b>Agent Endpoint</b> (Mode 3): invocation via the per-agent endpoint URL <c>…/projects/{p}/agents/{name}/endpoint/protocols/openai</c>. The agent behind the endpoint can be either a hosted (container-backed) agent or a Prompt Agent. Constructed from <c>(Uri agentEndpoint, credential)</c>.</description></item>
+/// </list>
+/// <para>
+/// Note: "Hosted Agent" refers to a container-based runtime agent (see
+/// <c>Microsoft.Agents.AI.Foundry.Hosting</c>) and is the <i>kind</i> of agent that may sit
+/// behind an Agent Endpoint. It is not synonymous with the Agent Endpoint mode itself.
 /// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
@@ -56,7 +64,8 @@ public sealed class FoundryChatClient : DelegatingChatClient
     private readonly ChatOptions? _baseChatOptions;
 
     /// <summary>
-    /// Initializes a new instance for mode 1: pure responses via a project-level model id.
+    /// Initializes a new instance for the Responses Agent mode (Mode 1): direct Responses API
+    /// call against a project-level model id; no server-side agent definition exists.
     /// </summary>
     /// <param name="aiProjectClient">The project client.</param>
     /// <param name="modelId">The model deployment id.</param>
@@ -72,7 +81,8 @@ public sealed class FoundryChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Initializes a new instance for mode 2 (root): server-side agent invoked by reference.
+    /// Initializes a new instance for the Prompt Agent mode (Mode 2): server-side agent
+    /// definition invoked by <see cref="AgentReference"/>.
     /// </summary>
     internal FoundryChatClient(AIProjectClient aiProjectClient, AgentReference agentReference, string? defaultModelId, ChatOptions? baseChatOptions)
         : base(Throw.IfNull(aiProjectClient)
@@ -89,8 +99,8 @@ public sealed class FoundryChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Initializes a new instance for mode 2 (record variant): server-side agent invoked by
-    /// record, resolving to the latest version.
+    /// Initializes a new instance for the Prompt Agent mode (Mode 2, record variant):
+    /// server-side agent definition invoked by record, resolving to the latest version.
     /// </summary>
     internal FoundryChatClient(AIProjectClient aiProjectClient, ProjectsAgentRecord agentRecord, ChatOptions? baseChatOptions)
         : this(aiProjectClient, Throw.IfNull(agentRecord).GetLatestVersion(), baseChatOptions)
@@ -99,8 +109,8 @@ public sealed class FoundryChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Initializes a new instance for mode 2 (version variant): server-side agent invoked by
-    /// a specific version.
+    /// Initializes a new instance for the Prompt Agent mode (Mode 2, version variant):
+    /// server-side agent definition invoked by a specific version.
     /// </summary>
     internal FoundryChatClient(AIProjectClient aiProjectClient, ProjectsAgentVersion agentVersion, ChatOptions? baseChatOptions)
         : this(
@@ -113,9 +123,10 @@ public sealed class FoundryChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Initializes a new instance for mode 3: hosted agent endpoint URL. Parses the URL into
-    /// its per-agent <see cref="ProjectOpenAIClient"/> shape internally and forwards through
-    /// the resulting responses client.
+    /// Initializes a new instance for the Agent Endpoint mode (Mode 3): invocation via the
+    /// per-agent endpoint URL. Parses the URL into its per-agent
+    /// <see cref="ProjectOpenAIClient"/> shape internally and forwards through the resulting
+    /// responses client.
     /// </summary>
     /// <param name="agentEndpoint">
     /// The agent-specific endpoint URI. Must be of the shape
@@ -124,11 +135,11 @@ public sealed class FoundryChatClient : DelegatingChatClient
     /// <param name="credential">The authentication credential.</param>
     /// <param name="clientOptions">Optional per-agent client options. <c>Endpoint</c> and <c>AgentName</c> are owned by this ctor and overridden with values derived from <paramref name="agentEndpoint"/>.</param>
     internal FoundryChatClient(Uri agentEndpoint, AuthenticationTokenProvider credential, ProjectOpenAIClientOptions? clientOptions)
-        : this(BuildHostedAgentEndpointInner(agentEndpoint, credential, clientOptions))
+        : this(BuildAgentEndpointInner(agentEndpoint, credential, clientOptions))
     {
     }
 
-    private FoundryChatClient(HostedAgentEndpointInner inner)
+    private FoundryChatClient(AgentEndpointInner inner)
         : base(inner.ChatClient)
     {
         this._aiProjectClient = inner.AIProjectClient;
@@ -145,20 +156,20 @@ public sealed class FoundryChatClient : DelegatingChatClient
     /// <list type="bullet">
     /// <item>
     /// <description>
-    /// Mode 2 (server-side agent reference): the value of <see cref="AgentReference.Name"/>
-    /// supplied at construction.
+    /// Prompt Agent mode (Mode 2): the value of <see cref="AgentReference.Name"/> supplied at
+    /// construction.
     /// </description>
     /// </item>
     /// <item>
     /// <description>
-    /// Mode 3 (hosted agent endpoint URL): the agent name segment parsed from the supplied
-    /// agent endpoint URI.
+    /// Agent Endpoint mode (Mode 3): the agent name segment parsed from the supplied agent
+    /// endpoint URI.
     /// </description>
     /// </item>
     /// </list>
     /// <para>
-    /// Returns <see langword="null"/> for mode 1 (pure responses via a project-level model id),
-    /// where no agent name exists.
+    /// Returns <see langword="null"/> for the Responses Agent mode (Mode 1) where no agent name
+    /// exists.
     /// </para>
     /// </remarks>
     internal string? AgentName { get; }
@@ -420,7 +431,7 @@ public sealed class FoundryChatClient : DelegatingChatClient
         return new AgentReference(agentVersion.Name, version);
     }
 
-    private static HostedAgentEndpointInner BuildHostedAgentEndpointInner(
+    private static AgentEndpointInner BuildAgentEndpointInner(
         Uri agentEndpoint,
         AuthenticationTokenProvider credential,
         ProjectOpenAIClientOptions? clientOptions)
@@ -471,7 +482,7 @@ public sealed class FoundryChatClient : DelegatingChatClient
         }
         var aiProjectClient = new AIProjectClient(projectRoot, credential, aiProjectClientOptions);
 
-        return new HostedAgentEndpointInner(chatClient, aiProjectClient, agentName);
+        return new AgentEndpointInner(chatClient, aiProjectClient, agentName);
     }
 
     /// <summary>Best-effort registration of <see cref="AgentFrameworkUserAgentPolicy"/> via the MEAI <see cref="OpenAIRequestPolicies"/> hook with at-most-once dedup per pipeline.</summary>
@@ -493,9 +504,9 @@ public sealed class FoundryChatClient : DelegatingChatClient
     /// <summary>Default OAuth scope for the Azure AI resource. Matches the scope used by <c>Azure.AI.Extensions.OpenAI</c>'s internal authentication helper so the bearer token is accepted by the Foundry control plane.</summary>
     private const string AzureAiResourceScope = "https://ai.azure.com/.default";
 
-    private readonly struct HostedAgentEndpointInner
+    private readonly struct AgentEndpointInner
     {
-        public HostedAgentEndpointInner(IChatClient chatClient, AIProjectClient aiProjectClient, string agentName)
+        public AgentEndpointInner(IChatClient chatClient, AIProjectClient aiProjectClient, string agentName)
         {
             this.ChatClient = chatClient;
             this.AIProjectClient = aiProjectClient;

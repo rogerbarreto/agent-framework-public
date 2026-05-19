@@ -153,7 +153,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
     public async Task<ChatClientAgentSession> CreateConversationSessionAsync(CancellationToken cancellationToken = default)
     {
         // The inner FoundryChatClient surfaces an AIProjectClient via GetService for all
-        // three construction modes (Plan #2 mode-3 materialization). Resolve it through the
+        // three construction modes (Plan #2 Agent Endpoint mode materialization). Resolve it through the
         // delegating chain at call time instead of caching a private reference on this agent.
         var aiProjectClient = this.GetService<AIProjectClient>()
             ?? throw new InvalidOperationException(
@@ -255,8 +255,8 @@ public sealed class FoundryAgent : DelegatingAIAgent
     /// <summary>
     /// Builds the inner <see cref="ChatClientAgent"/> for the agent-endpoint constructor. The
     /// per-agent <see cref="ProjectOpenAIClient"/> shape and URL parsing are owned by
-    /// <see cref="FoundryChatClient"/>; we just construct it in mode 3 and pass the inner
-    /// chat client through any caller-provided <paramref name="clientFactory"/>.
+    /// <see cref="FoundryChatClient"/>; we just construct it in the Agent Endpoint mode (Mode 3)
+    /// and pass the inner chat client through any caller-provided <paramref name="clientFactory"/>.
     /// </summary>
     private static AIAgent CreateInnerAgentFromAgentEndpoint(
         Uri agentEndpoint,

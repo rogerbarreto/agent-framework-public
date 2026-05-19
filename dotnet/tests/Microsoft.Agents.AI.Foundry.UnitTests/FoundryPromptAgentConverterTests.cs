@@ -43,14 +43,14 @@ public sealed class FoundryPromptAgentConverterTests
             agentEndpoint: new Uri("https://example.com/api/projects/myproj/agents/myagent/endpoint/protocols/openai"),
             credential: new FakeAuthenticationTokenProvider());
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => foundryAgent.ToPromptAgentAsync());
-        Assert.Contains("hosted agent endpoint URL", ex.Message);
+        Assert.Contains("Agent Endpoint mode (Mode 3)", ex.Message);
     }
 
     [Fact]
     public async Task ToPromptAgentAsync_ChatClientAgent_Mode1_MissingModelId_ThrowsInvalidOperationExceptionAsync()
     {
         var projectClient = CreateProjectClient();
-        // Construct a FoundryChatClient via mode 1 then wrap in a ChatClientAgent whose
+        // Construct a FoundryChatClient via the Responses Agent mode (Mode 1) then wrap in a ChatClientAgent whose
         // ChatOptions has no ModelId — synthesis must throw.
         var fcc = new FoundryChatClient(projectClient, "gpt-4o-mini");
         var agent = new ChatClientAgent(fcc, new ChatClientAgentOptions { ChatOptions = new ChatOptions() });
@@ -80,13 +80,13 @@ public sealed class FoundryPromptAgentConverterTests
     {
         // Cancellation should bubble up from the AgentReference fetch path. Construct a
         // FoundryAgent via AsAIAgent(AgentReference) and pass a pre-cancelled token.
-        var (foundryAgent, _) = CreateMode2_AgentReferenceOnly("agent-name");
+        var (foundryAgent, _) = CreateMode2_PromptAgentOnly("agent-name");
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         await Assert.ThrowsAnyAsync<Exception>(() => foundryAgent.ToPromptAgentAsync(cts.Token));
     }
 
-    // ----- Mode 1 (RAPI) synthesis paths -----
+    // ----- the Responses Agent mode (Mode 1) (RAPI) synthesis paths -----
 
     [Fact]
     public async Task ToPromptAgentAsync_ChatClientAgent_Mode1_RoundTripsModelInstructionsTemperatureTopPAsync()
@@ -196,7 +196,7 @@ public sealed class FoundryPromptAgentConverterTests
     [Fact]
     public async Task ToPromptAgentAsync_FoundryAgent_Mode1_ResultIsDeclarativeAgentDefinitionAsync()
     {
-        // FoundryAgent constructed via the projectEndpoint+model+instructions ctor (mode 1).
+        // FoundryAgent constructed via the projectEndpoint+model+instructions ctor (Responses Agent mode, the Responses Agent mode (Mode 1)).
         var foundryAgent = new FoundryAgent(
             projectEndpoint: new Uri("https://test.openai.azure.com/"),
             credential: new FakeAuthenticationTokenProvider(),
@@ -209,7 +209,7 @@ public sealed class FoundryPromptAgentConverterTests
         Assert.Equal("You are helpful.", declarative.Instructions);
     }
 
-    // ----- Mode 2 paths -----
+    // ----- the Prompt Agent mode (Mode 2) paths -----
 
     [Fact]
     public async Task ToPromptAgentAsync_FoundryAgent_Mode2_AgentVersion_ReturnsCachedDefinitionAsync()
@@ -235,7 +235,7 @@ public sealed class FoundryPromptAgentConverterTests
     }
 
     [Fact]
-    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_AgentReferenceOnly_FetchesLatestVersionAsync()
+    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_PromptAgentOnly_FetchesLatestVersionAsync()
     {
         // The handler returns a known agent JSON. The converter must hit GET /agents/{name}
         // and return that record's latest version definition.
@@ -267,7 +267,7 @@ public sealed class FoundryPromptAgentConverterTests
     }
 
     [Fact]
-    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_AgentReferenceOnly_ServerReturnsError_PropagatesExceptionAsync()
+    public async Task ToPromptAgentAsync_FoundryAgent_Mode2_PromptAgentOnly_ServerReturnsError_PropagatesExceptionAsync()
     {
         using var handler = new HttpHandlerAssert(req =>
             new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{\"error\":{\"code\":\"NotFound\"}}", Encoding.UTF8, "application/json") });
@@ -317,7 +317,7 @@ public sealed class FoundryPromptAgentConverterTests
             new FakeAuthenticationTokenProvider(),
             new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(new HttpClient()) });
 
-    private static (FoundryAgent FoundryAgent, AIProjectClient ProjectClient) CreateMode2_AgentReferenceOnly(string agentName)
+    private static (FoundryAgent FoundryAgent, AIProjectClient ProjectClient) CreateMode2_PromptAgentOnly(string agentName)
     {
         var projectClient = CreateProjectClient();
         var foundryAgent = projectClient.AsAIAgent(new AgentReference(agentName));

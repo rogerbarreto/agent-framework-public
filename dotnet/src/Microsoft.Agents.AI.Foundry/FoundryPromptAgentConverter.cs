@@ -28,10 +28,10 @@ namespace Microsoft.Agents.AI.Foundry;
 /// <see cref="IChatClient.GetService(Type, object?)"/>):
 /// </para>
 /// <list type="bullet">
-/// <item><description><b>Mode 1 (pure responses)</b>: synthesise a <see cref="DeclarativeAgentDefinition"/> from the agent's <see cref="ChatOptions"/>.</description></item>
-/// <item><description><b>Mode 2 (server-side agent, cached version)</b>: return the cached <see cref="ProjectsAgentVersion.Definition"/>.</description></item>
-/// <item><description><b>Mode 2 (AgentReference-only)</b>: fetch the latest version from the service and return its definition.</description></item>
-/// <item><description><b>Mode 3 (hosted agent endpoint)</b>: throw — no local definition exists to convert.</description></item>
+/// <item><description><b>Responses Agent (Mode 1)</b>: synthesize a <see cref="DeclarativeAgentDefinition"/> from the agent's <see cref="ChatOptions"/>.</description></item>
+/// <item><description><b>Prompt Agent (Mode 2, cached version)</b>: return the cached <see cref="ProjectsAgentVersion.Definition"/>.</description></item>
+/// <item><description><b>Prompt Agent (Mode 2, AgentReference-only)</b>: fetch the latest version from the service and return its definition.</description></item>
+/// <item><description><b>Agent Endpoint (Mode 3)</b>: throw — no local definition exists to convert.</description></item>
 /// </list>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
@@ -39,10 +39,10 @@ internal static class FoundryPromptAgentConverter
 {
     /// <summary>Performs the conversion for an agent whose chat client and chat options are supplied.</summary>
     /// <param name="chatClient">The chat client extracted from the calling agent (must surface a <see cref="FoundryChatClient"/> via <see cref="IChatClient.GetService(Type, object?)"/>).</param>
-    /// <param name="chatOptions">The agent's chat options (model id, instructions, temperature, top-p, tools). Required for mode 1; ignored for mode 2.</param>
-    /// <param name="cancellationToken">A token that can cancel a server-side fetch (mode 2 AgentReference path).</param>
+    /// <param name="chatOptions">The agent's chat options (model id, instructions, temperature, top-p, tools). Required for the Responses Agent mode; ignored for the Prompt Agent mode.</param>
+    /// <param name="cancellationToken">A token that can cancel a server-side fetch (Prompt Agent AgentReference path).</param>
     /// <returns>A <see cref="ProjectsAgentDefinition"/> suitable for <c>AgentAdministrationClient.CreateAgentVersionAsync</c>.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the chat client is not Foundry-backed, the agent was constructed from a hosted agent endpoint URL, no model id is set for mode 1, or an unsupported <see cref="AITool"/> is encountered.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the chat client is not Foundry-backed, the agent was constructed via the Agent Endpoint mode, no model id is set for the Responses Agent mode, or an unsupported <see cref="AITool"/> is encountered.</exception>
     public static async Task<ProjectsAgentDefinition> ConvertAsync(IChatClient chatClient, ChatOptions? chatOptions, CancellationToken cancellationToken)
     {
         Throw.IfNull(chatClient);
@@ -52,13 +52,13 @@ internal static class FoundryPromptAgentConverter
                 "ToPromptAgentAsync requires a FoundryChatClient-backed agent. " +
                 "The supplied agent's chat client does not expose a FoundryChatClient via GetService<FoundryChatClient>().");
 
-        // Mode 2 with cached server-side version (constructed via ProjectsAgentVersion or ProjectsAgentRecord).
+        // Prompt Agent (Mode 2) with a cached server-side version (constructed via ProjectsAgentVersion or ProjectsAgentRecord).
         if (foundryChatClient.GetService<ProjectsAgentVersion>() is { } cachedVersion)
         {
             return cachedVersion.Definition;
         }
 
-        // Mode 2 AgentReference-only: fetch the latest version from the service.
+        // Prompt Agent (Mode 2) AgentReference-only: fetch the latest version from the service.
         if (foundryChatClient.GetService<AgentReference>() is { } agentReference)
         {
             var aiProjectClient = foundryChatClient.GetService<AIProjectClient>()
@@ -71,17 +71,17 @@ internal static class FoundryPromptAgentConverter
             return record.Value.GetLatestVersion().Definition;
         }
 
-        // Mode 3 (hosted agent endpoint URL): AgentName is set (parsed from URL) but no
-        // AgentReference exists locally. The agent definition lives only on the server and is
-        // not retrievable through this chat client, so conversion is not supported here.
+        // Agent Endpoint (Mode 3): AgentName is set (parsed from URL) but no AgentReference exists
+        // locally. The agent definition lives only on the server and is not retrievable through this
+        // chat client, so conversion is not supported here.
         if (foundryChatClient.AgentName is not null)
         {
             throw new InvalidOperationException(
-                "ToPromptAgentAsync is not supported for agents constructed from a hosted agent endpoint URL; " +
+                "ToPromptAgentAsync is not supported for agents constructed via the Agent Endpoint mode (Mode 3); " +
                 "no local definition exists to convert.");
         }
 
-        // Mode 1 (pure responses): synthesise from ChatOptions.
+        // Responses Agent (Mode 1): synthesize from ChatOptions.
         return SynthesizeFromChatOptions(chatOptions);
     }
 
@@ -90,7 +90,7 @@ internal static class FoundryPromptAgentConverter
         if (chatOptions is null || string.IsNullOrWhiteSpace(chatOptions.ModelId))
         {
             throw new InvalidOperationException(
-                "ToPromptAgentAsync requires a model id on the agent's ChatOptions to synthesise a prompt agent definition.");
+                "ToPromptAgentAsync requires a model id on the agent's ChatOptions to synthesize a prompt agent definition.");
         }
 
         var definition = new DeclarativeAgentDefinition(chatOptions.ModelId!)

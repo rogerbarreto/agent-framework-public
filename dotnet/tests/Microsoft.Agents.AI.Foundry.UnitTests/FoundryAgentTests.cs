@@ -450,7 +450,7 @@ public class FoundryAgentTests
     [Fact]
     public void AgentEndpointConstructor_GetServiceAIProjectClient_ReturnsNonNull()
     {
-        // Behavior change: after Plan #2's mode-3 AIProjectClient materialization, the
+        // Behavior change: after Plan #2's Agent Endpoint mode (Mode 3) AIProjectClient materialization, the
         // agent-endpoint constructor now derives a project-level AIProjectClient from the
         // parsed project root URL and surfaces it via GetService. Previously this returned
         // null because no AIProjectClient was constructed for hosted-agent-endpoint agents.
@@ -628,7 +628,7 @@ public class FoundryAgentTests
     public void AgentEndpointConstructor_ExposesFoundryProviderName_OnChatClientMetadata()
     {
         // Behavior change: after the FoundryChatClient consolidation, the agent-endpoint path
-        // now wraps with FoundryChatClient (mode 3) and stamps the microsoft.foundry provider
+        // now wraps with FoundryChatClient in the Agent Endpoint mode (Mode 3) and stamps the microsoft.foundry provider
         // name. Previously this path used a bare AsIChatClient() with no Foundry-specific
         // decorator, so the provider name defaulted to whatever MEAI surfaces. This guards the
         // new behavior.
