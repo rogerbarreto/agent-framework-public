@@ -360,46 +360,6 @@ public sealed class FoundryChatClient : DelegatingChatClient
         return (agentName, projectRoot);
     }
 
-    /// <summary>
-    /// Builds a project-level <see cref="ProjectOpenAIClient"/> for the hosted-agent endpoint
-    /// scenario (used by <c>FoundryAgent.CreateConversationSessionAsync</c>). Only copies the
-    /// observable primitive properties from a caller-supplied <see cref="ProjectOpenAIClientOptions"/>
-    /// because <see cref="ClientPipelineOptions"/> does not publicly enumerate its policies.
-    /// </summary>
-    internal static ProjectOpenAIClient CreateProjectLevelOpenAIClientFromAgentEndpoint(
-        Uri agentEndpoint,
-        AuthenticationTokenProvider credential,
-        ProjectOpenAIClientOptions? clientOptions)
-    {
-        var (_, projectRoot) = ParseAgentEndpoint(agentEndpoint);
-
-        var projectOptions = new ProjectOpenAIClientOptions();
-        if (clientOptions is not null)
-        {
-            if (clientOptions.RetryPolicy is not null)
-            {
-                projectOptions.RetryPolicy = clientOptions.RetryPolicy;
-            }
-
-            if (clientOptions.NetworkTimeout is not null)
-            {
-                projectOptions.NetworkTimeout = clientOptions.NetworkTimeout;
-            }
-
-            if (clientOptions.Transport is not null)
-            {
-                projectOptions.Transport = clientOptions.Transport;
-            }
-
-            if (!string.IsNullOrEmpty(clientOptions.UserAgentApplicationId))
-            {
-                projectOptions.UserAgentApplicationId = clientOptions.UserAgentApplicationId;
-            }
-        }
-
-        return new ProjectOpenAIClient(projectRoot, credential, projectOptions);
-    }
-
     private ChatOptions GetAgentEnabledChatOptions(ChatOptions? options)
     {
         // Start with a clone of the base chat options defined for the agent, if any.
@@ -469,8 +429,32 @@ public sealed class FoundryChatClient : DelegatingChatClient
         // construction modes. Project-level helpers (file upload, vector store create/delete)
         // depend on this. RBAC for those calls is at the project level; if the supplied
         // credential lacks project-scope permissions, the SDK surfaces a clean 401/403 at
-        // call time.
-        var aiProjectClient = new AIProjectClient(projectRoot, credential);
+        // call time. The four observable primitive ClientPipelineOptions properties are
+        // propagated from the caller's per-agent options bag so test-injected transports and
+        // explicit RetryPolicy / NetworkTimeout / UserAgentApplicationId reach the
+        // project-level pipeline. Pipeline policies added via AddPolicy on the caller bag are
+        // NOT propagated because ClientPipelineOptions does not publicly enumerate policies.
+        var aiProjectClientOptions = new AIProjectClientOptions();
+        if (clientOptions is not null)
+        {
+            if (clientOptions.RetryPolicy is not null)
+            {
+                aiProjectClientOptions.RetryPolicy = clientOptions.RetryPolicy;
+            }
+            if (clientOptions.NetworkTimeout is not null)
+            {
+                aiProjectClientOptions.NetworkTimeout = clientOptions.NetworkTimeout;
+            }
+            if (clientOptions.Transport is not null)
+            {
+                aiProjectClientOptions.Transport = clientOptions.Transport;
+            }
+            if (!string.IsNullOrEmpty(clientOptions.UserAgentApplicationId))
+            {
+                aiProjectClientOptions.UserAgentApplicationId = clientOptions.UserAgentApplicationId;
+            }
+        }
+        var aiProjectClient = new AIProjectClient(projectRoot, credential, aiProjectClientOptions);
 
         return new HostedAgentEndpointInner(chatClient, perAgentClient, aiProjectClient, agentName);
     }

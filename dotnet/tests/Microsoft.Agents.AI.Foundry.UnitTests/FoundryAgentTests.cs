@@ -448,6 +448,10 @@ public class FoundryAgentTests
     [Fact]
     public void AgentEndpointConstructor_GetServiceAIProjectClient_ReturnsNonNull()
     {
+        // Behavior change: after Plan #2's mode-3 AIProjectClient materialization, the
+        // agent-endpoint constructor now derives a project-level AIProjectClient from the
+        // parsed project root URL and surfaces it via GetService. Previously this returned
+        // null because no AIProjectClient was constructed for hosted-agent-endpoint agents.
         FoundryAgent agent = new(s_testAgentEndpoint, new FakeAuthenticationTokenProvider());
 
         Assert.NotNull(agent.GetService<AIProjectClient>());

@@ -129,7 +129,17 @@ public sealed class FoundryAgent : DelegatingAIAgent
         IServiceProvider? services = null)
         : base(CreateInnerAgentFromAgentEndpoint(agentEndpoint, credential, clientOptions, tools, clientFactory, services))
     {
-        this._projectOpenAIClient = CreateProjectLevelOpenAIClientFromAgentEndpoint(agentEndpoint, credential, clientOptions);
+        // The inner FoundryChatClient now materializes an AIProjectClient from the parsed
+        // project root (the project-level handle, NOT the per-agent one), so we can reuse it
+        // here instead of building a second project-level ProjectOpenAIClient. Single network
+        // handle per logical role.
+        //
+        // Use base.GetService so this lookup bypasses the FoundryAgent override below (which
+        // returns the still-uninitialised _aiProjectClient field at ctor time).
+        this._aiProjectClient = base.GetService(typeof(AIProjectClient)) as AIProjectClient
+            ?? throw new InvalidOperationException(
+                "Expected the inner FoundryChatClient to expose a materialized AIProjectClient for the hosted agent endpoint mode.");
+        this._projectOpenAIClient = this._aiProjectClient.GetProjectOpenAIClient();
     }
 
     /// <summary>
@@ -316,17 +326,6 @@ public sealed class FoundryAgent : DelegatingAIAgent
 
         return WireClientHeaders(new ChatClientAgent(chatClient, agentOptions, services: services));
     }
-
-    /// <summary>
-    /// Delegates to <see cref="FoundryChatClient.CreateProjectLevelOpenAIClientFromAgentEndpoint"/> so
-    /// FoundryAgent can build the project-scoped <see cref="ProjectOpenAIClient"/> that backs
-    /// <see cref="CreateConversationSessionAsync(CancellationToken)"/>.
-    /// </summary>
-    private static ProjectOpenAIClient CreateProjectLevelOpenAIClientFromAgentEndpoint(
-        Uri agentEndpoint,
-        AuthenticationTokenProvider credential,
-        ProjectOpenAIClientOptions? clientOptions)
-        => FoundryChatClient.CreateProjectLevelOpenAIClientFromAgentEndpoint(agentEndpoint, credential, clientOptions);
 
     /// <summary>
     /// Parses an agent endpoint URI. Delegates to <see cref="FoundryChatClient.ParseAgentEndpoint(Uri)"/>
