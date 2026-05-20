@@ -280,6 +280,7 @@ public sealed class FoundryChatClient : DelegatingChatClient
     /// <param name="name">The vector store name.</param>
     /// <param name="filePaths">Paths to files to upload and attach to the store.</param>
     /// <param name="expiresAfter">Optional last-active-at expiration window. When supplied, the vector store expires this many days after its last use.</param>
+    /// <param name="pollingTimeout">Optional upper bound on the wait for the vector store to leave <see cref="VectorStoreStatus.InProgress"/>. Defaults to 5 minutes when not supplied; pass <see cref="Timeout.InfiniteTimeSpan"/> to disable. Independent of <paramref name="cancellationToken"/>: cancellation always wins.</param>
     /// <param name="cancellationToken">A token that can cancel the orchestration.</param>
     /// <returns>The created and fully-ready <see cref="VectorStore"/>. The returned instance reflects the state observed after polling completes; it may be in <see cref="VectorStoreStatus.Completed"/> (typical), <see cref="VectorStoreStatus.Expired"/>, or any other terminal status returned by the service. Only <see cref="VectorStoreStatus.InProgress"/> is polled.</returns>
     /// <remarks>
@@ -293,11 +294,13 @@ public sealed class FoundryChatClient : DelegatingChatClient
     /// <para>
     /// Cancellation aborts the polling loop with an <see cref="OperationCanceledException"/>; any
     /// already-uploaded files and the partially-created vector store remain on the project and are
-    /// the caller's responsibility to clean up.
+    /// the caller's responsibility to clean up. The same applies when the polling timeout elapses
+    /// (a <see cref="TimeoutException"/> is thrown instead).
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="name"/> is <see langword="null"/> or whitespace, or <paramref name="filePaths"/> is <see langword="null"/>.</exception>
-    public async Task<VectorStore> CreateVectorStoreAsync(string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, CancellationToken cancellationToken = default)
+    /// <exception cref="TimeoutException">The vector store did not leave <see cref="VectorStoreStatus.InProgress"/> within <paramref name="pollingTimeout"/>.</exception>
+    public async Task<VectorStore> CreateVectorStoreAsync(string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, TimeSpan? pollingTimeout = null, CancellationToken cancellationToken = default)
     {
         Throw.IfNullOrWhitespace(name);
         Throw.IfNull(filePaths);
@@ -342,7 +345,7 @@ public sealed class FoundryChatClient : DelegatingChatClient
         // Q-A: poll until the vector store leaves the in-progress state. Without this the helper
         // hands the caller a vector store whose file ingestion may still be running, defeating
         // the purpose of the one-call wrapper.
-        return await WaitForVectorStoreReadyAsync(vectorStoreClient, created, cancellationToken).ConfigureAwait(false);
+        return await WaitForVectorStoreReadyAsync(vectorStoreClient, created, pollingTimeout ?? s_defaultPollingTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task BestEffortDeleteFilesAsync(IEnumerable<string> fileIds)
@@ -363,18 +366,28 @@ public sealed class FoundryChatClient : DelegatingChatClient
         }
     }
 
-    private static async Task<VectorStore> WaitForVectorStoreReadyAsync(VectorStoreClient client, VectorStore initial, CancellationToken cancellationToken)
+    /// <summary>Upper bound on <see cref="WaitForVectorStoreReadyAsync"/> when the caller does not supply one. Chosen to comfortably cover normal Foundry vector-store ingestion (seconds to a minute for modest file sets) while still surfacing a clear failure if the server is stuck.</summary>
+    private static readonly TimeSpan s_defaultPollingTimeout = TimeSpan.FromMinutes(5);
+
+    private static async Task<VectorStore> WaitForVectorStoreReadyAsync(VectorStoreClient client, VectorStore initial, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (initial.Status != VectorStoreStatus.InProgress)
         {
             return initial;
         }
 
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var delay = TimeSpan.FromMilliseconds(250);
         var maxDelay = TimeSpan.FromSeconds(2);
         var current = initial;
         while (current.Status == VectorStoreStatus.InProgress)
         {
+            if (timeout != Timeout.InfiniteTimeSpan && stopwatch.Elapsed >= timeout)
+            {
+                throw new TimeoutException(
+                    $"Vector store '{current.Id}' did not leave the in-progress state within {timeout.TotalSeconds:0.##} seconds.");
+            }
+
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             var refreshed = await client.GetVectorStoreAsync(current.Id, cancellationToken).ConfigureAwait(false);
             current = refreshed.Value;

@@ -63,7 +63,7 @@ public static partial class AIProjectClientExtensions
             clientFactory,
             services);
 
-        return new FoundryAgent(aiProjectClient, innerAgent);
+        return new FoundryAgent(innerAgent);
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ public static partial class AIProjectClientExtensions
             !allowDeclarativeMode,
             services);
 
-        return new FoundryAgent(aiProjectClient, innerAgent);
+        return new FoundryAgent(innerAgent);
     }
 
     /// <summary>
@@ -165,7 +165,7 @@ public static partial class AIProjectClientExtensions
             !allowDeclarativeMode,
             services);
 
-        return new FoundryAgent(aiProjectClient, innerAgent);
+        return new FoundryAgent(innerAgent);
     }
 
     /// <summary>

@@ -79,17 +79,19 @@ public static class FoundryAgentExtensions
     /// <summary>
     /// Uploads the supplied files, creates a vector store containing them, and waits until the
     /// store leaves the in-progress state. Thin forwarder to
-    /// <see cref="FoundryChatClient.CreateVectorStoreAsync(string, IEnumerable{string}, TimeSpan?, CancellationToken)"/>.
+    /// <see cref="FoundryChatClient.CreateVectorStoreAsync(string, IEnumerable{string}, TimeSpan?, TimeSpan?, CancellationToken)"/>.
     /// </summary>
     /// <param name="agent">The Foundry agent whose inner chat client owns the file and vector-store pipeline.</param>
     /// <param name="name">The vector store name.</param>
     /// <param name="filePaths">Paths to files to upload and attach to the store.</param>
     /// <param name="expiresAfter">Optional last-active-at expiration window.</param>
+    /// <param name="pollingTimeout">Optional upper bound on the wait for the vector store to leave the in-progress state. Defaults to 5 minutes; pass <see cref="Timeout.InfiniteTimeSpan"/> to disable.</param>
     /// <param name="cancellationToken">A token that can cancel the orchestration.</param>
     /// <exception cref="ArgumentNullException"><paramref name="agent"/> is <see langword="null"/>.</exception>
     /// <exception cref="InvalidOperationException">The agent does not expose a <see cref="FoundryChatClient"/>.</exception>
-    public static Task<VectorStore> CreateVectorStoreAsync(this FoundryAgent agent, string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, CancellationToken cancellationToken = default)
-        => RequireFoundryChatClient(agent).CreateVectorStoreAsync(name, filePaths, expiresAfter, cancellationToken);
+    /// <exception cref="TimeoutException">The vector store did not leave the in-progress state within <paramref name="pollingTimeout"/>.</exception>
+    public static Task<VectorStore> CreateVectorStoreAsync(this FoundryAgent agent, string name, IEnumerable<string> filePaths, TimeSpan? expiresAfter = null, TimeSpan? pollingTimeout = null, CancellationToken cancellationToken = default)
+        => RequireFoundryChatClient(agent).CreateVectorStoreAsync(name, filePaths, expiresAfter, pollingTimeout, cancellationToken);
 
     /// <summary>
     /// Deletes a vector store. Thin forwarder to

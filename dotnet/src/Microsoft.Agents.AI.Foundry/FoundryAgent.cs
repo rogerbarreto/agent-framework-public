@@ -131,12 +131,15 @@ public sealed class FoundryAgent : DelegatingAIAgent
     }
 
     /// <summary>
-    /// Internal constructor used by <c>AsAIAgent</c> extension methods that already have an <see cref="AIProjectClient"/> and a configured <see cref="ChatClientAgent"/>.
+    /// Internal constructor used by <c>AsAIAgent</c> extension methods that already have a
+    /// configured <see cref="ChatClientAgent"/>. The inner agent already routes through a
+    /// <see cref="FoundryChatClient"/> whose <c>GetService&lt;AIProjectClient&gt;()</c> surfaces
+    /// the project client to downstream callers, so the agent does not also need a private
+    /// <see cref="AIProjectClient"/> reference here.
     /// </summary>
-    internal FoundryAgent(AIProjectClient aiProjectClient, ChatClientAgent innerAgent)
+    internal FoundryAgent(ChatClientAgent innerAgent)
         : base(WireClientHeaders(Throw.IfNull(innerAgent)))
     {
-        _ = Throw.IfNull(aiProjectClient);
     }
 
     #region Convenience methods

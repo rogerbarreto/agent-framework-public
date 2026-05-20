@@ -370,7 +370,7 @@ public sealed class FoundryChatClientVectorStoreTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            chatClient.CreateVectorStoreAsync("x", Array.Empty<string>(), expiresAfter: null, cts.Token));
+            chatClient.CreateVectorStoreAsync("x", Array.Empty<string>(), expiresAfter: null, cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -410,6 +410,36 @@ public sealed class FoundryChatClientVectorStoreTests
 
         Assert.NotEqual(OpenAI.VectorStores.VectorStoreStatus.InProgress, store.Status);
         Assert.True(pollCount >= 3, $"Expected at least 3 GET polls before status leaves in_progress; saw {pollCount}.");
+    }
+
+    [Fact]
+    public async Task CreateVectorStoreAsync_PollingTimeout_ThrowsTimeoutExceptionAsync()
+    {
+        // Sergey #2: caller-supplied (or default) polling timeout must surface as TimeoutException
+        // when the vector store never leaves InProgress. Mock keeps the store stuck and we pass
+        // a tiny timeout; cancellation token stays unused so the only path that ends the loop
+        // is the timeout check.
+        using var handler = new HttpHandlerAssert(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/vector_stores", StringComparison.Ordinal))
+            {
+                return Task.FromResult(MakeJsonResponse(FakeVectorStoreJsonWithStatus("vs_stuck", name: "x", status: "in_progress")));
+            }
+            return Task.FromResult(MakeJsonResponse("{}"));
+        });
+#pragma warning disable CA5399
+        using var httpClient = new HttpClient(handler);
+#pragma warning restore CA5399
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(httpClient) });
+        var chatClient = new FoundryChatClient(projectClient, "gpt-4o-mini");
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() =>
+            chatClient.CreateVectorStoreAsync("x", Array.Empty<string>(), expiresAfter: null, pollingTimeout: TimeSpan.FromMilliseconds(500)));
+        Assert.Contains("vs_stuck", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("in-progress", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
