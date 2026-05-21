@@ -32,13 +32,17 @@ template:
     - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
       value: "{{AZURE_AI_MODEL_DEPLOYMENT_NAME}}"
     - name: TOOLBOX_NAME
-      value: "auth-paths-toolbox"
+      value: "{{TOOLBOX_NAME}}"
 parameters:
-  properties: []
+  properties:
+    - name: TOOLBOX_NAME
+      type: string
+      default: "auth-paths-toolbox"
+      description: "Name of the Foundry Toolbox to load at runtime."
 resources:
   - kind: model
     id: gpt-4o
     name: AZURE_AI_MODEL_DEPLOYMENT_NAME
   - kind: toolbox
-    name: auth-paths-toolbox
+    name: "{{TOOLBOX_NAME}}"
     tools: []

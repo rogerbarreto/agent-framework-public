@@ -113,10 +113,10 @@ public static class FoundryHostingExtensions
     /// <para>
     /// Each string in <paramref name="toolboxNames"/> is a toolbox name registered in the Foundry
     /// project. The proxy URL per toolbox is constructed as:
-    /// <c>{FOUNDRY_AGENT_TOOLSET_ENDPOINT}/{toolboxName}/mcp?api-version=2025-05-01-preview</c>
+    /// <c>{FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{toolboxName}/mcp?api-version=v1</c>
     /// </para>
     /// <para>
-    /// When <c>FOUNDRY_AGENT_TOOLSET_ENDPOINT</c> is absent, startup succeeds without error and
+    /// When <c>FOUNDRY_PROJECT_ENDPOINT</c> is absent, startup succeeds without error and
     /// no tools are loaded (the container remains healthy per spec §2).
     /// </para>
     /// <para>

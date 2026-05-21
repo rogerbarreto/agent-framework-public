@@ -40,7 +40,7 @@ internal sealed class FoundryToolboxHealthCheck : IHealthCheck
 
             case FoundryToolboxStartupStatus.NoEndpoint:
                 return Task.FromResult(HealthCheckResult.Healthy(
-                    description: "Foundry toolbox: FOUNDRY_AGENT_TOOLSET_ENDPOINT not set; toolbox support disabled (local dev)."));
+                    description: "Foundry toolbox: FOUNDRY_PROJECT_ENDPOINT not set; toolbox support disabled (local dev)."));
 
             case FoundryToolboxStartupStatus.Pending:
                 return Task.FromResult(new HealthCheckResult(
