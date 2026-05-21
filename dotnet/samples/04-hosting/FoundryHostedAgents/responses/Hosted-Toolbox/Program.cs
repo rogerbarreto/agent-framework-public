@@ -13,7 +13,7 @@
 //   AZURE_AI_MODEL_DEPLOYMENT_NAME    - Model deployment name (default: gpt-4o)
 //
 // Optional:
-//   FOUNDRY_TOOLBOX_NAME              - Name of the toolbox to load (default: my-toolset)
+//   TOOLBOX_NAME                      - Name of the toolbox to load (default: my-toolbox)
 //   FOUNDRY_AGENT_NAME                - Client name reported to MCP server (auto-injected in hosted runtime)
 //   FOUNDRY_AGENT_VERSION             - Client version reported to MCP server (auto-injected in hosted runtime)
 //   FOUNDRY_AGENT_TOOLSET_FEATURES    - Additional Foundry-Features header flags (the mandatory
@@ -40,7 +40,7 @@ string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
         "Neither FOUNDRY_PROJECT_ENDPOINT (platform-injected in hosted runtime) " +
         "nor AZURE_AI_PROJECT_ENDPOINT (local-dev convention) is set.");
 string deploymentName = Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? "gpt-4o";
-string toolboxName = Environment.GetEnvironmentVariable("FOUNDRY_TOOLBOX_NAME") ?? "my-toolset";
+string toolboxName = Environment.GetEnvironmentVariable("TOOLBOX_NAME") ?? "my-toolbox";
 
 // Use a chained credential: try a temporary dev token first (for local Docker debugging),
 // then fall back to DefaultAzureCredential (for local dev via dotnet run / managed identity in production).
@@ -54,12 +54,12 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
     .AsAIAgent(
         model: deploymentName,
         instructions: """
-            You are a helpful assistant with access to tools provided by the Foundry Toolset.
+            You are a helpful assistant with access to tools provided by the Foundry Toolbox.
             Use the available tools to answer user questions.
             If a tool is not available for a request, let the user know clearly.
             """,
         name: Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-toolbox-agent",
-        description: "Hosted agent backed by Foundry Toolset MCP tools");
+        description: "Hosted agent backed by Foundry Toolbox MCP tools");
 
 // ── Build the host ────────────────────────────────────────────────────────────
 

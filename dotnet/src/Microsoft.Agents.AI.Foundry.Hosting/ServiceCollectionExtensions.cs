@@ -174,13 +174,27 @@ public static class FoundryHostingExtensions
         // Register the toolbox health check on the same /readiness pipeline that
         // MapFoundryResponses maps. This gates the Foundry hosted runtime's readiness
         // probe (per container-image-spec.md §3.1) on the outcome of the pre-registered
-        // toolbox connections opened in FoundryToolboxService.StartAsync. The check is
-        // idempotent: AddCheck registers under a unique name, so repeated AddFoundryToolboxes
-        // calls add the registration once and subsequent calls are no-ops.
-        services.AddHealthChecks().AddCheck<FoundryToolboxHealthCheck>(
-            name: "foundry-toolbox",
-            failureStatus: HealthStatus.Unhealthy,
-            tags: ["foundry", "toolbox", "readiness"]);
+        // toolbox connections opened in FoundryToolboxService.StartAsync.
+        // AddCheck<T>(name, ...) does NOT dedupe by name, so guard against duplicate
+        // registration when AddFoundryToolboxes is called multiple times.
+        const string HealthCheckName = "foundry-toolbox";
+        services.AddHealthChecks();
+        services.Configure<HealthCheckServiceOptions>(opts =>
+        {
+            foreach (var existing in opts.Registrations)
+            {
+                if (string.Equals(existing.Name, HealthCheckName, StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+
+            opts.Registrations.Add(new HealthCheckRegistration(
+                name: HealthCheckName,
+                factory: sp => ActivatorUtilities.CreateInstance<FoundryToolboxHealthCheck>(sp),
+                failureStatus: HealthStatus.Unhealthy,
+                tags: ["foundry", "toolbox", "readiness"]));
+        });
 
         return services;
     }

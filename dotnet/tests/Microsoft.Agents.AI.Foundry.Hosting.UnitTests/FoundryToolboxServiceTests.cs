@@ -46,9 +46,11 @@ public class FoundryToolboxServiceTests
     [Fact]
     public async Task StartAsync_WithoutEndpoint_LeavesToolsEmptyAsync()
     {
-        // Ensure env var is not set (tests may run in any CI environment)
-        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        // Ensure neither env var is set (tests may run in any CI environment)
+        var savedFoundry = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        var savedAzure = Environment.GetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT");
         Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", null);
+        Environment.SetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT", null);
         try
         {
             var options = new FoundryToolboxOptions();
@@ -65,12 +67,13 @@ public class FoundryToolboxServiceTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", savedFoundry);
+            Environment.SetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT", savedAzure);
         }
     }
 
     [Fact]
-    public async Task StartAsync_DerivesToolboxUrlFromProjectEndpointAsync()
+    public async Task StartAsync_AttemptsOpenForPreRegisteredToolboxFromProjectEndpointAsync()
     {
         // Arrange: capture the URL the service tries to reach (via a hopeless localhost
         // endpoint) and confirm StartAsync constructs the spec-shaped URL
@@ -104,7 +107,7 @@ public class FoundryToolboxServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_TrailingSlashOnProjectEndpoint_NormalizesToSingleSlashAsync()
+    public async Task StartAsync_TrailingSlashOnProjectEndpoint_AttemptsOpenAsync()
     {
         var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
         Environment.SetEnvironmentVariable(

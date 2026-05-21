@@ -35,10 +35,12 @@ public class FoundryToolboxHealthCheckTests
     [Fact]
     public async Task CheckHealthAsync_NoEndpointStatus_ReturnsHealthyAsync()
     {
-        // Arrange: no FOUNDRY_PROJECT_ENDPOINT is normal local-dev. The container
-        // must still pass readiness because the rest of the agent is functional.
-        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        // Arrange: no FOUNDRY_PROJECT_ENDPOINT / AZURE_AI_PROJECT_ENDPOINT is normal local-dev.
+        // The container must still pass readiness because the rest of the agent is functional.
+        var savedFoundry = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        var savedAzure = Environment.GetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT");
         Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", null);
+        Environment.SetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT", null);
         try
         {
             var service = CreateServiceWithoutStarting(toolbox: "any");
@@ -56,7 +58,8 @@ public class FoundryToolboxHealthCheckTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", savedFoundry);
+            Environment.SetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT", savedAzure);
         }
     }
 

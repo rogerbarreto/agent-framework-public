@@ -39,7 +39,7 @@ public sealed class FoundryToolboxOptions
     /// <summary>
     /// For testing only: overrides the toolbox proxy base URL (skipping the
     /// <c>FOUNDRY_PROJECT_ENDPOINT</c>-derived default). When set, the proxy URL
-    /// becomes <c>{EndpointOverride}/{toolboxName}/mcp?api-version={ApiVersion}</c>.
+    /// becomes <c>{EndpointOverride}/toolboxes/{toolboxName}/mcp?api-version={ApiVersion}</c>.
     /// Not part of the public API.
     /// </summary>
     internal string? EndpointOverride { get; set; }

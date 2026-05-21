@@ -101,14 +101,16 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     {
         // Per tools-integration-spec.md §2-§3, the container derives the toolbox proxy base
         // URL from the platform-injected FOUNDRY_PROJECT_ENDPOINT. The EndpointOverride
-        // option exists for tests and unusual local-dev scenarios.
+        // option exists for tests; AZURE_AI_PROJECT_ENDPOINT is honored as a local-dev
+        // fallback to mirror the convention used by AF-repo samples.
         var projectEndpoint = this._options.EndpointOverride
-            ?? Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+            ?? Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+            ?? Environment.GetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT");
 
         if (string.IsNullOrEmpty(projectEndpoint))
         {
             this._logger.LogInformation(
-                "FOUNDRY_PROJECT_ENDPOINT is not set; toolbox support is disabled.");
+                "Neither FOUNDRY_PROJECT_ENDPOINT nor AZURE_AI_PROJECT_ENDPOINT is set; toolbox support is disabled.");
             this.Tools = [];
             this.StartupStatus = FoundryToolboxStartupStatus.NoEndpoint;
             return;
