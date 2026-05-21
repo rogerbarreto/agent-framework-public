@@ -10,19 +10,20 @@
 // README.md.
 //
 // Required environment variables:
-//   AZURE_AI_PROJECT_ENDPOINT         - Azure AI Foundry project endpoint
+//   AZURE_AI_PROJECT_ENDPOINT (local-dev) OR FOUNDRY_PROJECT_ENDPOINT (hosted runtime)
+//                                     - Azure AI Foundry project endpoint. The Foundry hosted
+//                                       runtime auto-injects FOUNDRY_PROJECT_ENDPOINT; locally
+//                                       set AZURE_AI_PROJECT_ENDPOINT (the AF-repo convention).
 //   TOOLBOX_NAME                      - Name of the Foundry Toolbox to load
 //                                       (default: auth-paths-toolbox)
 //
 // Optional:
 //   AZURE_AI_MODEL_DEPLOYMENT_NAME    - Model deployment name (default: gpt-4o)
-//   FOUNDRY_AGENT_TOOLSET_ENDPOINT    - Foundry Toolsets proxy base URL.
-//                                       Auto-injected by the Foundry hosted runtime; for
-//                                       local `dotnet run` set manually to:
-//                                         {AZURE_AI_PROJECT_ENDPOINT}/toolboxes
-//                                       When absent, no toolbox tools are loaded and the
-//                                       agent has nothing useful to invoke.
 //   AGENT_NAME                        - Defaults to "hosted-toolbox-auth-paths-agent".
+//
+// The Foundry.Hosting package builds the toolbox proxy URL from FOUNDRY_PROJECT_ENDPOINT
+// per tools-integration-spec.md §2–§3, so the sample does not need to plumb any
+// toolbox-specific URL env var.
 //
 // NOTE: All FOUNDRY_* and AGENT_* env-var prefixes (other than the platform-injected ones
 // listed above) are reserved by the Foundry container platform and rejected by the
@@ -86,8 +87,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddFoundryResponses(agent);
 // Pre-register the toolbox name so FoundryToolboxService resolves the foundry-toolbox://
-// marker at request time. With FOUNDRY_AGENT_TOOLSET_ENDPOINT injected by the platform,
-// startup MCP tools/list against the toolbox proxy is typically <100ms in-region.
+// marker at request time. With FOUNDRY_PROJECT_ENDPOINT injected by the platform, startup
+// MCP tools/list against the toolbox proxy is typically <100ms in-region.
 builder.Services.AddFoundryToolboxes(toolboxName);
 
 var app = builder.Build();

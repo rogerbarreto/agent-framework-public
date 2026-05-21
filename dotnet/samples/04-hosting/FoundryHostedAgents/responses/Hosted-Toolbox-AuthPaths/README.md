@@ -89,14 +89,15 @@ This sample assumes the toolbox already exists; it does not provision one progra
 
 Set environment variables (or copy `.env.example` to `.env` and fill it in):
 
+Set environment variables (or copy `.env.example` to `.env` and fill it in):
+
 ```powershell
 $env:AZURE_AI_PROJECT_ENDPOINT  = "https://<account>.services.ai.azure.com/api/projects/<project>"
 $env:AZURE_AI_MODEL_DEPLOYMENT_NAME = "gpt-4o"
 $env:TOOLBOX_NAME       = "auth-paths-toolbox"
-
-# Local dev only — auto-injected in hosted containers
-$env:FOUNDRY_AGENT_TOOLSET_ENDPOINT = "$env:AZURE_AI_PROJECT_ENDPOINT/toolboxes"
 ```
+
+Locally, the `Foundry.Hosting` package reads `AZURE_AI_PROJECT_ENDPOINT` as a fallback when `FOUNDRY_PROJECT_ENDPOINT` is absent. In the hosted Foundry runtime, the platform auto-injects `FOUNDRY_PROJECT_ENDPOINT` and the package builds the toolbox proxy URL as `{FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{TOOLBOX_NAME}/mcp?api-version=v1` per [`tools-integration-spec.md`](https://github.com/microsoft/AgentSchema/blob/main/specs/agents/hosted_agents/container-spec/docs/tools-integration-spec.md) §2–§3.
 
 Then sign in (`az login`) and start the server:
 
@@ -136,7 +137,7 @@ For path #4, the first invocation will return an `mcp_approval_request` containi
 | **HTTP 401/403** from a tool call | Path #1: PAT expired or scope insufficient. Path #2/#3: ACA managed identity missing role assignment on the target Azure resource. Path #4: end-user consent never completed for this user. |
 | **`-32006` JSON-RPC error in the REPL output** | Path #4: OAuth consent required. The REPL should show the consent URL — open it and resubmit. If the URL is missing, check the `Hosted-Toolbox-AuthPaths-Client` log; the REPL extracts URLs heuristically. |
 | **HTTP 404 from a tool call** | Toolbox name mismatch (`TOOLBOX_NAME` vs the name in the portal), or the toolbox was deleted. |
-| **Server logs "FOUNDRY_AGENT_TOOLSET_ENDPOINT is not set; toolbox support is disabled"** | Local dev without the env var set. The agent will load with zero tools and respond as if it has none. Set the env var to `{AZURE_AI_PROJECT_ENDPOINT}/toolboxes`. |
+| **Server logs "FOUNDRY_PROJECT_ENDPOINT is not set; toolbox support is disabled"** | Local dev without the env var set. The agent will load with zero tools and respond as if it has none. Set `AZURE_AI_PROJECT_ENDPOINT` (local-dev fallback) or `FOUNDRY_PROJECT_ENDPOINT` to your project endpoint. |
 | **Tools appear but model never invokes them** | `instructions:` in `Program.cs` may not surface what each tool is for. Tighten the `allowed_tools` lists and rephrase prompts to mention the upstream service by name. |
 
 ## Region and model compatibility

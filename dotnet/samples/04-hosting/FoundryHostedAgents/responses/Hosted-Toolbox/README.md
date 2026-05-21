@@ -9,10 +9,11 @@ The agent declares one `FoundryAITool.CreateHostedMcpToolbox(name)` marker; `Add
 - A Microsoft Foundry project with a Toolbox configured.
 - Azure CLI logged in (`az login`).
 - Set environment variables:
-  - `AZURE_AI_PROJECT_ENDPOINT`
+  - `AZURE_AI_PROJECT_ENDPOINT` (local-dev) or `FOUNDRY_PROJECT_ENDPOINT` (auto-injected in hosted containers)
   - `AZURE_AI_MODEL_DEPLOYMENT_NAME` (default `gpt-4o`)
   - `FOUNDRY_TOOLBOX_NAME` (default `my-toolset`)
-  - `FOUNDRY_AGENT_TOOLSET_ENDPOINT` — auto-injected in hosted containers; for local `dotnet run` set to `{AZURE_AI_PROJECT_ENDPOINT}/toolboxes`.
+
+The `Foundry.Hosting` package builds the toolbox proxy URL from `FOUNDRY_PROJECT_ENDPOINT` as `{FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{FOUNDRY_TOOLBOX_NAME}/mcp?api-version=v1` per [`tools-integration-spec.md`](https://github.com/microsoft/AgentSchema/blob/main/specs/agents/hosted_agents/container-spec/docs/tools-integration-spec.md) §2–§3.
 
 ## Run
 

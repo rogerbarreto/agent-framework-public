@@ -24,7 +24,13 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// </summary>
 /// <remarks>
 /// <para>
-/// When <c>FOUNDRY_AGENT_TOOLSET_ENDPOINT</c> is absent the service starts without error and
+/// The toolbox proxy base URL is derived from the platform-injected
+/// <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable per <c>tools-integration-spec.md</c>
+/// §2–§3. The per-toolbox proxy URL is constructed as
+/// <c>{FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{toolboxName}/mcp?api-version={ApiVersion}</c>.
+/// </para>
+/// <para>
+/// When <c>FOUNDRY_PROJECT_ENDPOINT</c> is absent the service starts without error and
 /// no tools are registered, keeping the container healthy per spec §2.
 /// </para>
 /// <para>
@@ -93,17 +99,22 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// <inheritdoc/>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        this._resolvedEndpoint = this._options.EndpointOverride
-            ?? Environment.GetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT");
+        // Per tools-integration-spec.md §2-§3, the container derives the toolbox proxy base
+        // URL from the platform-injected FOUNDRY_PROJECT_ENDPOINT. The EndpointOverride
+        // option exists for tests and unusual local-dev scenarios.
+        var projectEndpoint = this._options.EndpointOverride
+            ?? Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
 
-        if (string.IsNullOrEmpty(this._resolvedEndpoint))
+        if (string.IsNullOrEmpty(projectEndpoint))
         {
-            this._logger.LogInformation("FOUNDRY_AGENT_TOOLSET_ENDPOINT is not set; toolbox support is disabled.");
+            this._logger.LogInformation(
+                "FOUNDRY_PROJECT_ENDPOINT is not set; toolbox support is disabled.");
             this.Tools = [];
             this.StartupStatus = FoundryToolboxStartupStatus.NoEndpoint;
             return;
         }
 
+        this._resolvedEndpoint = projectEndpoint.TrimEnd('/');
         this._featuresHeader = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_FEATURES");
         this._agentName = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_NAME") ?? "hosted-agent";
         this._agentVersion = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_VERSION") ?? "1.0.0";
@@ -192,7 +203,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         if (string.IsNullOrEmpty(this._resolvedEndpoint))
         {
             throw new InvalidOperationException(
-                $"Cannot resolve toolbox '{toolboxName}': FOUNDRY_AGENT_TOOLSET_ENDPOINT is not set.");
+                $"Cannot resolve toolbox '{toolboxName}': FOUNDRY_PROJECT_ENDPOINT is not set.");
         }
 
         await this._lazyOpenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -219,7 +230,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         string? version,
         CancellationToken cancellationToken)
     {
-        var proxyUrl = $"{this._resolvedEndpoint!.TrimEnd('/')}/{toolboxName}/mcp?api-version={this._options.ApiVersion}";
+        var proxyUrl = $"{this._resolvedEndpoint!}/toolboxes/{toolboxName}/mcp?api-version={this._options.ApiVersion}";
 
         if (this._logger.IsEnabled(LogLevel.Information))
         {

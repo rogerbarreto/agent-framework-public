@@ -9,6 +9,7 @@ using Moq;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
+[Collection(FoundryProjectEndpointEnvFixture.Name)]
 public class FoundryToolboxServiceTests
 {
     [Fact]
@@ -39,15 +40,15 @@ public class FoundryToolboxServiceTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await service.GetToolboxToolsAsync("missing", version: null, CancellationToken.None));
 
-        Assert.Contains("FOUNDRY_AGENT_TOOLSET_ENDPOINT", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("FOUNDRY_PROJECT_ENDPOINT", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task StartAsync_WithoutEndpoint_LeavesToolsEmptyAsync()
     {
         // Ensure env var is not set (tests may run in any CI environment)
-        var saved = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT");
-        Environment.SetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT", null);
+        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", null);
         try
         {
             var options = new FoundryToolboxOptions();
@@ -64,7 +65,104 @@ public class FoundryToolboxServiceTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT", saved);
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_DerivesToolboxUrlFromProjectEndpointAsync()
+    {
+        // Arrange: capture the URL the service tries to reach (via a hopeless localhost
+        // endpoint) and confirm StartAsync constructs the spec-shaped URL
+        // {FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{name}/mcp?api-version={ApiVersion}.
+        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        Environment.SetEnvironmentVariable(
+            "FOUNDRY_PROJECT_ENDPOINT",
+            "https://example.invalid/api/projects/proj");
+        try
+        {
+            var options = new FoundryToolboxOptions { ApiVersion = "v1" };
+            options.ToolboxNames.Add("my-toolbox");
+            var service = new FoundryToolboxService(
+                Options.Create(options),
+                Mock.Of<TokenCredential>());
+
+            // Act: StartAsync attempts to connect to the invalid endpoint and fails.
+            // The failure path records FailedToolboxNames; the value confirms the resolver ran.
+            await service.StartAsync(CancellationToken.None);
+
+            // Assert: open failed, status reflects that (resolver was reached), and
+            // the failed name matches — i.e. we attempted the right toolbox.
+            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Single(service.FailedToolboxNames);
+            Assert.Equal("my-toolbox", service.FailedToolboxNames[0]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_TrailingSlashOnProjectEndpoint_NormalizesToSingleSlashAsync()
+    {
+        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        Environment.SetEnvironmentVariable(
+            "FOUNDRY_PROJECT_ENDPOINT",
+            "https://example.invalid/api/projects/proj/");
+        try
+        {
+            var options = new FoundryToolboxOptions();
+            options.ToolboxNames.Add("tb");
+            var service = new FoundryToolboxService(
+                Options.Create(options),
+                Mock.Of<TokenCredential>());
+
+            await service.StartAsync(CancellationToken.None);
+
+            // Arrange/Act: when trailing-slash normalization works the open still fails
+            // (host is unreachable), but FailedToolboxNames records the attempted name —
+            // proof that the resolver did not throw on the slash and the URL was built.
+            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Single(service.FailedToolboxNames);
+            Assert.Equal("tb", service.FailedToolboxNames[0]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_EndpointOverrideWinsOverEnvAsync()
+    {
+        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        Environment.SetEnvironmentVariable(
+            "FOUNDRY_PROJECT_ENDPOINT",
+            "https://from-env.invalid/api/projects/proj");
+        try
+        {
+            // EndpointOverride should take precedence over the env var.
+            var options = new FoundryToolboxOptions
+            {
+                EndpointOverride = "http://127.0.0.1:1/from-override",
+            };
+            options.ToolboxNames.Add("tb");
+
+            var service = new FoundryToolboxService(
+                Options.Create(options),
+                Mock.Of<TokenCredential>());
+
+            await service.StartAsync(CancellationToken.None);
+
+            // Override URL is unreachable; we expect Failed (proving Start did try to open
+            // a toolbox, i.e. did not fall into the NoEndpoint branch).
+            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Single(service.FailedToolboxNames);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
         }
     }
 

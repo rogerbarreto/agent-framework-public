@@ -11,6 +11,7 @@ using Moq;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
+[Collection(FoundryProjectEndpointEnvFixture.Name)]
 public class FoundryToolboxHealthCheckTests
 {
     [Fact]
@@ -34,10 +35,10 @@ public class FoundryToolboxHealthCheckTests
     [Fact]
     public async Task CheckHealthAsync_NoEndpointStatus_ReturnsHealthyAsync()
     {
-        // Arrange: no FOUNDRY_AGENT_TOOLSET_ENDPOINT is normal local-dev. The container
+        // Arrange: no FOUNDRY_PROJECT_ENDPOINT is normal local-dev. The container
         // must still pass readiness because the rest of the agent is functional.
-        var saved = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT");
-        Environment.SetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT", null);
+        var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
+        Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", null);
         try
         {
             var service = CreateServiceWithoutStarting(toolbox: "any");
@@ -55,7 +56,7 @@ public class FoundryToolboxHealthCheckTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT", saved);
+            Environment.SetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT", saved);
         }
     }
 

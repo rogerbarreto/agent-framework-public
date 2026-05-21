@@ -29,8 +29,16 @@ template:
     cpu: "0.25"
     memory: 0.5Gi
   environment_variables:
+    - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+      value: "{{AZURE_AI_MODEL_DEPLOYMENT_NAME}}"
     - name: TOOLBOX_NAME
       value: "auth-paths-toolbox"
 parameters:
   properties: []
-resources: []
+resources:
+  - kind: model
+    id: gpt-4o
+    name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+  - kind: toolbox
+    name: auth-paths-toolbox
+    tools: []
