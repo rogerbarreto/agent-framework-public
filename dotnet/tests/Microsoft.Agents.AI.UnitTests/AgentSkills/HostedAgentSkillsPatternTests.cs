@@ -267,11 +267,15 @@ public sealed class HostedAgentSkillsPatternTests : IDisposable
             ? destRoot
             : destRoot + Path.DirectorySeparatorChar;
 
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
         foreach (ZipArchiveEntry entry in archive.Entries)
         {
             string entryPath = Path.GetFullPath(Path.Combine(destRoot, entry.FullName));
-            if (!entryPath.StartsWith(destRootWithSep, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(entryPath, destRoot, StringComparison.OrdinalIgnoreCase))
+            if (!entryPath.StartsWith(destRootWithSep, comparison)
+                && !string.Equals(entryPath, destRoot, comparison))
             {
                 throw new InvalidOperationException(
                     $"Refusing to extract unsafe path '{entry.FullName}' outside of '{destRoot}'.");
