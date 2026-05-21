@@ -59,10 +59,59 @@ public class FoundryToolboxServiceTests
             await service.StartAsync(CancellationToken.None);
 
             Assert.Empty(service.Tools);
+            Assert.Equal(FoundryToolboxStartupStatus.NoEndpoint, service.StartupStatus);
+            Assert.Empty(service.FailedToolboxNames);
         }
         finally
         {
             Environment.SetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT", saved);
         }
+    }
+
+    [Fact]
+    public async Task StartAsync_WithEndpointButFailingToolbox_RecordsFailureAndStaysReachableAsync()
+    {
+        // Arrange: a syntactically valid but unreachable endpoint forces OpenToolboxAsync
+        // to throw inside the catch-and-log path. The service must still complete StartAsync
+        // (so the host doesn't crash) and surface the failure via StartupStatus.
+        var options = new FoundryToolboxOptions
+        {
+            EndpointOverride = "http://127.0.0.1:1/unreachable",
+        };
+        options.ToolboxNames.Add("broken-toolbox");
+
+        var service = new FoundryToolboxService(
+            Options.Create(options),
+            Mock.Of<TokenCredential>());
+
+        // Act
+        await service.StartAsync(CancellationToken.None);
+
+        // Assert
+        Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+        Assert.Single(service.FailedToolboxNames);
+        Assert.Equal("broken-toolbox", service.FailedToolboxNames[0]);
+        Assert.Empty(service.Tools);
+    }
+
+    [Fact]
+    public async Task StartAsync_WithEndpointAndNoToolboxes_ReportsHealthyAsync()
+    {
+        // No pre-registered toolboxes is a legitimate "lazy-only" setup. Health-check
+        // should report Healthy so the readiness probe passes.
+        var options = new FoundryToolboxOptions
+        {
+            EndpointOverride = "http://127.0.0.1:1/unused",
+        };
+
+        var service = new FoundryToolboxService(
+            Options.Create(options),
+            Mock.Of<TokenCredential>());
+
+        await service.StartAsync(CancellationToken.None);
+
+        Assert.Equal(FoundryToolboxStartupStatus.Healthy, service.StartupStatus);
+        Assert.Empty(service.FailedToolboxNames);
+        Assert.Empty(service.Tools);
     }
 }

@@ -81,3 +81,9 @@ docker run --rm -p 8088:8088 \
 ## NuGet package users
 
 Use the standard `Dockerfile` instead of `Dockerfile.contributor`. See the commented section in `HostedMcpTools.csproj` for the `PackageReference` alternative.
+
+## Related samples
+
+- [`Hosted-Toolbox/`](../Hosted-Toolbox/) — connects to a single Foundry Toolbox via the AF Foundry hosting bridge (`AddFoundryToolboxes` + `FoundryAITool.CreateHostedMcpToolbox`).
+- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — same hosting bones as `Hosted-Toolbox/`, but the toolbox bundles five MCP tools each authenticated differently (key, Entra agent ID, Entra project MI, custom OAuth, inline `Authorization`). Includes a companion REPL client that handles the OAuth `mcp_approval_request` consent loop.
+

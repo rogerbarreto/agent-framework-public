@@ -344,6 +344,9 @@
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/responses/Hosted-Toolbox/">
     <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Hosted-Toolbox/HostedToolbox.csproj" />
   </Folder>
+  <Folder Name="/Samples/04-hosting/FoundryHostedAgents/responses/Hosted-Toolbox-AuthPaths/">
+    <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Hosted-Toolbox-AuthPaths/Hosted-Toolbox-AuthPaths.csproj" />
+  </Folder>
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/responses/Hosted-AzureSearchRag/">
     <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Hosted-AzureSearchRag/HostedAzureSearchRag.csproj" />
   </Folder>
@@ -356,6 +359,7 @@
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/">
     <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SessionFilesClient/SessionFilesClient.csproj" />
     <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent/SimpleAgent.csproj" />
+    <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/Hosted-Toolbox-AuthPaths-Client/Hosted-Toolbox-AuthPaths-Client.csproj" />
   </Folder>
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/responses/Hosted-Workflow-Handoff/">
     <Project Path="samples/04-hosting/FoundryHostedAgents/responses/Hosted-Workflow-Handoff/HostedWorkflowHandoff.csproj" />

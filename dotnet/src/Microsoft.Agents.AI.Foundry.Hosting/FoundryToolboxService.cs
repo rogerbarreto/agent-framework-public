@@ -57,6 +57,24 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     public IReadOnlyList<AITool> Tools { get; private set; } = [];
 
     /// <summary>
+    /// Gets the startup status of the service. Reflects the outcome of pre-registered
+    /// toolbox connections opened in <see cref="StartAsync"/>; lazy-opens triggered by
+    /// per-request markers do not change this value.
+    /// </summary>
+    /// <remarks>
+    /// Consumed by <see cref="FoundryToolboxHealthCheck"/> to gate the
+    /// <c>GET /readiness</c> probe so the Foundry hosted runtime does not start routing
+    /// traffic to a container whose pre-registered toolbox failed to open at startup.
+    /// </remarks>
+    public FoundryToolboxStartupStatus StartupStatus { get; private set; } = FoundryToolboxStartupStatus.Pending;
+
+    /// <summary>
+    /// Gets the names of pre-registered toolboxes that failed to open during
+    /// <see cref="StartAsync"/>. Empty when startup was successful or has not run yet.
+    /// </summary>
+    public IReadOnlyList<string> FailedToolboxNames { get; private set; } = [];
+
+    /// <summary>
     /// Initializes a new instance of <see cref="FoundryToolboxService"/>.
     /// </summary>
     public FoundryToolboxService(
@@ -82,6 +100,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         {
             this._logger.LogInformation("FOUNDRY_AGENT_TOOLSET_ENDPOINT is not set; toolbox support is disabled.");
             this.Tools = [];
+            this.StartupStatus = FoundryToolboxStartupStatus.NoEndpoint;
             return;
         }
 
@@ -93,10 +112,12 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         {
             this._logger.LogInformation("No pre-registered toolbox names configured.");
             this.Tools = [];
+            this.StartupStatus = FoundryToolboxStartupStatus.Healthy;
             return;
         }
 
         var allTools = new List<AITool>();
+        var failed = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var toolboxName in this._options.ToolboxNames)
@@ -121,10 +142,16 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                         "Failed to connect to toolbox '{ToolboxName}'. Tools from this toolbox will not be available.",
                         toolboxName);
                 }
+
+                failed.Add(toolboxName);
             }
         }
 
         this.Tools = allTools;
+        this.FailedToolboxNames = failed;
+        this.StartupStatus = failed.Count == 0
+            ? FoundryToolboxStartupStatus.Healthy
+            : FoundryToolboxStartupStatus.Failed;
     }
 
     /// <summary>
