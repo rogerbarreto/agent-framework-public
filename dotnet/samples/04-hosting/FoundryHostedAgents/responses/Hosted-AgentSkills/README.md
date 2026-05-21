@@ -51,11 +51,11 @@ Your identity (or the Managed Identity running the container in production) need
 
 ## Running the Agent Host
 
-Follow the instructions in the [Running the Agent Host Locally](../../README.md#running-the-agent-host-locally) section of the README in the parent directory to run the agent host.
-
-In addition to the standard environment variables, this sample requires:
+Set the required environment variables and run the sample with `dotnet run`:
 
 ```bash
+export AZURE_AI_PROJECT_ENDPOINT="https://<account>.services.ai.azure.com/api/projects/<project>"
+export AZURE_AI_MODEL_DEPLOYMENT_NAME="gpt-4o"
 export SKILL_NAMES="support-style,escalation-policy"
 export PROVISION_SAMPLE_SKILLS="true"   # First run only — provisions skills to Foundry
 ```
@@ -82,9 +82,7 @@ The downloaded `SKILL.md` files land under `downloaded_skills/<name>/SKILL.md` n
 
 ## Interacting with the agent
 
-> Depending on how you run the agent host, you can invoke the agent using `curl` (`Invoke-WebRequest` in PowerShell) or `azd`. Please refer to the [parent README](../../README.md) for more details. Use this README for sample queries you can send to the agent.
-
-Send a POST request to the server with a JSON body containing an `"input"` field to interact with the agent. For example:
+> Send a POST request to the server with a JSON body containing an `"input"` field to interact with the agent. For example:
 
 ```bash
 curl -X POST http://localhost:8088/responses -H "Content-Type: application/json" -d '{"input": "Hi, I am Alex. I just want to confirm I can return my tent within 30 days."}'
@@ -100,9 +98,7 @@ Because skills are loaded on demand, the canary token in a response also proves 
 
 ## Deploying the Agent to Foundry
 
-To host the agent on Foundry, follow the instructions in the [Deploying the Agent to Foundry](../../README.md#deploying-the-agent-to-foundry) section of the README in the parent directory.
-
-When deploying, make sure `SKILL_NAMES` is set in your `azd` environment so it gets injected into the hosted container per [`agent.manifest.yaml`](agent.manifest.yaml):
+When deploying to Foundry, make sure `SKILL_NAMES` is set in your `azd` environment so it gets injected into the hosted container per [`agent.manifest.yaml`](agent.manifest.yaml):
 
 ```bash
 azd env set SKILL_NAMES "support-style,escalation-policy"
