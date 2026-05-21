@@ -147,8 +147,6 @@ This sample assumes the toolbox already exists; it does not provision one progra
 
 Set environment variables (or copy `.env.example` to `.env` and fill it in):
 
-Set environment variables (or copy `.env.example` to `.env` and fill it in):
-
 ```powershell
 $env:AZURE_AI_PROJECT_ENDPOINT  = "https://<account>.services.ai.azure.com/api/projects/<project>"
 $env:AZURE_AI_MODEL_DEPLOYMENT_NAME = "gpt-4o"
