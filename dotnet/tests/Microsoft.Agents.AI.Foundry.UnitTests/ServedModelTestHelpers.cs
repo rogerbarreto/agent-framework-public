@@ -1,17 +1,14 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.ClientModel;
 using System.ClientModel.Primitives;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.AI.Projects;
 using Microsoft.Extensions.AI;
-using OpenAI;
 
 #pragma warning disable OPENAI001, MEAI001, MAAI001, SCME0001
 
@@ -19,8 +16,7 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests;
 
 /// <summary>
 /// Shared helpers and fake clients used by the served-model test suite
-/// (<see cref="ServedModelScopeTests"/>, <see cref="ServedModelPolicyTests"/>,
-/// <see cref="ServedModelChatClientTests"/>).
+/// (<see cref="ServedModelScopeTests"/>, <see cref="ServedModelPolicyTests"/>).
 /// </summary>
 internal static class ServedModelTestHelpers
 {
@@ -32,22 +28,22 @@ internal static class ServedModelTestHelpers
         """;
 
     /// <summary>
-    /// Creates a chat client backed by a real OpenAI ResponsesClient with the
-    /// <see cref="ServedModelPolicy"/> registered and wrapped by <see cref="ServedModelChatClient"/>.
+    /// Creates a <see cref="FoundryChatClient"/> backed by a real OpenAI Responses pipeline
+    /// routed through the supplied <paramref name="handler"/>. The <see cref="ServedModelPolicy"/>
+    /// is registered automatically by the <see cref="FoundryChatClient"/> constructor.
     /// </summary>
     public static IChatClient CreateChatClientWithPolicy(HttpMessageHandler handler)
     {
 #pragma warning disable CA5399
         var http = new HttpClient(handler);
 #pragma warning restore CA5399
-        var openAIOptions = new OpenAIClientOptions { Transport = new HttpClientPipelineTransport(http) };
-        var openAIClient = new OpenAIClient(new ApiKeyCredential("fake"), openAIOptions);
-        var responsesClient = openAIClient.GetResponsesClient();
 
-        IChatClient chatClient = responsesClient.AsIChatClient();
-        chatClient = FoundryAgent.WireServedModel(chatClient);
+        var projectClient = new AIProjectClient(
+            new Uri("https://test.openai.azure.com/"),
+            new FakeAuthenticationTokenProvider(),
+            new AIProjectClientOptions { Transport = new HttpClientPipelineTransport(http) });
 
-        return chatClient;
+        return new FoundryChatClient(projectClient, "fake");
     }
 
     /// <summary>
@@ -80,133 +76,5 @@ internal static class ServedModelTestHelpers
 
             return Task.FromResult(resp);
         }
-    }
-
-    /// <summary>
-    /// A minimal <see cref="IChatClient"/> that returns a <see cref="ChatResponse"/> with the given model ID.
-    /// </summary>
-    public sealed class FakeChatClient : IChatClient
-    {
-        private readonly string _modelId;
-
-        public FakeChatClient(string modelId)
-        {
-            this._modelId = modelId;
-        }
-
-        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "hi")]) { ModelId = this._modelId });
-
-        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// A minimal <see cref="IChatClient"/> that yields <see cref="ChatResponseUpdate"/>s with a given model ID.
-    /// </summary>
-    public sealed class FakeStreamingChatClient : IChatClient
-    {
-        private readonly string _modelId;
-        private readonly int _updateCount;
-
-        public FakeStreamingChatClient(string modelId, int updateCount)
-        {
-            this._modelId = modelId;
-            this._updateCount = updateCount;
-        }
-
-        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            for (int i = 0; i < this._updateCount; i++)
-            {
-                await Task.Yield();
-                yield return new ChatResponseUpdate { ModelId = this._modelId };
-            }
-        }
-
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// A fake <see cref="IChatClient"/> that simulates the <see cref="ServedModelPolicy"/> by writing
-    /// into the <see cref="ServedModelScope"/> box during <see cref="GetResponseAsync"/>.
-    /// </summary>
-    public sealed class FakeChatClientWithPolicySimulation : IChatClient
-    {
-        private readonly string _modelId;
-        private readonly string _servedModel;
-
-        public FakeChatClientWithPolicySimulation(string modelId, string servedModel)
-        {
-            this._modelId = modelId;
-            this._servedModel = servedModel;
-        }
-
-        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-        {
-            // Simulate what ServedModelPolicy does: write into the box.
-            if (ServedModelScope.Current is { } box)
-            {
-                box.Value = this._servedModel;
-            }
-
-            return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "hi")]) { ModelId = this._modelId });
-        }
-
-        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-        public void Dispose() { }
-    }
-
-    /// <summary>
-    /// A fake streaming <see cref="IChatClient"/> that simulates the <see cref="ServedModelPolicy"/>
-    /// by writing into the <see cref="ServedModelScope"/> box before yielding updates.
-    /// </summary>
-    public sealed class FakeStreamingChatClientWithPolicySimulation : IChatClient
-    {
-        private readonly string _modelId;
-        private readonly string _servedModel;
-        private readonly int _updateCount;
-
-        public FakeStreamingChatClientWithPolicySimulation(string modelId, string servedModel, int updateCount)
-        {
-            this._modelId = modelId;
-            this._servedModel = servedModel;
-            this._updateCount = updateCount;
-        }
-
-        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            // Simulate what ServedModelPolicy does on the initial HTTP response.
-            if (ServedModelScope.Current is { } box)
-            {
-                box.Value = this._servedModel;
-            }
-
-            for (int i = 0; i < this._updateCount; i++)
-            {
-                await Task.Yield();
-                yield return new ChatResponseUpdate { ModelId = this._modelId };
-            }
-        }
-
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-        public void Dispose() { }
     }
 }

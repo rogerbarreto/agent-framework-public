@@ -8,19 +8,19 @@ namespace Microsoft.Agents.AI.Foundry;
 
 /// <summary>
 /// Pipeline policy that captures the <c>x-ms-served-model</c> response header from Azure OpenAI
-/// and stores it in <see cref="ServedModelScope"/> for consumption by <see cref="ServedModelChatClient"/>.
+/// and stores it in <see cref="ServedModelScope"/> for consumption by <see cref="FoundryChatClient"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Azure OpenAI Responses API returns the deployment alias in <c>response.model</c> but the actual
 /// model snapshot (e.g. <c>gpt-5-nano-2025-08-07</c>) in the <c>x-ms-served-model</c> response header.
-/// This policy extracts the header after the HTTP roundtrip so the <see cref="ServedModelChatClient"/>
+/// This policy extracts the header after the HTTP roundtrip so the <see cref="FoundryChatClient"/>
 /// can overwrite <c>ChatResponse.ModelId</c> with the true model name.
 /// </para>
 /// <para>
 /// Registered once per <c>OpenAIRequestPolicies</c> instance via the MEAI 10.5.1 extension hook.
-/// When the header is absent (non-Azure endpoints), the scope is not set and the downstream
-/// <see cref="ServedModelChatClient"/> preserves the original model name.
+/// When the header is absent (non-Azure endpoints), the scope is not set and the
+/// <see cref="FoundryChatClient"/> preserves the original model name.
 /// </para>
 /// </remarks>
 internal sealed class ServedModelPolicy : PipelinePolicy
@@ -57,7 +57,7 @@ internal sealed class ServedModelPolicy : PipelinePolicy
             && !string.IsNullOrWhiteSpace(servedModel))
         {
             // Write into the box (reference-type mutation) so the value is visible to the
-            // ServedModelChatClient that pushed the box before calling the inner client.
+            // FoundryChatClient that pushed the box before calling the inner client.
             if (ServedModelScope.Current is { } box)
             {
                 box.Value = servedModel.Trim();
