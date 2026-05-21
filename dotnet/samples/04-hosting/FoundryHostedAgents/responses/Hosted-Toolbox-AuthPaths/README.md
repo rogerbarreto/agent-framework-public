@@ -136,7 +136,7 @@ In the Foundry portal → Tools → Add Toolbox. Name it `auth-paths-toolbox` (o
 
 Each entry should also carry:
 
-- `require_approval: never` (this sample is focused on auth, not approval flows; see [`ToolCallingApprovalHostedAgentFixture.cs`](../../../../tests/Foundry.Hosting.IntegrationTests/Fixtures/ToolCallingApprovalHostedAgentFixture.cs) for that concern).
+- `require_approval: never` (this sample is focused on auth, not approval flows; see [`ToolCallingApprovalHostedAgentFixture.cs`](../../../../../tests/Foundry.Hosting.IntegrationTests/Fixtures/ToolCallingApprovalHostedAgentFixture.cs) for that concern).
 - A tight `allowed_tools` list. GitHub MCP exposes ~50 tools; restrict to what you actually want the model to invoke. For example: `github_pat` → `["search_issues", "get_issue", "list_pull_requests"]`.
 
 ### Sidebar — what the toolbox-creation code looks like
