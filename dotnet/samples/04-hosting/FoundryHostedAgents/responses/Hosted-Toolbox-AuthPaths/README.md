@@ -1,6 +1,6 @@
 # Hosted Toolbox — Authentication Paths
 
-A hosted Foundry agent backed by a single Foundry Toolbox that bundles MCP tools using **four different authentication paths**. The educational surface lives in the toolbox configuration (which you provision in the Foundry portal) and in this README — the agent code itself is identical to the existing [`Hosted-Toolbox/`](../Hosted-Toolbox/) sample.
+A hosted Foundry agent backed by a single Foundry Toolbox that bundles MCP tools using **five different authentication paths**. The educational surface lives in the toolbox configuration (which you provision in the Foundry portal) and in this README — the agent code itself is identical to the existing [`Hosted-Toolbox/`](../Hosted-Toolbox/) sample.
 
 The companion REPL client at [`Using-Samples/Hosted-Toolbox-AuthPaths-Client/`](../Using-Samples/Hosted-Toolbox-AuthPaths-Client/) drives the agent interactively and handles the OAuth `mcp_approval_request` consent loop emitted when the OAuth-managed tool needs user consent.
 
@@ -19,20 +19,21 @@ Related samples:
 
 ## Authentication-path matrix
 
-| # | Auth method | MCP target | Connection `authType` | What flows where |
-|---|---|---|---|---|
-| 1 | **Key-based via project connection** | GitHub MCP at `https://api.githubcopilot.com/mcp` | `CustomKeys` | A PAT stored as `Authorization: Bearer <pat>` lives in the Foundry connection. The toolbox proxy reads it server-side and injects on every MCP call. |
-| 2 | **Microsoft Entra — agent identity** | Any Azure Cognitive Services MCP endpoint your project can reach (e.g., Language service MCP) | `AgenticIdentityToken` | Foundry mints an Entra token for the agent's own identity (`instance_identity` in the new agent object model), scoped to the connection's `audience`, and forwards it to the MCP server. The agent identity must hold the required role (typically `Cognitive Services User`) on the target resource. |
-| 4 | **Custom OAuth (identity passthrough)** | Outlook Mail Agent 365 server (catalog discovery) | `OAuth2` | The end user signs in to the OAuth app. Their token (scoped to `McpServers.Mail.All`) is used per request. First request emits an `mcp_approval_request` with the consent URL. |
-| 5 | **Inline `Authorization` (anti-pattern)** | `https://gitmcp.io/Azure/azure-rest-api-specs` | none | A literal bearer string lives on the toolbox tool entry's `authorization` field. **Do not do this in production** — there's no rotation, no secret store, no per-user identity. Shown for completeness. |
+The sample's purpose is to enumerate every authentication path a Foundry toolbox can drive, so each path appears alongside the others. Pick the ones your scenario needs — each connection in a toolbox is independent.
 
-> **Project managed identity** (`authType: ProjectManagedIdentity`) is a separate Entra-based connection type also accepted by the Foundry connection schema. It mints tokens for the project's system-assigned MI rather than the agent identity. It is out of scope for this sample because the new agent object model gives every agent its own `instance_identity` from the moment it's created, making per-agent identity (path #2) the recommended approach for new agents. Use `ProjectManagedIdentity` when multiple agents need to share the same access level for the same downstream resource.
+| # | Auth method | MCP target | Connection `authType` | What flows where | When to pick this |
+|---|---|---|---|---|---|
+| 1 | **Key-based via project connection** | GitHub MCP at `https://api.githubcopilot.com/mcp` | `CustomKeys` | A PAT stored as `Authorization: Bearer <pat>` lives in the Foundry connection. The toolbox proxy reads it server-side and injects on every MCP call. | The upstream service only accepts API keys or PATs. |
+| 2 | **Microsoft Entra — agent identity** | Any Azure Cognitive Services MCP endpoint your project can reach (e.g., Language service MCP) | `AgenticIdentityToken` | Foundry mints an Entra token for the agent's own identity (`instance_identity` in the new agent object model), scoped to the connection's `audience`, and forwards it to the MCP server. The agent identity must hold the required role (typically `Cognitive Services User`) on the target resource. | Per-agent least-privilege access to Entra-protected services. Recommended default for new agents. |
+| 3 | **Microsoft Entra — project managed identity** | Same target as #2 (different connection) | `ProjectManagedIdentity` | Same flow as #2 but the principal is the project's system-assigned MI. The project MI must hold the required role on the target resource. | Multiple agents in the same project need to share the exact same access level to the same downstream resource (e.g., shared diagnostics service). |
+| 4 | **Custom OAuth (identity passthrough)** | Outlook Mail Agent 365 server (catalog discovery) | `OAuth2` | The end user signs in to the OAuth app. Their token (scoped to `McpServers.Mail.All`) is used per request. First request emits an `mcp_approval_request` with the consent URL. | The upstream service needs to act on behalf of a specific end user (delegated permissions). |
+| 5 | **Inline `Authorization` (anti-pattern)** | `https://gitmcp.io/Azure/azure-rest-api-specs` | none | A literal bearer string lives on the toolbox tool entry's `authorization` field. **Do not do this in production** — there's no rotation, no secret store, no per-user identity. Shown for completeness. | Local-dev or public MCP servers that accept any (or no) bearer. |
 
 ## Prerequisites
 
-### 0. (Path #2 only) Identify an Entra-authenticated MCP target
+### 0. (Paths #2 and #3 only) Identify an Entra-authenticated MCP target
 
-Path #2 requires an MCP server that accepts Microsoft Entra tokens. Any **Azure Cognitive Services** resource that exposes an MCP endpoint works — they all accept Entra ID tokens and gate access via standard RBAC.
+Paths #2 and #3 require an MCP server that accepts Microsoft Entra tokens. Any **Azure Cognitive Services** resource that exposes an MCP endpoint works — they all accept Entra ID tokens and gate access via standard RBAC.
 
 The reference walkthrough below uses an **Azure Language service** MCP endpoint:
 
@@ -40,38 +41,46 @@ The reference walkthrough below uses an **Azure Language service** MCP endpoint:
 https://<your-language-service>.cognitiveservices.azure.com/language/mcp?api-version=2025-11-15-preview
 ```
 
-Substitute any other Cognitive Services MCP endpoint you have. If your project has none, omit tool #2 from your toolbox — the remaining three paths still work.
+Substitute any other Cognitive Services MCP endpoint you have. If your project has none, omit tools #2 and #3 from your toolbox — the remaining three paths still work.
 
-#### RBAC for path #2
+#### RBAC for paths #2 and #3
 
-Find your agent's instance identity on the agent ARM resource (Azure portal → your agent → JSON view, or via REST). It is at `instance_identity.principal_id`. This is the principal that the Foundry proxy uses when minting tokens for `AgenticIdentityToken` connections.
+Grant the **`Cognitive Services User`** role on the target resource to:
 
-Grant the **`Cognitive Services User`** role on the target resource to that principal:
+- **Path #2** — the agent's instance identity. Find it on the agent ARM resource (Azure portal → your agent → JSON view) at `instance_identity.principal_id`. This is the principal the Foundry proxy uses when minting tokens for `AgenticIdentityToken` connections.
+- **Path #3** — the project's system-assigned MI. Find it on the project ARM resource at `identity.principalId`.
 
 ```powershell
 $lang = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<lang-svc>"
+
 az role assignment create `
     --assignee-object-id <agent-instance-identity-principal-id> `
     --assignee-principal-type ServicePrincipal `
     --role "Cognitive Services User" `
     --scope $lang
+
+az role assignment create `
+    --assignee-object-id <project-mi-principal-id> `
+    --assignee-principal-type ServicePrincipal `
+    --role "Cognitive Services User" `
+    --scope $lang
 ```
 
-Repeat for any additional Cognitive Services resources the agent needs to call.
+Repeat for any additional Cognitive Services resources the principals need to call.
 
-> The RBAC grant requires `Microsoft.Authorization/roleAssignments/write` on the target scope. In many enterprise subscriptions this needs a PIM JIT activation.
+> The RBAC grants require `Microsoft.Authorization/roleAssignments/write` on the target scope. In many enterprise subscriptions this needs a PIM JIT activation.
 
 ### 1. Foundry project + Azure AI User role
 
 - An active Microsoft Foundry project ([create one](https://learn.microsoft.com/en-us/azure/foundry/how-to/create-projects)).
 - The **Azure AI User** role on the project assigned to:
   - The developer (you) creating the toolbox.
-  - The agent identity for tool invocation.
+  - The agent identity and the project MI for tool invocation.
   - Any **end user** that will run the OAuth path #4 — their tenant must match the project's tenant (cross-tenant token exchange is not supported).
 
 ### 2. Create the project connections
 
-The Entra-based connection for path #2 is not available in the Foundry portal connection wizard today. Create it via ARM REST:
+The Entra-based connections (paths #2 and #3) are not available in the Foundry portal connection wizard today. Create them via ARM REST:
 
 ```powershell
 $armToken = az account get-access-token --query accessToken -o tsv
@@ -88,6 +97,16 @@ $body2 = @{ properties = @{
 az rest --method PUT --headers "Content-Type=application/json" `
     --url "https://management.azure.com$proj/connections/lang-mcp-agent-id?api-version=2025-04-01-preview" `
     --body $body2
+
+# Path 3 — project managed identity
+$body3 = @{ properties = @{
+    category = "RemoteTool"; target = $lang
+    authType = "ProjectManagedIdentity"; audience = "https://cognitiveservices.azure.com"
+    isSharedToAll = $false
+}} | ConvertTo-Json -Depth 5
+az rest --method PUT --headers "Content-Type=application/json" `
+    --url "https://management.azure.com$proj/connections/lang-mcp-project-mi?api-version=2025-04-01-preview" `
+    --body $body3
 ```
 
 Connection summary:
@@ -96,6 +115,7 @@ Connection summary:
 |---|---|---|---|
 | `github-mcp-key` | `CustomKeys` | `CustomKeys` | n/a (key value carries `Authorization: Bearer <pat>`) |
 | `lang-mcp-agent-id` | `RemoteTool` | `AgenticIdentityToken` | `https://cognitiveservices.azure.com` |
+| `lang-mcp-project-mi` | `RemoteTool` | `ProjectManagedIdentity` | `https://cognitiveservices.azure.com` |
 | `outlook-mail-oauth` | `RemoteTool` | `OAuth2` | n/a (scopes carry the OAuth resource) |
 
 Path #5 (`gitmcp.io`) needs no connection — the auth lives on the toolbox tool entry itself.
@@ -104,12 +124,13 @@ The `audience` value is the OAuth resource identifier of the target service — 
 
 ### 3. Create the toolbox
 
-In the Foundry portal → Tools → Add Toolbox. Name it `auth-paths-toolbox` (or whatever you prefer; export the name as `TOOLBOX_NAME`). Add four MCP tool entries:
+In the Foundry portal → Tools → Add Toolbox. Name it `auth-paths-toolbox` (or whatever you prefer; export the name as `TOOLBOX_NAME`). Add five MCP tool entries:
 
 | Tool `server_label` | `server_url` | Auth |
 |---|---|---|
 | `github_pat` | `https://api.githubcopilot.com/mcp` | `project_connection_id: github-mcp-key` |
 | `lang_agent` | Your Language service MCP URL | `project_connection_id: lang-mcp-agent-id` |
+| `lang_project` | Your Language service MCP URL | `project_connection_id: lang-mcp-project-mi` |
 | `outlook_mail` | (catalog-discovery URL) | `project_connection_id: outlook-mail-oauth` |
 | `gitmcp_inline` | `https://gitmcp.io/Azure/azure-rest-api-specs` | `authorization: "Bearer demo-only-not-real"` (no `project_connection_id`) |
 
@@ -157,7 +178,9 @@ One per auth path so each tool gets exercised at least once:
 
 ```
 List the latest 3 issues in microsoft/agent-framework.            # path #1 — GitHub MCP (key)
-Detect the language of "Bonjour le monde, comment allez-vous?".   # path #2 — Language MCP (agent identity)
+Detect the language of "Bonjour le monde".                        # path #2 — Language MCP (agent identity)
+Summarize the following text via the project's language service:  # path #3 — Language MCP (project MI)
+   "<your paragraph>".
 What's in my Outlook inbox today?                                 # path #4 — Outlook Mail (custom OAuth)
 What's the latest API version for Microsoft.CognitiveServices?    # path #5 — gitmcp.io (inline Authorization)
 ```
@@ -171,7 +194,7 @@ For path #4, the first invocation will return an `mcp_approval_request` containi
 | Symptom | Likely cause |
 |---|---|
 | **HTTP 401 "audience is incorrect"** | The connection's `audience` field is missing or does not match the OAuth resource identifier the target service accepts. For Cognitive Services targets, set `audience: "https://cognitiveservices.azure.com"`. |
-| **HTTP 401 / 403 "principal does not have access"** | Path #1: PAT expired or scope insufficient. Path #2: the agent's instance identity is missing the required role on the target resource. Path #4: end-user consent never completed for this user. |
+| **HTTP 401 / 403 "principal does not have access"** | Path #1: PAT expired or scope insufficient. Path #2: the agent's instance identity is missing the required role on the target resource. Path #3: the project's managed identity is missing the required role on the target resource. Path #4: end-user consent never completed for this user. |
 | **Container reports zero tools but startup succeeded** | `FoundryToolboxService.StartAsync` caches the `tools/list` result at startup. If a connection or RBAC grant changed after the container started, force a fresh container (re-deploy the agent version) — the cache won't pick up the change until then. |
 | **`-32006` JSON-RPC error in the REPL output** | Path #4: OAuth consent required. The REPL should show the consent URL — open it and resubmit. If the URL is missing, check the `Hosted-Toolbox-AuthPaths-Client` log; the REPL extracts URLs heuristically. |
 | **HTTP 404 from a tool call** | Toolbox name mismatch (`TOOLBOX_NAME` vs the name in the portal), or the toolbox was deleted. |
