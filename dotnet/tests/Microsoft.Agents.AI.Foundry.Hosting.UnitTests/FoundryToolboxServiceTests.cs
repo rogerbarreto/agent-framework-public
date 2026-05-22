@@ -75,9 +75,9 @@ public class FoundryToolboxServiceTests
     [Fact]
     public async Task StartAsync_AttemptsOpenForPreRegisteredToolboxFromProjectEndpointAsync()
     {
-        // Arrange: capture the URL the service tries to reach (via a hopeless localhost
-        // endpoint) and confirm StartAsync constructs the spec-shaped URL
-        // {FOUNDRY_PROJECT_ENDPOINT}/toolboxes/{name}/mcp?api-version={ApiVersion}.
+        // Arrange: point the service at an unreachable host and confirm StartAsync
+        // attempts to open the pre-registered toolbox (verified via FailedToolboxNames
+        // recording the attempted name and StartupStatus reflecting the failure).
         var saved = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT");
         Environment.SetEnvironmentVariable(
             "FOUNDRY_PROJECT_ENDPOINT",

@@ -37,10 +37,10 @@ public enum FoundryToolboxStartupStatus
     Failed = 2,
 
     /// <summary>
-    /// The <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable is not set. This
-    /// is normal for local <c>dotnet run</c> flows and the health-check reports
-    /// <c>Healthy</c> so the container is still routable; toolbox tools will simply not
-    /// be available.
+    /// Neither the <c>FOUNDRY_PROJECT_ENDPOINT</c> nor the <c>AZURE_AI_PROJECT_ENDPOINT</c>
+    /// environment variable is set. This is normal for local <c>dotnet run</c> flows and the
+    /// health-check reports <c>Healthy</c> so the container is still routable; toolbox tools
+    /// will simply not be available.
     /// </summary>
     NoEndpoint = 3,
 }
