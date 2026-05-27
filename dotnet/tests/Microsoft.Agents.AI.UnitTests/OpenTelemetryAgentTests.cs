@@ -871,22 +871,17 @@ public class OpenTelemetryAgentTests
         // Both the agent-level invoke_agent span and the auto-wired chat span must be emitted under
         // OpenTelemetryConsts.DefaultSourceName when the caller passes null, "", or whitespace, so they reach
         // the same ActivitySource and are not silently dropped by the exporter.
-        var activities = new List<Activity>();
-        using var tracerProvider = OpenTelemetry.Sdk.CreateTracerProviderBuilder()
-            .AddSource("Experimental.Microsoft.Agents.AI")
-            .AddInMemoryExporter(activities)
-            .Build();
-
         var fakeChatClient = new AutoWireTestChatClient();
         var inner = new ChatClientAgent(fakeChatClient);
         using var agent = new OpenTelemetryAgent(inner, sourceName);
+        using var capture = new ChatClient.OwnerScopedActivityCapture(inner);
 
         _ = await agent.RunAsync("hi");
 
-        Assert.Equal(2, activities.Count);
-        Assert.All(activities, a => Assert.Equal("Experimental.Microsoft.Agents.AI", a.Source.Name));
-        Assert.Contains(activities, a => a.DisplayName.StartsWith("invoke_agent", StringComparison.Ordinal));
-        Assert.Contains(activities, a => string.Equals(a.GetTagItem("gen_ai.operation.name") as string, "chat", StringComparison.Ordinal));
+        Assert.Equal(2, capture.Activities.Count);
+        Assert.All(capture.Activities, a => Assert.Equal("Experimental.Microsoft.Agents.AI", a.Source.Name));
+        Assert.Contains(capture.Activities, a => a.DisplayName.StartsWith("invoke_agent", StringComparison.Ordinal));
+        Assert.Contains(capture.Activities, a => string.Equals(a.GetTagItem("gen_ai.operation.name") as string, "chat", StringComparison.Ordinal));
     }
 
 #pragma warning disable MEAI001 // ResponseContinuationToken is experimental.

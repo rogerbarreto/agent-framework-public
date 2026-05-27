@@ -183,6 +183,15 @@ public sealed class OpenTelemetryAgent : DelegatingAIAgent, IDisposable
         {
             _ = activity.SetTag(OpenTelemetryConsts.GenAI.Agent.Description, description);
         }
+
+        // Per-instance suppression marker for ADR 0027 / Option G: when a ChatClientAgent is
+        // reachable inward from us, mark the current activity with the inner ChatClientAgent
+        // reference so its self-wrap suppresses itself (avoiding triple-emission).
+        var innerChatClientAgent = this.InnerAgent.GetService<ChatClientAgent>();
+        if (innerChatClientAgent is not null)
+        {
+            activity.SetCustomProperty(OpenTelemetryConsts.OwnedInvokeAgentScopeMarker, innerChatClientAgent);
+        }
     }
 
     /// <summary>State passed from this instance into the inner agent, circumventing the intermediate <see cref="OpenTelemetryChatClient"/>.</summary>

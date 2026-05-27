@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -43,6 +44,21 @@ public sealed partial class ChatClientAgent : AIAgent
     private readonly AIAgentMetadata _agentMetadata;
     private readonly ILogger _logger;
     private readonly Type _chatClientType;
+
+    /// <summary>
+    /// Lazy-initialized self-telemetry-wrap built as <c>new OpenTelemetryAgent(this, DefaultSourceName)</c>.
+    /// Provides BCL-native OpenTelemetry emission for bare-path users (no explicit decorator)
+    /// by reusing the existing <see cref="OpenTelemetryAgent"/> implementation directly. This
+    /// guarantees behavioral symmetry between bare-path and decorated-path: both produce the
+    /// 2-span shape (<c>invoke_agent</c> + <c>chat</c>) because both run through the same code.
+    /// </summary>
+    /// <remarks>
+    /// Per-instance suppression marker (set by
+    /// <see cref="OpenTelemetryAgent.UpdateCurrentActivity"/>) prevents infinite recursion when
+    /// the wrap calls back into this <see cref="ChatClientAgent"/> via
+    /// <see cref="DelegatingAIAgent.InnerAgent"/>. See ADR 0027 for the rationale.
+    /// </remarks>
+    private OpenTelemetryAgent? _selfTelemetryWrap;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatClientAgent"/> class.
@@ -200,11 +216,32 @@ public sealed partial class ChatClientAgent : AIAgent
     internal ChatOptions? ChatOptions => this._agentOptions?.ChatOptions;
 
     /// <inheritdoc/>
-    protected override async Task<AgentResponse> RunCoreAsync(
+    protected override Task<AgentResponse> RunCoreAsync(
         IEnumerable<ChatMessage> messages,
         AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
+    {
+        // Suppression: outer telemetry pipeline already owns invoke_agent for THIS agent
+        // instance, or the caller opted out of default decoration entirely. Run the chat work
+        // directly without self-wrapping.
+        if (this.SuppressSelfTelemetryWrap())
+        {
+            return this.RunChatClientCoreAsync(messages, session, options, cancellationToken);
+        }
+
+        // Self-wrap by reusing the OpenTelemetryAgent decorator. When OpenTelemetryAgent's
+        // pipeline forwards back into this ChatClientAgent via its InnerAgent, the marker set
+        // by UpdateCurrentActivity will satisfy the SuppressSelfTelemetryWrap check above and
+        // we'll take the direct path then.
+        return this.EnsureSelfTelemetryWrap().RunAsync(messages, session, options, cancellationToken);
+    }
+
+    private async Task<AgentResponse> RunChatClientCoreAsync(
+        IEnumerable<ChatMessage> messages,
+        AgentSession? session,
+        AgentRunOptions? options,
+        CancellationToken cancellationToken)
     {
         var inputMessages = Throw.IfNull(messages) as IReadOnlyCollection<ChatMessage> ?? messages.ToList();
 
@@ -285,12 +322,127 @@ public sealed partial class ChatClientAgent : AIAgent
         return chatClient;
     }
 
+    /// <summary>
+    /// Returns true when the self-telemetry wrap should be skipped. Conditions:
+    /// (1) caller explicitly opted out of default chat-client decoration via
+    /// <see cref="ChatClientAgentOptions.UseProvidedChatClientAsIs"/>, OR
+    /// (2) no trace listeners are subscribed to the AgentFramework default source (no telemetry
+    /// would be emitted anyway, and skipping prevents the
+    /// <see cref="OpenTelemetryAgent"/> + <c>ForwardingChatClient</c> recursion that would
+    /// otherwise loop indefinitely because the per-instance marker can only be set on an
+    /// existing <see cref="Activity.Current"/>), OR
+    /// (3) an outer telemetry pipeline already owns the <c>invoke_agent</c> scope for this
+    /// specific <see cref="ChatClientAgent"/> instance (verified by walking the
+    /// <see cref="Activity.Current"/> parent chain for our per-instance custom property marker
+    /// keyed by <see cref="OpenTelemetryConsts.OwnedInvokeAgentScopeMarker"/>).
+    /// </summary>
+    /// <remarks>
+    /// Walking the parent chain is necessary because custom properties are attached to a specific
+    /// <see cref="Activity"/> instance and are not inherited by child activities (e.g. intermediate
+    /// tool-execution spans created during function invocation can become <see cref="Activity.Current"/>).
+    /// <see cref="object.ReferenceEquals(object?, object?)"/> ensures nested sub-agent calls
+    /// (different <see cref="ChatClientAgent"/> instances in tool-invocation scenarios) are NOT
+    /// suppressed.
+    /// </remarks>
+    private bool SuppressSelfTelemetryWrap()
+    {
+        if (this._agentOptions?.UseProvidedChatClientAsIs is true)
+        {
+            return true;
+        }
+
+        // Avoid recursion when nothing would be emitted anyway. Without trace listeners on our
+        // source, OpenTelemetryChatClient creates no Activity, which means
+        // OpenTelemetryAgent.UpdateCurrentActivity cannot set our suppression marker. Without
+        // the marker, the recursive call from ForwardingChatClient.InnerAgent.RunAsync would
+        // not detect that we are already inside our own wrap, causing an infinite loop.
+        if (!OpenTelemetryConsts.AgentActivitySource.HasListeners())
+        {
+            return true;
+        }
+
+        for (var act = Activity.Current; act is not null; act = act.Parent)
+        {
+            if (act.GetCustomProperty(OpenTelemetryConsts.OwnedInvokeAgentScopeMarker) is ChatClientAgent covered
+                && ReferenceEquals(covered, this))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the lazily-built self-telemetry wrap, creating it on first call via a race-safe
+    /// <see cref="Interlocked.CompareExchange{T}(ref T, T, T)"/>. The wrap reuses the existing
+    /// <see cref="OpenTelemetryAgent"/> implementation so that bare-path emission and
+    /// decorator-path emission are byte-for-byte the same (matching shape, tags, source name,
+    /// auto-wired inner chat span).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The wrap is constructed as <c>new OpenTelemetryAgent(this, OpenTelemetryConsts.DefaultSourceName)</c>.
+    /// When called, it forwards back into this <see cref="ChatClientAgent"/> via its
+    /// <see cref="DelegatingAIAgent.InnerAgent"/> — the per-instance marker set by
+    /// <see cref="OpenTelemetryAgent.UpdateCurrentActivity"/> prevents infinite recursion by
+    /// causing <see cref="SuppressSelfTelemetryWrap"/> to return true on the recursive call.
+    /// </para>
+    /// <para>
+    /// Sensitive-data capture follows the standard OpenTelemetry behavior driven by the
+    /// <c>OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT</c> environment variable (internally
+    /// handled by <see cref="OpenTelemetryChatClient"/>). Per-instance overrides remain available
+    /// via an explicit <c>new OpenTelemetryAgent(agent).EnableSensitiveData = true</c> decorator
+    /// at the outermost layer.
+    /// </para>
+    /// </remarks>
+    private OpenTelemetryAgent EnsureSelfTelemetryWrap()
+    {
+        var existing = Volatile.Read(ref this._selfTelemetryWrap);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var built = new OpenTelemetryAgent(this, OpenTelemetryConsts.DefaultSourceName);
+        var winner = Interlocked.CompareExchange(ref this._selfTelemetryWrap, built, null);
+        if (winner is not null)
+        {
+            built.Dispose();
+            return winner;
+        }
+
+        return built;
+    }
+
     /// <inheritdoc/>
     protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
         IEnumerable<ChatMessage> messages,
         AgentSession? session = null,
         AgentRunOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (this.SuppressSelfTelemetryWrap())
+        {
+            await foreach (var update in this.RunChatClientCoreStreamingAsync(messages, session, options, cancellationToken).WithCancellation(cancellationToken).ConfigureAwait(false))
+            {
+                yield return update;
+            }
+
+            yield break;
+        }
+
+        await foreach (var update in this.EnsureSelfTelemetryWrap().RunStreamingAsync(messages, session, options, cancellationToken).WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            yield return update;
+        }
+    }
+
+    private async IAsyncEnumerable<AgentResponseUpdate> RunChatClientCoreStreamingAsync(
+        IEnumerable<ChatMessage> messages,
+        AgentSession? session,
+        AgentRunOptions? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var inputMessages = Throw.IfNull(messages) as IReadOnlyCollection<ChatMessage> ?? messages.ToList();
 
