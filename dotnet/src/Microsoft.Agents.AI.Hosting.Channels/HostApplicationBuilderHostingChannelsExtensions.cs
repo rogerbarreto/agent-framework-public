@@ -36,7 +36,7 @@ public static class HostApplicationBuilderHostingChannelsExtensions
     {
         Throw.IfNull(builder);
         Throw.IfNull(target);
-        return AddAgentFrameworkHostCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(_ => new WorkflowRunner(target)));
+        return AddAgentFrameworkHostCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(sp => new WorkflowRunner(target, sp.GetRequiredService<IHostStateStore>())));
     }
 
     /// <summary>

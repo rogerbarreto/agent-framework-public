@@ -156,6 +156,13 @@ public sealed class InvocationsChannel : Channel
 
     private static async Task WriteSuccessAsync(HttpContext http, HostedRunResult result)
     {
+        // Workflow-shaped results get their own awaiting_input / completed envelope.
+        if (result.ResultObject is WorkflowRunResult workflowResult)
+        {
+            await WriteWorkflowAsync(http, workflowResult, result.Session).ConfigureAwait(false);
+            return;
+        }
+
         var text = result.ResultObject switch
         {
             AgentResponse response => response.Text,
@@ -172,6 +179,39 @@ public sealed class InvocationsChannel : Channel
         };
 
         await WriteJsonAsync(http, StatusCodes.Status200OK, model, InvocationsJsonContext.Default.InvocationResponseModel).ConfigureAwait(false);
+    }
+
+    private static async Task WriteWorkflowAsync(HttpContext http, WorkflowRunResult workflow, ChannelSession? session)
+    {
+        switch (workflow.Status)
+        {
+            case WorkflowRunStatus.AwaitingInput:
+                var resumeToken = session?.Attributes is not null && session.Attributes.TryGetValue(WorkflowRunner.ResumeTokenAttribute, out var raw) ? raw as string : null;
+                var awaiting = new InvocationAwaitingInputModel
+                {
+                    Status = "awaiting_input",
+                    Request = workflow.PendingRequest?.Data.As<object>(),
+                    ResumeToken = resumeToken,
+                };
+                await WriteJsonAsync(http, StatusCodes.Status200OK, awaiting, InvocationsJsonContext.Default.InvocationAwaitingInputModel).ConfigureAwait(false);
+                return;
+
+            case WorkflowRunStatus.Failed:
+                var error = new InvocationErrorModel { ErrorCode = "workflow_failed", Message = workflow.Error };
+                await WriteJsonAsync(http, StatusCodes.Status500InternalServerError, error, InvocationsJsonContext.Default.InvocationErrorModel).ConfigureAwait(false);
+                return;
+
+            default:
+                var outputsText = workflow.Outputs.Count == 0 ? null : string.Join(System.Environment.NewLine, workflow.Outputs);
+                var model = new InvocationResponseModel
+                {
+                    Status = "completed",
+                    Text = outputsText,
+                    SessionId = workflow.SessionId ?? session?.Key,
+                };
+                await WriteJsonAsync(http, StatusCodes.Status200OK, model, InvocationsJsonContext.Default.InvocationResponseModel).ConfigureAwait(false);
+                return;
+        }
     }
 
     private static async Task WriteJsonAsync<T>(HttpContext http, int statusCode, T payload, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
