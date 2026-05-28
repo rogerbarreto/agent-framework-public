@@ -5,8 +5,8 @@
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>InvocationsAndTelegram</AssemblyName>
-    <RootNamespace>InvocationsAndTelegram</RootNamespace>
+    <AssemblyName>TelegramSample</AssemblyName>
+    <RootNamespace>TelegramSample</RootNamespace>
     <NoWarn>$(NoWarn);MAAI001;OPENAI001;CA1303</NoWarn>
   </PropertyGroup>
 
@@ -18,7 +18,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.OpenAI\Microsoft.Agents.AI.OpenAI.csproj" />
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Hosting.Channels\Microsoft.Agents.AI.Hosting.Channels.csproj" />
-    <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Hosting.Channels.Invocations\Microsoft.Agents.AI.Hosting.Channels.Invocations.csproj" />
     <ProjectReference Include="..\..\..\..\src\Microsoft.Agents.AI.Hosting.Channels.Telegram\Microsoft.Agents.AI.Hosting.Channels.Telegram.csproj" />
   </ItemGroup>
 </Project>

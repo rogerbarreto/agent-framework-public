@@ -379,7 +379,8 @@
   </Folder>
   <Folder Name="/Samples/04-hosting/DurableAgents/" />
   <Folder Name="/Samples/04-hosting/HostingChannels/">
-    <Project Path="samples/04-hosting/HostingChannels/InvocationsAndTelegram/InvocationsAndTelegram.csproj" />
+    <Project Path="samples/04-hosting/HostingChannels/01_Invocations/01_Invocations.csproj" />
+    <Project Path="samples/04-hosting/HostingChannels/02_Telegram/02_Telegram.csproj" />
   </Folder>
   <Folder Name="/Samples/04-hosting/DurableAgents/AzureFunctions/">
     <File Path="samples/04-hosting/DurableAgents/AzureFunctions/.editorconfig" />
