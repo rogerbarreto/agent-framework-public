@@ -25,6 +25,8 @@ public static class EndpointRouteBuilderHostingChannelsExtensions
         Throw.IfNull(endpoints);
 
         var host = endpoints.ServiceProvider.GetRequiredService<AgentFrameworkHost>();
+        // Force-construct the router so "hosting.push" is registered on the durable runner before traffic.
+        _ = endpoints.ServiceProvider.GetRequiredService<ResponseRouter>();
         var context = new ChannelContext(endpoints.ServiceProvider, host);
         var hostGroup = endpoints.MapGroup(string.Empty);
 

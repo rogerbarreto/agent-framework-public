@@ -88,6 +88,11 @@ public static class HostApplicationBuilderHostingChannelsExtensions
             sp.GetRequiredService<IDurableTaskRunner>(),
             sp.GetRequiredService<AgentFrameworkHostOptions>()));
 
+        services.TryAddSingleton<ResponseRouter>(sp => new ResponseRouter(
+            sp.GetRequiredService<AgentFrameworkHost>(),
+            sp.GetRequiredService<ILinkPolicy>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ResponseRouter>>()));
+
         return new AgentFrameworkHostBuilder(services, options);
     }
 }

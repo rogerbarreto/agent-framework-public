@@ -38,7 +38,8 @@ internal sealed class ChannelContext : IChannelContext
         ChannelRequest originating,
         CancellationToken cancellationToken = default)
     {
-        // Draft: end-to-end fan-out scheduling lands with the first channel that implements IChannelPush.
-        return new(Array.Empty<TaskHandle>());
+        var router = (ResponseRouter?)this.Services.GetService(typeof(ResponseRouter))
+            ?? throw new InvalidOperationException("ResponseRouter is not registered. Call AddAgentFrameworkHost(...) on IHostApplicationBuilder.");
+        return router.ScheduleResponseAsync(result, originating, cancellationToken);
     }
 }
