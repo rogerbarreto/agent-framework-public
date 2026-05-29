@@ -1,10 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Foundry Toolbox Auth Paths Agent — A hosted agent backed by a single Foundry Toolbox
-// that bundles MCP tools using FIVE different authentication paths.
+// that bundles MCP tools using FOUR different authentication paths.
 //
 // This sample demonstrates the same hosting bones as Hosted-Toolbox/, but the toolbox
-// (provisioned by the user out-of-band) contains five MCP tool entries each authenticated
+// (provisioned by the user out-of-band) contains four MCP tool entries each authenticated
 // differently. The agent code itself is agnostic to authentication — the educational
 // surface lives in the toolbox configuration in the Foundry portal and in this sample's
 // README.md.
@@ -72,12 +72,12 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
         instructions: """
             You are a helpful assistant with access to several tools, each provided by a different
             upstream service authenticated through a distinct mechanism (API key, agent managed
-            identity, project managed identity, custom OAuth user identity, and a literal token
+            identity, project managed identity, and a literal token
             shipped with the tool definition). Pick the tool that best fits the user's question
             and explain which upstream service answered when you respond.
             """,
         name: agentName,
-        description: "Hosted agent demonstrating five MCP-tool authentication paths via a Foundry Toolbox.");
+        description: "Hosted agent demonstrating four MCP-tool authentication paths via a Foundry Toolbox.");
 
 // Tier 3 spine (WebApplication.CreateBuilder + AddFoundryResponses + MapFoundryResponses):
 // the Foundry.Hosting package auto-maps the spec-required GET /readiness probe inside

@@ -23,5 +23,5 @@ dotnet run --tl:off
 
 ## Related samples
 
-- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — extends this pattern with a five-tool toolbox demonstrating different MCP-tool authentication paths (key, Entra MI, custom OAuth, inline `Authorization`) and a REPL client that handles the OAuth consent loop.
+- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — extends this pattern with a four-tool toolbox demonstrating different MCP-tool authentication paths (key, Entra MI, inline `Authorization`) and a REPL client.
 - [`Hosted-McpTools/`](../Hosted-McpTools/) — contrasts client-side `McpClient` vs server-side `HostedMcpServerTool` for non-toolbox MCP servers.

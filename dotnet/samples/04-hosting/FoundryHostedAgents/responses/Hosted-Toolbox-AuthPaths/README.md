@@ -1,17 +1,17 @@
 # Hosted Toolbox — Authentication Paths
 
-A hosted Foundry agent backed by a single Foundry Toolbox that bundles MCP tools using **five different authentication paths**. The educational surface lives in the toolbox configuration (which you provision in the Foundry portal) and in this README — the agent code itself is identical to the existing [`Hosted-Toolbox/`](../Hosted-Toolbox/) sample.
+A hosted Foundry agent backed by a single Foundry Toolbox that bundles MCP tools using **four different authentication paths**. The educational surface lives in the toolbox configuration (which you provision in the Foundry portal) and in this README — the agent code itself is identical to the existing [`Hosted-Toolbox/`](../Hosted-Toolbox/) sample.
 
-The companion REPL client at [`Using-Samples/Hosted-Toolbox-AuthPaths-Client/`](../Using-Samples/Hosted-Toolbox-AuthPaths-Client/) drives the agent interactively and handles the OAuth `mcp_approval_request` consent loop emitted when the OAuth-managed tool needs user consent.
+The companion REPL client at [`Using-Samples/Hosted-Toolbox-AuthPaths-Client/`](../Using-Samples/Hosted-Toolbox-AuthPaths-Client/) drives the agent interactively across the auth paths.
 
 ## What this sample teaches
 
 | Aspect | This sample | Existing siblings |
 |---|---|---|
 | Toolbox marker pattern | `FoundryAITool.CreateHostedMcpToolbox(name)` + `AddFoundryToolboxes(name)` | Same as [`Hosted-Toolbox/`](../Hosted-Toolbox/) |
-| Tools per toolbox | **Five MCP tools, each with a different auth method** | `Hosted-Toolbox/`: typically one demo tool |
+| Tools per toolbox | **Four MCP tools, each with a different auth method** | `Hosted-Toolbox/`: typically one demo tool |
 | Consumption | Server-side (Foundry resolves the marker) | Same |
-| Client | Custom REPL with **OAuth approval loop** | `Hosted-Toolbox/`: any client; OAuth not handled |
+| Client | Custom REPL for interactive testing | `Hosted-Toolbox/`: any client |
 
 Related samples:
 - [`Hosted-Toolbox/`](../Hosted-Toolbox/) — simpler single-tool toolbox.
@@ -26,8 +26,7 @@ The sample's purpose is to enumerate every authentication path a Foundry toolbox
 | 1 | **Key-based via project connection** | GitHub MCP at `https://api.githubcopilot.com/mcp` | `CustomKeys` | A PAT stored as `Authorization: Bearer <pat>` lives in the Foundry connection. The toolbox proxy reads it server-side and injects on every MCP call. | The upstream service only accepts API keys or PATs. |
 | 2 | **Microsoft Entra — agent identity** | Any Azure Cognitive Services MCP endpoint your project can reach (e.g., Language service MCP) | `AgenticIdentityToken` | Foundry mints an Entra token for the agent's own identity (`instance_identity` in the new agent object model), scoped to the connection's `audience`, and forwards it to the MCP server. The agent identity must hold the required role (typically `Cognitive Services User`) on the target resource. | Per-agent least-privilege access to Entra-protected services. Recommended default for new agents. |
 | 3 | **Microsoft Entra — project managed identity** | Same target as #2 (different connection) | `ProjectManagedIdentity` | Same flow as #2 but the principal is the project's system-assigned MI. The project MI must hold the required role on the target resource. | Multiple agents in the same project need to share the exact same access level to the same downstream resource (e.g., shared diagnostics service). |
-| 4 | **Custom OAuth (identity passthrough)** | Outlook Mail Agent 365 server (catalog discovery) | `OAuth2` | The end user signs in to the OAuth app. Their token (scoped to `McpServers.Mail.All`) is used per request. First request emits an `mcp_approval_request` with the consent URL. | The upstream service needs to act on behalf of a specific end user (delegated permissions). |
-| 5 | **Inline `Authorization` (anti-pattern)** | `https://gitmcp.io/Azure/azure-rest-api-specs` | none | A literal bearer string lives on the toolbox tool entry's `authorization` field. **Do not do this in production** — there's no rotation, no secret store, no per-user identity. Shown for completeness. | Local-dev or public MCP servers that accept any (or no) bearer. |
+| 4 | **Inline `Authorization` (anti-pattern)** | `https://gitmcp.io/Azure/azure-rest-api-specs` | none | A literal bearer string lives on the toolbox tool entry's `authorization` field. **Do not do this in production** — there's no rotation, no secret store, no per-user identity. Shown for completeness. | Local-dev or public MCP servers that accept any (or no) bearer. |
 
 ## Prerequisites
 
@@ -76,7 +75,6 @@ Repeat for any additional Cognitive Services resources the principals need to ca
 - The **Azure AI User** role on the project assigned to:
   - The developer (you) creating the toolbox.
   - The agent identity and the project MI for tool invocation.
-  - Any **end user** that will run the OAuth path #4 — their tenant must match the project's tenant (cross-tenant token exchange is not supported).
 
 ### 2. Create the project connections
 
@@ -116,22 +114,20 @@ Connection summary:
 | `github-mcp-key` | `CustomKeys` | `CustomKeys` | n/a (key value carries `Authorization: Bearer <pat>`) |
 | `lang-mcp-agent-id` | `RemoteTool` | `AgenticIdentityToken` | `https://cognitiveservices.azure.com` |
 | `lang-mcp-project-mi` | `RemoteTool` | `ProjectManagedIdentity` | `https://cognitiveservices.azure.com` |
-| `outlook-mail-oauth` | `RemoteTool` | `OAuth2` | n/a (scopes carry the OAuth resource) |
 
-Path #5 (`gitmcp.io`) needs no connection — the auth lives on the toolbox tool entry itself.
+Path #4 (`gitmcp.io`) needs no connection — the auth lives on the toolbox tool entry itself.
 
-The `audience` value is the OAuth resource identifier of the target service — for any Cognitive Services resource it is `https://cognitiveservices.azure.com`. For other Azure services consult [Agent identity — runtime token exchange](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity#runtime-token-exchange).
+The `audience` value is the token resource identifier of the target service — for any Cognitive Services resource it is `https://cognitiveservices.azure.com`. For other Azure services consult [Agent identity — runtime token exchange](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-identity#runtime-token-exchange).
 
 ### 3. Create the toolbox
 
-In the Foundry portal → Tools → Add Toolbox. Name it `auth-paths-toolbox` (or whatever you prefer; export the name as `TOOLBOX_NAME`). Add five MCP tool entries:
+In the Foundry portal → Tools → Add Toolbox. Name it `auth-paths-toolbox` (or whatever you prefer; export the name as `TOOLBOX_NAME`). Add four MCP tool entries:
 
 | Tool `server_label` | `server_url` | Auth |
 |---|---|---|
 | `github_pat` | `https://api.githubcopilot.com/mcp` | `project_connection_id: github-mcp-key` |
 | `lang_agent` | Your Language service MCP URL | `project_connection_id: lang-mcp-agent-id` |
 | `lang_project` | Your Language service MCP URL | `project_connection_id: lang-mcp-project-mi` |
-| `outlook_mail` | (catalog-discovery URL) | `project_connection_id: outlook-mail-oauth` |
 | `gitmcp_inline` | `https://gitmcp.io/Azure/azure-rest-api-specs` | `authorization: "Bearer demo-only-not-real"` (no `project_connection_id`) |
 
 Each entry should also carry:
@@ -179,11 +175,8 @@ List the latest 3 issues in microsoft/agent-framework.            # path #1 — 
 Detect the language of "Bonjour le monde".                        # path #2 — Language MCP (agent identity)
 Summarize the following text via the project's language service:  # path #3 — Language MCP (project MI)
    "<your paragraph>".
-What's in my Outlook inbox today?                                 # path #4 — Outlook Mail (custom OAuth)
-What's the latest API version for Microsoft.CognitiveServices?    # path #5 — gitmcp.io (inline Authorization)
+What's the latest API version for Microsoft.CognitiveServices?    # path #4 — gitmcp.io (inline Authorization)
 ```
-
-For path #4, the first invocation will return an `mcp_approval_request` containing a Microsoft sign-in URL. The REPL client opens that URL in your default browser; complete consent and press Enter to resubmit. Subsequent invocations of the same tool succeed without prompting.
 
 ## Troubleshooting / partial-failure semantics
 
@@ -192,9 +185,8 @@ For path #4, the first invocation will return an `mcp_approval_request` containi
 | Symptom | Likely cause |
 |---|---|
 | **HTTP 401 "audience is incorrect"** | The connection's `audience` field is missing or does not match the OAuth resource identifier the target service accepts. For Cognitive Services targets, set `audience: "https://cognitiveservices.azure.com"`. |
-| **HTTP 401 / 403 "principal does not have access"** | Path #1: PAT expired or scope insufficient. Path #2: the agent's instance identity is missing the required role on the target resource. Path #3: the project's managed identity is missing the required role on the target resource. Path #4: end-user consent never completed for this user. |
+| **HTTP 401 / 403 "principal does not have access"** | Path #1: PAT expired or scope insufficient. Path #2: the agent's instance identity is missing the required role on the target resource. Path #3: the project's managed identity is missing the required role on the target resource. |
 | **Container reports zero tools but startup succeeded** | `FoundryToolboxService.StartAsync` caches the `tools/list` result at startup. If a connection or RBAC grant changed after the container started, force a fresh container (re-deploy the agent version) — the cache won't pick up the change until then. |
-| **`-32006` JSON-RPC error in the REPL output** | Path #4: OAuth consent required. The REPL should show the consent URL — open it and resubmit. If the URL is missing, check the `Hosted-Toolbox-AuthPaths-Client` log; the REPL extracts URLs heuristically. |
 | **HTTP 404 from a tool call** | Toolbox name mismatch (`TOOLBOX_NAME` vs the name in the portal), or the toolbox was deleted. |
 | **Server logs "FOUNDRY_PROJECT_ENDPOINT is not set; toolbox support is disabled"** | Local dev without the env var set. The agent will load with zero tools and respond as if it has none. Set `AZURE_AI_PROJECT_ENDPOINT` (local-dev fallback) or `FOUNDRY_PROJECT_ENDPOINT` to your project endpoint. |
 | **Tools appear but model never invokes them** | `instructions:` in `Program.cs` may not surface what each tool is for. Tighten the `allowed_tools` lists and rephrase prompts to mention the upstream service by name. |
@@ -203,7 +195,7 @@ For path #4, the first invocation will return an `mcp_approval_request` containi
 
 Foundry Toolboxes have region constraints; some tool types are limited to specific models. This sample defaults to `gpt-4o`, which works in all supported regions. For the full matrix, see the [Foundry tools compatibility matrix](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/toolbox#region-and-model-compatibility).
 
-## Anti-pattern note for path #5
+## Anti-pattern note for path #4
 
 Inline `authorization` on a toolbox tool entry stores credentials **inside the toolbox definition**. There is no rotation, no per-user scoping, no secret-store integration. Use it only for:
 
