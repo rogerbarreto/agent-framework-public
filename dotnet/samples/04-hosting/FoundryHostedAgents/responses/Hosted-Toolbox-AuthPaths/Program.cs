@@ -1,10 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Foundry Toolbox Auth Paths Agent — A hosted agent backed by a single Foundry Toolbox
-// that bundles MCP tools using FIVE different authentication paths.
+// that bundles MCP tools using FOUR different authentication paths.
 //
 // This sample demonstrates the same hosting bones as Hosted-Toolbox/, but the toolbox
-// (provisioned by the user out-of-band) contains five MCP tool entries each authenticated
+// (provisioned by the user out-of-band) contains four MCP tool entries each authenticated
 // differently. The agent code itself is agnostic to authentication — the educational
 // surface lives in the toolbox configuration in the Foundry portal and in this sample's
 // README.md.
@@ -54,6 +54,7 @@ string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
         "nor AZURE_AI_PROJECT_ENDPOINT (local-dev convention) is set.");
 string deploymentName = Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? "gpt-4o";
 string toolboxName = Environment.GetEnvironmentVariable("TOOLBOX_NAME") ?? "auth-paths-toolbox";
+string oauthToolboxName = Environment.GetEnvironmentVariable("OAUTH_TOOLBOX_NAME") ?? "auth-paths-oauth-toolbox";
 string agentName = Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-toolbox-auth-paths-agent";
 
 TokenCredential credential = new ChainedTokenCredential(
@@ -72,12 +73,12 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
         instructions: """
             You are a helpful assistant with access to several tools, each provided by a different
             upstream service authenticated through a distinct mechanism (API key, agent managed
-            identity, project managed identity, custom OAuth user identity, and a literal token
-            shipped with the tool definition). Pick the tool that best fits the user's question
-            and explain which upstream service answered when you respond.
+            identity, custom OAuth user identity, and a literal token shipped with the tool
+            definition). Pick the tool that best fits the user's question and explain which
+            upstream service answered when you respond.
             """,
         name: agentName,
-        description: "Hosted agent demonstrating five MCP-tool authentication paths via a Foundry Toolbox.");
+        description: "Hosted agent demonstrating four MCP-tool authentication paths via a Foundry Toolbox.");
 
 // Tier 3 spine (WebApplication.CreateBuilder + AddFoundryResponses + MapFoundryResponses):
 // the Foundry.Hosting package auto-maps the spec-required GET /readiness probe inside
@@ -86,10 +87,54 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddFoundryResponses(agent);
+// Register the same credential used to build the agent so that
+// FoundryToolboxBearerTokenHandler picks it up (it defaults to a fresh
+// DefaultAzureCredential when none is registered, which fails for local
+// Docker debugging where AZURE_BEARER_TOKEN is the only available source).
+builder.Services.AddSingleton(credential);
 // Pre-register the toolbox name so FoundryToolboxService resolves the foundry-toolbox://
 // marker at request time. With FOUNDRY_PROJECT_ENDPOINT injected by the platform, startup
 // MCP tools/list against the toolbox proxy is typically <100ms in-region.
-builder.Services.AddFoundryToolboxes(toolboxName);
+// Pre-register the eager toolbox (3 paths: API key, agent MI, inline token). Then register
+// the OAuth user-identity toolbox as a LAZY toolbox — its tools/list cannot succeed under
+// the hosted agent's MI (a service principal that cannot do interactive consent), so we
+// defer the MCP connection until the model actually invokes one of the declared tools.
+// The first invocation runs under the agent's MI (Foundry toolbox proxy resolves
+// connection credentials server-side) and any -32007 CONSENT_REQUIRED is surfaced
+// to the client as an `oauth_consent_request` output item per
+// `Microsoft.Agents.AI.Foundry.Hosting.FoundryConsentErrorHelper` (the .NET parity
+// with `agent_framework_foundry_hosting/_responses.py:CONSENT_ERROR_CODE`).
+builder.Services.AddFoundryToolboxes(
+    options =>
+    {
+        options.LazyToolboxNames.Add(oauthToolboxName);
+
+        var openObjectSchema = System.Text.Json.JsonDocument.Parse(
+            "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":true}").RootElement;
+
+        options.LazyToolDescriptors.Add(new()
+        {
+            ToolboxName = oauthToolboxName,
+            ToolName = "github_oauth___search_issues",
+            Description = "Search GitHub issues as the calling end-user via the OAuth-connected GitHub MCP server.",
+            JsonSchema = openObjectSchema,
+        });
+        options.LazyToolDescriptors.Add(new()
+        {
+            ToolboxName = oauthToolboxName,
+            ToolName = "github_oauth___issue_read",
+            Description = "Read a GitHub issue as the calling end-user via the OAuth-connected GitHub MCP server.",
+            JsonSchema = openObjectSchema,
+        });
+        options.LazyToolDescriptors.Add(new()
+        {
+            ToolboxName = oauthToolboxName,
+            ToolName = "github_oauth___get_me",
+            Description = "Return the authenticated GitHub user's profile via the OAuth-connected GitHub MCP server.",
+            JsonSchema = openObjectSchema,
+        });
+    },
+    toolboxName);
 
 var app = builder.Build();
 app.MapFoundryResponses();

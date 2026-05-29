@@ -1,4 +1,4 @@
-# Hosted-McpTools
+﻿# Hosted-McpTools
 
 A hosted agent demonstrating **two layers of MCP (Model Context Protocol) tool integration**:
 
@@ -85,5 +85,5 @@ Use the standard `Dockerfile` instead of `Dockerfile.contributor`. See the comme
 ## Related samples
 
 - [`Hosted-Toolbox/`](../Hosted-Toolbox/) — connects to a single Foundry Toolbox via the AF Foundry hosting bridge (`AddFoundryToolboxes` + `FoundryAITool.CreateHostedMcpToolbox`).
-- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — same hosting bones as `Hosted-Toolbox/`, but the toolbox bundles five MCP tools each authenticated differently (key, Entra agent ID, Entra project MI, custom OAuth, inline `Authorization`). Includes a companion REPL client that handles the OAuth `mcp_approval_request` consent loop.
+- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — same hosting bones as `Hosted-Toolbox/`, but the toolbox bundles five MCP tools each authenticated differently (key, Entra agent ID, Entra project MI, custom OAuth, inline `Authorization`). Includes a companion REPL client that handles the `oauth_consent_request` consent loop.
 

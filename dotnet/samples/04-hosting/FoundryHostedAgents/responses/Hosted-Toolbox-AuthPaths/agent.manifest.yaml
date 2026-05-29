@@ -3,11 +3,11 @@ name: hosted-toolbox-auth-paths
 displayName: "Hosted Toolbox - Authentication Paths"
 
 description: >
-  A hosted agent demonstrating five MCP-tool authentication paths in a single
+  A hosted agent demonstrating four MCP-tool authentication paths in a single
   Foundry Toolbox: API key via project connection, Microsoft Entra agent
-  identity, Microsoft Entra project managed identity, custom OAuth identity
-  passthrough, and inline Authorization (anti-pattern). The toolbox itself is
-  provisioned out of band; see this sample's README for the portal walkthrough.
+  identity, custom OAuth identity passthrough, and inline Authorization
+  (anti-pattern). The toolbox itself is provisioned out of band; see this
+  sample's README for the portal walkthrough.
 
 metadata:
   tags:

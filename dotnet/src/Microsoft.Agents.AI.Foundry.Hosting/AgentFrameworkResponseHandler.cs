@@ -150,6 +150,15 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var chatOptions = InputConverter.ConvertToChatOptions(request);
         chatOptions.Instructions = request.Instructions;
 
+        // 6. Set up consent context for OAuth-consent interception (JSON-RPC -32007/-32006).
+        //    We create a linked CTS so the consent-aware MCP layer (connect path or
+        //    tool-invoke path) can cancel the agent run mid-loop when a consent error is
+        //    returned by the Foundry Toolbox gateway. The RequestConsentState is shared
+        //    with the per-request RequestScopedConsentWrapper that wraps every tool below.
+        using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var consentState = new RequestConsentState { CancellationSource = consentCts };
+        McpConsentContext.Current.Value = consentState;
+
         // Inject Foundry Toolbox tools when the toolbox service is available.
         //
         // Two sources are considered:
@@ -220,19 +229,28 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
             if (toolsToAdd?.Count > 0)
             {
+                // Wrap each tool with a per-request consent capture so the consent state is
+                // reachable via a direct closure reference (avoiding AsyncLocal flow gaps in
+                // some runtime configurations of the AgentServer Responses orchestrator).
+                for (int i = 0; i < toolsToAdd.Count; i++)
+                {
+                    if (toolsToAdd[i] is AIFunction af)
+                    {
+                        var toolboxLabel = af switch
+                        {
+                            ConsentAwareMcpClientAIFunction c => c.ToolboxName,
+                            LazyMcpToolFunction l => l.ToolboxName,
+                            _ => FoundryConsentErrorHelper.DefaultServerLabel,
+                        };
+                        toolsToAdd[i] = new RequestScopedConsentWrapper(af, consentState, toolboxLabel);
+                    }
+                }
+
                 chatOptions.Tools = [.. chatOptions.Tools ?? [], .. toolsToAdd];
             }
         }
 
         var options = new ChatClientAgentRunOptions(chatOptions);
-
-        // 6. Set up consent context for -32006 OAuth consent interception.
-        //    We create a linked CTS so the consent-aware tool wrapper can cancel the agent
-        //    run mid-loop when a -32006 error is returned by the proxy. The RequestConsentState
-        //    is a shared mutable object that flows via AsyncLocal to the tool wrapper.
-        using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var consentState = new RequestConsentState { CancellationSource = consentCts };
-        McpConsentContext.Current.Value = consentState;
 
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
@@ -262,7 +280,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 }
                 catch (OperationCanceledException) when (!emittedTerminal && consentState.Pending is not null)
                 {
-                    // -32006 consent error: the tool wrapper cancelled consentCts and stored consent info.
+                    // -32007 consent error: the consent-aware MCP layer cancelled consentCts
+                    // and stored consent info on the shared state.
                     consentInfo = consentState.Pending;
                 }
                 catch (OperationCanceledException) when (context.IsShutdownRequested && !emittedTerminal)
@@ -286,14 +305,34 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (consentInfo is not null)
                 {
-                    // Emit mcp_approval_request output item + incomplete for the consent URL.
-                    foreach (var approvalEvent in stream.OutputItemMcpApprovalRequest(
-                        consentInfo.ToolboxName,
-                        consentInfo.ToolName,
-                        consentInfo.ConsentUrl))
+                    // When the consent error fires from a model-issued tools/call, emit a synthetic
+                    // function_call_output paired with that call_id first. The orchestrator's
+                    // previous_response_id-based retry path otherwise rejects the response with
+                    // "No tool output found for function call ..." because the function_call item
+                    // is left dangling without a matching output.
+                    if (!string.IsNullOrEmpty(consentInfo.CallId))
                     {
-                        yield return approvalEvent;
+                        const string ConsentPlaceholderOutput = "\"OAuth consent required. See accompanying oauth_consent_request output item.\"";
+                        var fcOutputWireId = OutputConverter.GenerateItemId("fc");
+                        var fcOutputItem = new OutputItemFunctionToolCallOutput(
+                            consentInfo.CallId,
+                            BinaryData.FromString(ConsentPlaceholderOutput));
+                        var fcOutputBuilder = stream.AddOutputItem<OutputItemFunctionToolCallOutput>(fcOutputWireId);
+                        yield return fcOutputBuilder.EmitAdded(fcOutputItem);
+                        yield return fcOutputBuilder.EmitDone(fcOutputItem);
                     }
+
+                    // Emit oauth_consent_request output item + incomplete for the consent URL,
+                    // matching the published Azure.AI.AgentServer.Responses contract
+                    // (OAuthConsentRequestOutputItem) and the Python reference implementation.
+                    var consentWireId = OutputConverter.GenerateItemId("oacr");
+                    var consentItem = new OAuthConsentRequestOutputItem(
+                        consentWireId,
+                        consentInfo.ConsentLink,
+                        consentInfo.ServerLabel);
+                    var consentBuilder = stream.AddOutputItem<OAuthConsentRequestOutputItem>(consentWireId);
+                    yield return consentBuilder.EmitAdded(consentItem);
+                    yield return consentBuilder.EmitDone(consentItem);
 
                     yield return stream.EmitIncomplete(reason: null);
                     yield break;

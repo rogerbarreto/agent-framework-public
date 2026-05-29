@@ -22,6 +22,27 @@ public sealed class FoundryToolboxOptions
     public IList<string> ToolboxNames { get; } = [];
 
     /// <summary>
+    /// Gets the list of toolbox names that are <em>registered but not opened</em> at startup.
+    /// Use this for toolboxes whose MCP servers authenticate as the calling end-user
+    /// (<c>authType: OAuth2</c> connections, e.g. Logic Apps), since their <c>tools/list</c>
+    /// cannot succeed under the hosted agent's managed identity. The MCP client is opened on
+    /// first invocation and any <c>-32007</c> consent-required error is surfaced through the
+    /// <c>oauth_consent_request</c> Responses-API output item
+    /// (<see cref="Azure.AI.AgentServer.Responses.Models.OAuthConsentRequestOutputItem"/>).
+    /// Each name listed here must have at least one
+    /// matching entry in <see cref="LazyToolDescriptors"/>.
+    /// </summary>
+    public IList<string> LazyToolboxNames { get; } = [];
+
+    /// <summary>
+    /// Gets the tool schemas for lazy toolboxes (see <see cref="LazyToolboxNames"/>). Each
+    /// descriptor becomes a placeholder <see cref="Microsoft.Extensions.AI.AIFunction"/> the
+    /// model can call; the framework opens the underlying MCP connection on first use and
+    /// forwards the call.
+    /// </summary>
+    public IList<FoundryLazyToolDescriptor> LazyToolDescriptors { get; } = [];
+
+    /// <summary>
     /// Gets or sets the Toolboxes API version to use when constructing proxy URLs.
     /// </summary>
     public string ApiVersion { get; set; } = "v1";

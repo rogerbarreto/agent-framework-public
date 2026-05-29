@@ -121,7 +121,8 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this._agentName = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_NAME") ?? "hosted-agent";
         this._agentVersion = Environment.GetEnvironmentVariable("FOUNDRY_AGENT_VERSION") ?? "1.0.0";
 
-        if (this._options.ToolboxNames.Count == 0)
+        if (this._options.ToolboxNames.Count == 0
+            && this._options.LazyToolboxNames.Count == 0)
         {
             this._logger.LogInformation("No pre-registered toolbox names configured.");
             this.Tools = [];
@@ -160,11 +161,80 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             }
         }
 
+        // Lazy toolboxes: no startup handshake. We register their declared tool schemas as
+        // placeholder AIFunctions so the model can see/select them; the underlying MCP
+        // connection is opened on first invocation (see EnsureLazyToolboxOpenAsync). Lazy
+        // toolboxes never contribute to FailedToolboxNames / StartupStatus.
+        foreach (var lazyName in this._options.LazyToolboxNames)
+        {
+            if (!seen.Add(lazyName))
+            {
+                continue;
+            }
+
+            if (this._logger.IsEnabled(LogLevel.Information))
+            {
+                this._logger.LogInformation(
+                    "Registered lazy toolbox '{ToolboxName}'. MCP connection will be opened on first tool invocation.",
+                    lazyName);
+            }
+        }
+
+        foreach (var descriptor in this._options.LazyToolDescriptors)
+        {
+            if (!this._options.LazyToolboxNames.Contains(descriptor.ToolboxName))
+            {
+                throw new InvalidOperationException(
+                    $"LazyToolDescriptor for tool '{descriptor.ToolName}' references toolbox " +
+                    $"'{descriptor.ToolboxName}' which is not in {nameof(FoundryToolboxOptions.LazyToolboxNames)}.");
+            }
+
+            allTools.Add(new LazyMcpToolFunction(this, descriptor));
+        }
+
         this.Tools = allTools;
         this.FailedToolboxNames = failed;
         this.StartupStatus = failed.Count == 0
             ? FoundryToolboxStartupStatus.Healthy
             : FoundryToolboxStartupStatus.Failed;
+    }
+
+    /// <summary>
+    /// Opens (or returns the already-open) MCP client for a lazy toolbox. Idempotent and
+    /// concurrency-safe; called by <see cref="LazyMcpToolFunction"/> on first invocation.
+    /// </summary>
+    internal async ValueTask<McpClient> EnsureLazyToolboxOpenAsync(
+        string toolboxName,
+        CancellationToken cancellationToken)
+    {
+        if (this._toolboxes.TryGetValue(toolboxName, out var cached))
+        {
+            return cached.Client;
+        }
+
+        if (string.IsNullOrEmpty(this._resolvedEndpoint))
+        {
+            throw new InvalidOperationException(
+                $"Cannot open lazy toolbox '{toolboxName}': FOUNDRY_PROJECT_ENDPOINT is not set.");
+        }
+
+        await this._lazyOpenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (this._toolboxes.TryGetValue(toolboxName, out cached))
+            {
+                return cached.Client;
+            }
+
+            var (client, httpClient) = await this.CreateMcpClientAsync(toolboxName, cancellationToken).ConfigureAwait(false);
+            cached = new CachedToolbox(client, httpClient, Array.Empty<AITool>());
+            this._toolboxes[toolboxName] = cached;
+            return client;
+        }
+        finally
+        {
+            this._lazyOpenLock.Release();
+        }
     }
 
     /// <summary>
@@ -232,6 +302,33 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         string? version,
         CancellationToken cancellationToken)
     {
+        var (client, httpClient) = await this.CreateMcpClientAsync(toolboxName, cancellationToken).ConfigureAwait(false);
+
+        var mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (this._logger.IsEnabled(LogLevel.Information))
+        {
+            this._logger.LogInformation(
+                "Toolbox '{ToolboxName}': discovered {ToolCount} tool(s).",
+                toolboxName,
+                mcpTools.Count);
+        }
+
+        var wrapped = new List<AITool>(mcpTools.Count);
+        foreach (var tool in mcpTools)
+        {
+            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName));
+        }
+
+        _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.
+
+        return new CachedToolbox(client, httpClient, wrapped);
+    }
+
+    private async Task<(McpClient Client, HttpClient HttpClient)> CreateMcpClientAsync(
+        string toolboxName,
+        CancellationToken cancellationToken)
+    {
         var proxyUrl = $"{this._resolvedEndpoint!}/toolboxes/{toolboxName}/mcp?api-version={this._options.ApiVersion}";
 
         if (this._logger.IsEnabled(LogLevel.Information))
@@ -268,25 +365,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             clientOptions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (this._logger.IsEnabled(LogLevel.Information))
-        {
-            this._logger.LogInformation(
-                "Toolbox '{ToolboxName}': discovered {ToolCount} tool(s).",
-                toolboxName,
-                mcpTools.Count);
-        }
-
-        var wrapped = new List<AITool>(mcpTools.Count);
-        foreach (var tool in mcpTools)
-        {
-            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName));
-        }
-
-        _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.
-
-        return new CachedToolbox(client, httpClient, wrapped);
+        return (client, httpClient);
     }
 
     /// <inheritdoc/>

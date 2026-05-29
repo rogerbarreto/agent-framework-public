@@ -1,0 +1,12 @@
+name: hosted-toolbox-auth-paths
+metadata:
+  template: foundry-hosted-agent
+services:
+  app:
+    project: .
+    language: dotnet
+    host: azure.ai.agent
+    config:
+      agent:
+        name: hosted-toolbox-auth-paths-agent
+        endpoint: https://tao-foundry-prj-resource.services.ai.azure.com/api/projects/tao-foundry-prj

@@ -436,7 +436,7 @@ internal static class OutputConverter
     /// <summary>
     /// Generates a valid item ID matching the SDK's <c>{prefix}_{50chars}</c> format.
     /// </summary>
-    private static string GenerateItemId(string prefix)
+    internal static string GenerateItemId(string prefix)
     {
         // SDK format: {prefix}_{50 char body}
         var bytes = RandomNumberGenerator.GetBytes(25);
