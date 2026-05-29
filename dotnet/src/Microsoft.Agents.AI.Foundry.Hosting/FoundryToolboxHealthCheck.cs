@@ -19,7 +19,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <see cref="FoundryHostingExtensions.AddFoundryToolboxes(IServiceCollection, string[])"/>
 /// and its overloads.
 /// </summary>
-[Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 internal sealed class FoundryToolboxHealthCheck : IHealthCheck
 {
     private readonly FoundryToolboxService _toolboxService;

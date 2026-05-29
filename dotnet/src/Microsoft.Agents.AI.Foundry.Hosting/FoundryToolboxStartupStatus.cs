@@ -11,7 +11,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// Foundry hosted runtime does not start routing traffic before pre-registered toolbox
 /// connections are confirmed open (per <c>container-image-spec.md</c> §3.1).
 /// </summary>
-[Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public enum FoundryToolboxStartupStatus
 {
     /// <summary>
