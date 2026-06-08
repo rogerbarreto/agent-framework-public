@@ -138,7 +138,7 @@ public sealed class HarnessAgent : DelegatingAIAgent
 
         if (options?.DisableToolApproval is not true)
         {
-            builder.UseToolApproval();
+            builder.UseToolApproval(options?.ToolApprovalAgentOptions);
         }
 
         if (options?.DisableOpenTelemetry is not true)

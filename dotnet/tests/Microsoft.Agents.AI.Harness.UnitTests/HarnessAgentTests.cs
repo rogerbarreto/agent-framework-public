@@ -644,6 +644,51 @@ public class HarnessAgentTests
         Assert.Null(agent.GetService<ToolApprovalAgent>());
     }
 
+    /// <summary>
+    /// Verify that ToolApprovalAgentOptions auto-approval rules are passed through and actually used.
+    /// </summary>
+    [Fact]
+    public async Task ToolApproval_AutoApprovalRulesAreAppliedAsync()
+    {
+        // Arrange — inner client returns an approval request on first call, then final response on second.
+        var callCount = 0;
+        var approvalRequest = new ToolApprovalRequestContent("req1", new FunctionCallContent("call1", "ReadTool"));
+
+        var mockClient = new Mock<IChatClient>();
+        mockClient
+            .Setup(c => c.GetResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, [approvalRequest]));
+                }
+
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Done"));
+            });
+
+        var options = CreateAllDisabledOptions();
+        options.DisableToolApproval = false;
+        options.ToolApprovalAgentOptions = new ToolApprovalAgentOptions
+        {
+            AutoApprovalRules = [fcc => new ValueTask<bool>(fcc.Name == "ReadTool")]
+        };
+
+        var agent = new HarnessAgent(mockClient.Object, TestMaxContextWindowTokens, TestMaxOutputTokens, options);
+        var session = await agent.CreateSessionAsync();
+
+        // Act
+        var response = await agent.RunAsync([new ChatMessage(ChatRole.User, "Hi")], session);
+
+        // Assert — the auto-approval rule approved the request, so we get "Done" (not an approval request)
+        Assert.Equal(2, callCount);
+        Assert.Equal("Done", response.Text);
+    }
+
     #endregion
 
     #region Feature: OpenTelemetry
