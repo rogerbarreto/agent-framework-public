@@ -691,6 +691,97 @@ public class HarnessAgentTests
 
     #endregion
 
+    #region Feature: NonApprovalRequiredFunctionBypassing
+
+    /// <summary>
+    /// Verify that by default, when a response contains a mix of tools that require approval and tools that do not,
+    /// only the approval-required tool is surfaced to the caller. The non-approval-required tool is bypassed
+    /// (stored as auto-approved) by the <c>NonApprovalRequiredFunctionBypassingChatClient</c> decorator.
+    /// </summary>
+    [Fact]
+    public async Task NonApprovalRequiredFunctionBypassing_BypassesNonApprovalToolsByDefaultAsync()
+    {
+        // Arrange — the model requests both a normal tool and an approval-required tool in the same turn.
+        var normalTool = AIFunctionFactory.Create(() => "result", "NormalTool");
+        var approvalTool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(() => "result", "ApprovalTool"));
+
+        var mockClient = new Mock<IChatClient>();
+        mockClient
+            .Setup(c => c.GetResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new ChatResponse(new ChatMessage(ChatRole.Assistant,
+            [
+                new FunctionCallContent("call1", "NormalTool"),
+                new FunctionCallContent("call2", "ApprovalTool"),
+            ])));
+
+        // Disable ToolApproval so the approval requests surface in the response instead of being handled.
+        var options = CreateAllDisabledOptions();
+        options.ChatOptions = new ChatOptions { Tools = [normalTool, approvalTool] };
+
+        var agent = new HarnessAgent(mockClient.Object, TestMaxContextWindowTokens, TestMaxOutputTokens, options);
+        var session = await agent.CreateSessionAsync();
+
+        // Act
+        var response = await agent.RunAsync([new ChatMessage(ChatRole.User, "Hi")], session);
+
+        // Assert — only the approval-required tool surfaces as an approval request; the normal tool is bypassed.
+        var approvalRequests = response.Messages
+            .SelectMany(m => m.Contents)
+            .OfType<ToolApprovalRequestContent>()
+            .ToList();
+        var approvalRequest = Assert.Single(approvalRequests);
+        Assert.Equal("ApprovalTool", Assert.IsType<FunctionCallContent>(approvalRequest.ToolCall).Name);
+    }
+
+    /// <summary>
+    /// Verify that when bypassing is disabled, all tools (including those that do not require approval) are surfaced
+    /// as approval requests, reflecting the all-or-nothing behavior of <see cref="FunctionInvokingChatClient"/>.
+    /// </summary>
+    [Fact]
+    public async Task NonApprovalRequiredFunctionBypassing_SurfacesAllApprovalsWhenDisabledAsync()
+    {
+        // Arrange — the model requests both a normal tool and an approval-required tool in the same turn.
+        var normalTool = AIFunctionFactory.Create(() => "result", "NormalTool");
+        var approvalTool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(() => "result", "ApprovalTool"));
+
+        var mockClient = new Mock<IChatClient>();
+        mockClient
+            .Setup(c => c.GetResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new ChatResponse(new ChatMessage(ChatRole.Assistant,
+            [
+                new FunctionCallContent("call1", "NormalTool"),
+                new FunctionCallContent("call2", "ApprovalTool"),
+            ])));
+
+        var options = CreateAllDisabledOptions();
+        options.DisableNonApprovalRequiredFunctionBypassing = true;
+        options.ChatOptions = new ChatOptions { Tools = [normalTool, approvalTool] };
+
+        var agent = new HarnessAgent(mockClient.Object, TestMaxContextWindowTokens, TestMaxOutputTokens, options);
+        var session = await agent.CreateSessionAsync();
+
+        // Act
+        var response = await agent.RunAsync([new ChatMessage(ChatRole.User, "Hi")], session);
+
+        // Assert — both tools surface as approval requests because bypassing is disabled.
+        var approvalRequests = response.Messages
+            .SelectMany(m => m.Contents)
+            .OfType<ToolApprovalRequestContent>()
+            .Select(r => ((FunctionCallContent)r.ToolCall).Name)
+            .ToList();
+        Assert.Equal(2, approvalRequests.Count);
+        Assert.Contains("NormalTool", approvalRequests);
+        Assert.Contains("ApprovalTool", approvalRequests);
+    }
+
+    #endregion
+
     #region Feature: OpenTelemetry
 
     /// <summary>
