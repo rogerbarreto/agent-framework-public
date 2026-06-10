@@ -23,5 +23,5 @@ dotnet run --tl:off
 
 ## Related samples
 
-- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — extends this pattern with a four-tool toolbox demonstrating different MCP-tool authentication paths (key, Entra MI, inline `Authorization`) and a REPL client.
+- [`Hosted-Toolbox-AuthPaths/`](../Hosted-Toolbox-AuthPaths/) — extends this pattern with a three-tool toolbox demonstrating different MCP-tool authentication paths (key, Entra agent identity, inline `Authorization`), driven by the shared `Using-Samples/SimpleAgent/` REPL.
 - [`Hosted-McpTools/`](../Hosted-McpTools/) — contrasts client-side `McpClient` vs server-side `HostedMcpServerTool` for non-toolbox MCP servers.
