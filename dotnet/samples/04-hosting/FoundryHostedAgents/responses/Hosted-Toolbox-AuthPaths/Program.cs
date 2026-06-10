@@ -61,12 +61,16 @@ TokenCredential credential = new ChainedTokenCredential(
     new DevTemporaryTokenCredential(),
     new DefaultAzureCredential());
 
-// Notes on toolbox wiring:
-//   - The toolbox tools are added at request time by AgentFrameworkResponseHandler from
-//     FoundryToolboxService.Tools (the pre-registered set). Do NOT pass the toolbox
-//     marker (FoundryAITool.CreateHostedMcpToolbox) in the agent's `tools:` array — that
-//     marker is for the per-request scenario where the CALLER specifies the toolbox in
-//     the request body. Server-side baked-in toolbox uses the AddFoundryToolboxes path.
+// Notes on toolbox wiring — there are two ways to attach a Foundry Toolbox to an agent:
+//   - Server-side "baked-in" (what this sample uses): calling AddFoundryToolboxes(name)
+//     below registers the toolbox with the Foundry.Hosting layer, which resolves that
+//     toolbox's MCP tools once at startup and automatically makes them available to the
+//     agent on every request. The agent code does nothing per request.
+//   - Per-request / caller-driven (NOT used here): a client can attach a toolbox for a
+//     single call by placing a FoundryAITool.CreateHostedMcpToolbox(name) marker in the
+//     request body's tool list.
+// Because this sample bakes the toolbox in on the server, it uses AddFoundryToolboxes and
+// does NOT put the CreateHostedMcpToolbox marker in the agent's `tools:` array.
 AIAgent agent = new AIProjectClient(new Uri(endpoint), credential)
     .AsAIAgent(
         model: deploymentName,
