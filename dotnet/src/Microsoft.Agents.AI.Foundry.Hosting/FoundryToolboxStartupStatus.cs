@@ -29,12 +29,12 @@ public enum FoundryToolboxStartupStatus
     Healthy = 1,
 
     /// <summary>
-    /// One or more pre-registered toolboxes failed to open during startup. The
-    /// health-check reports <c>Unhealthy</c> and exposes the failed names in the
-    /// <c>HealthCheckResult.Data</c> dictionary so operators can diagnose the failure
-    /// without parsing log output.
+    /// One or more pre-registered toolboxes failed to open during startup (including the
+    /// partial case where some opened and some did not). The health-check reports
+    /// <c>Unhealthy</c> and exposes the failed names in the <c>HealthCheckResult.Data</c>
+    /// dictionary so operators can diagnose the failure without parsing log output.
     /// </summary>
-    Failed = 2,
+    Unhealthy = 2,
 
     /// <summary>
     /// Neither the <c>FOUNDRY_PROJECT_ENDPOINT</c> nor the <c>AZURE_AI_PROJECT_ENDPOINT</c>

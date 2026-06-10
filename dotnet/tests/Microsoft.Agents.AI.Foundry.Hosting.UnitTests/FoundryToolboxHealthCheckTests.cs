@@ -64,7 +64,7 @@ public class FoundryToolboxHealthCheckTests
     }
 
     [Fact]
-    public async Task CheckHealthAsync_FailedStatus_ReturnsConfiguredFailureWithFailedNamesAsync()
+    public async Task CheckHealthAsync_UnhealthyStatus_ReturnsConfiguredFailureWithFailedNamesAsync()
     {
         // Arrange: pre-registered toolbox at an unreachable endpoint forces StartAsync to
         // record the failure. The health-check must reflect Unhealthy and expose the

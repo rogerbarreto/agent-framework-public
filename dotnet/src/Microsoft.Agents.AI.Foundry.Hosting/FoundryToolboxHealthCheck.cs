@@ -47,7 +47,7 @@ internal sealed class FoundryToolboxHealthCheck : IHealthCheck
                     status: context.Registration.FailureStatus,
                     description: "Foundry toolbox: startup has not completed yet."));
 
-            case FoundryToolboxStartupStatus.Failed:
+            case FoundryToolboxStartupStatus.Unhealthy:
                 var data = new Dictionary<string, object>(StringComparer.Ordinal)
                 {
                     ["failedToolboxes"] = this._toolboxService.FailedToolboxNames,

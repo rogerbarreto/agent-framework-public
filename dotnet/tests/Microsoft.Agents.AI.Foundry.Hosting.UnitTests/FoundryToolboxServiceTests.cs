@@ -96,7 +96,7 @@ public class FoundryToolboxServiceTests
 
             // Assert: open failed, status reflects that (resolver was reached), and
             // the failed name matches — i.e. we attempted the right toolbox.
-            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Equal(FoundryToolboxStartupStatus.Unhealthy, service.StartupStatus);
             Assert.Single(service.FailedToolboxNames);
             Assert.Equal("my-toolbox", service.FailedToolboxNames[0]);
         }
@@ -126,7 +126,7 @@ public class FoundryToolboxServiceTests
             // Arrange/Act: when trailing-slash normalization works the open still fails
             // (host is unreachable), but FailedToolboxNames records the attempted name —
             // proof that the resolver did not throw on the slash and the URL was built.
-            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Equal(FoundryToolboxStartupStatus.Unhealthy, service.StartupStatus);
             Assert.Single(service.FailedToolboxNames);
             Assert.Equal("tb", service.FailedToolboxNames[0]);
         }
@@ -158,9 +158,9 @@ public class FoundryToolboxServiceTests
 
             await service.StartAsync(CancellationToken.None);
 
-            // Override URL is unreachable; we expect Failed (proving Start did try to open
+            // Override URL is unreachable; we expect Unhealthy (proving Start did try to open
             // a toolbox, i.e. did not fall into the NoEndpoint branch).
-            Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+            Assert.Equal(FoundryToolboxStartupStatus.Unhealthy, service.StartupStatus);
             Assert.Single(service.FailedToolboxNames);
         }
         finally
@@ -189,7 +189,7 @@ public class FoundryToolboxServiceTests
         await service.StartAsync(CancellationToken.None);
 
         // Assert
-        Assert.Equal(FoundryToolboxStartupStatus.Failed, service.StartupStatus);
+        Assert.Equal(FoundryToolboxStartupStatus.Unhealthy, service.StartupStatus);
         Assert.Single(service.FailedToolboxNames);
         Assert.Equal("broken-toolbox", service.FailedToolboxNames[0]);
         Assert.Empty(service.Tools);

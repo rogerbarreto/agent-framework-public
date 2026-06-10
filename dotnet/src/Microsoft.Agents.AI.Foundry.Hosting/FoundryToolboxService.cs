@@ -109,7 +109,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         if (string.IsNullOrEmpty(projectEndpoint))
         {
-            this._logger.LogInformation(
+            this._logger.LogWarning(
                 "Neither FOUNDRY_PROJECT_ENDPOINT nor AZURE_AI_PROJECT_ENDPOINT is set; toolbox support is disabled.");
             this.Tools = [];
             this.StartupStatus = FoundryToolboxStartupStatus.NoEndpoint;
@@ -164,7 +164,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this.FailedToolboxNames = failed;
         this.StartupStatus = failed.Count == 0
             ? FoundryToolboxStartupStatus.Healthy
-            : FoundryToolboxStartupStatus.Failed;
+            : FoundryToolboxStartupStatus.Unhealthy;
     }
 
     /// <summary>
