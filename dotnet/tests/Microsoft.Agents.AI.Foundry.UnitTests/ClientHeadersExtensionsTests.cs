@@ -4,6 +4,7 @@ using System;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -621,14 +622,20 @@ public sealed class ClientHeadersExtensionsTests
         var run1 = new ChatClientAgentRunOptions(new ChatOptions());
         run1.ChatOptions!.WithClientHeader("x-client-end-user-id", "alice");
         await agent.RunAsync("hi", options: run1);
+        var afterRun1 = handler.Requests.Count;
 
         var run2 = new ChatClientAgentRunOptions(new ChatOptions());
         await agent.RunAsync("hi", options: run2);
 
-        // Assert: two requests recorded; the second must NOT carry run 1's header.
-        Assert.Equal(2, handler.Requests.Count);
+        // Assert: run 1 stamped the header; none of the requests issued by run 2 carry it.
+        // (Assert per-run rather than on an exact total count, which would be brittle to
+        // any extra/internal SDK requests.)
+        Assert.True(afterRun1 > 0);
         Assert.Equal("alice", handler.Requests[0].Headers["x-client-end-user-id"]);
-        Assert.False(handler.Requests[1].Headers.ContainsKey("x-client-end-user-id"));
+
+        var run2Requests = handler.Requests.Skip(afterRun1).ToList();
+        Assert.NotEmpty(run2Requests);
+        Assert.All(run2Requests, r => Assert.False(r.Headers.ContainsKey("x-client-end-user-id")));
     }
 
     // -------------------------------------------------------------------------------------------
