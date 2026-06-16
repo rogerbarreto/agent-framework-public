@@ -115,12 +115,16 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
                 long expectedBytes = new FileInfo(localPath).Length;
                 Assert.Equal(expectedBytes, writeResponse.BytesWritten);
 
-                SessionDirectoryListResponse listing = await sessionFiles.GetSessionFilesAsync(
+                List<SessionDirectoryEntry> entries = new();
+                await foreach (SessionDirectoryEntry entry in sessionFiles.GetSessionFilesAsync(
                     agentName: this._fixture.AgentName,
-                    sessionId: agentSessionId,
-                    sessionStoragePath: ".");
+                    agentSessionId: agentSessionId,
+                    sessionStoragePath: "."))
+                {
+                    entries.Add(entry);
+                }
                 Assert.Contains(
-                    listing.Entries,
+                    entries,
                     e => e.Name == TestDataFileName && !e.IsDirectory && e.Size == expectedBytes);
 
                 // Step 4 — invoke the agent again on the SAME conversation. The platform routes back to
