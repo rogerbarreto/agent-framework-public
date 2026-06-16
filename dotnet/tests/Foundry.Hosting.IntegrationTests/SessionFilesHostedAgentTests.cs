@@ -115,17 +115,21 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
                 long expectedBytes = new FileInfo(localPath).Length;
                 Assert.Equal(expectedBytes, writeResponse.BytesWritten);
 
-                List<SessionDirectoryEntry> entries = new();
+                bool foundEntry = false;
                 await foreach (SessionDirectoryEntry entry in sessionFiles.GetSessionFilesAsync(
                     agentName: this._fixture.AgentName,
                     agentSessionId: agentSessionId,
                     sessionStoragePath: "."))
                 {
-                    entries.Add(entry);
+                    if (entry.Name == TestDataFileName && !entry.IsDirectory && entry.Size == expectedBytes)
+                    {
+                        foundEntry = true;
+                        break;
+                    }
                 }
-                Assert.Contains(
-                    entries,
-                    e => e.Name == TestDataFileName && !e.IsDirectory && e.Size == expectedBytes);
+                Assert.True(
+                    foundEntry,
+                    $"Expected session directory listing to contain '{TestDataFileName}' ({expectedBytes} bytes) as a file.");
 
                 // Step 4 — invoke the agent again on the SAME conversation. The platform routes back to
                 // the same agent_session_id container, so the agent's ReadFile tool sees the upload.
