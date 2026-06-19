@@ -61,10 +61,11 @@ This sample is written to demonstrate the pattern safely. When you adapt it, kee
 - **Attach the header over HTTPS only.** The handler skips the header when the request is not HTTPS,
   so a credential is never sent over plaintext.
 - **Scope the header to the MCP server origin.** The handler attaches the header only when the
-  request targets the configured server origin (scheme, host, and port). This prevents the token from
-  being sent to a redirect target on another origin.
-- **Reset the scope after each run.** `McpRunScope.Current` is cleared in a `finally` block so a token
-  does not bleed into later, unrelated work.
+  request targets the configured server origin (scheme, host, and port). Auto-redirect is also
+  disabled (`AllowAutoRedirect = false`) so a redirect cannot carry the token to another origin
+  below the handler before the origin check runs.
+- **Reset the scope after each run.** `McpRunScope.Current` is restored to its prior value in a
+  `finally` block so a token does not bleed into later, unrelated work and nesting stays safe.
 - **Disable cookies on the shared handler.** `UseCookies = false` avoids cross-context state on a
   shared client, and `CheckCertificateRevocationList = true` validates the server certificate.
 - **Use non-identifying labels and tokens.** The labels and tokens here carry no personal data and are

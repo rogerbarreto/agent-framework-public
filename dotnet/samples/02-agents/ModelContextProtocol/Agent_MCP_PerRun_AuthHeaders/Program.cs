@@ -25,12 +25,14 @@ var deploymentName = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt
 var serverEndpoint = new Uri("https://learn.microsoft.com/api/mcp");
 
 // Custom HttpClient for the MCP transport. The per-run handler attaches the bearer; the inner
-// handler disables cookies (no cross-context state) and checks certificate revocation.
+// handler disables cookies (no cross-context state), disables auto-redirect (so a redirect cannot
+// carry the bearer past the origin re-check), and checks certificate revocation.
 using var httpClient = new HttpClient(new PerRunAuthHeaderHandler(serverEndpoint)
 {
     InnerHandler = new HttpClientHandler
     {
         UseCookies = false,
+        AllowAutoRedirect = false,
         CheckCertificateRevocationList = true,
     },
 });
@@ -67,6 +69,7 @@ static async Task RunForContextAsync(AIAgent agent, string label, string prompt)
 {
     // Stand-in for a real per-run token (for example an OBO or cloud identity token).
     // It carries no PII and is regenerated on every run. The label is non-secret and used for logging.
+    McpRunContext? previous = McpRunScope.Current;
     McpRunScope.Current = new McpRunContext(label, $"{label}.{Guid.NewGuid():N}");
     try
     {
@@ -75,8 +78,8 @@ static async Task RunForContextAsync(AIAgent agent, string label, string prompt)
     }
     finally
     {
-        // Clear the scope so a token never bleeds into later, unrelated work.
-        McpRunScope.Current = null;
+        // Restore the prior scope (stack-like) so this is safe to call from within an outer scope.
+        McpRunScope.Current = previous;
     }
 }
 
