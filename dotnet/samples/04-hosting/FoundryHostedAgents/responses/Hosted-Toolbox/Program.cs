@@ -10,9 +10,10 @@
 //                                     - Foundry project endpoint. The Foundry hosted
 //                                       runtime auto-injects FOUNDRY_PROJECT_ENDPOINT; locally
 //                                       set AZURE_AI_PROJECT_ENDPOINT.
-//   FOUNDRY_MODEL                     - Model deployment name (default: gpt-4o)
 //
 // Optional:
+//   FOUNDRY_MODEL (or AZURE_AI_MODEL_DEPLOYMENT_NAME)
+//                                     - Model deployment name (default: gpt-4o)
 //   TOOLBOX_NAME                      - Name of the toolbox to load (default: my-toolset).
 //                                       NOTE: All FOUNDRY_* and AGENT_* env-var prefixes (other
 //                                       than the platform-injected ones above) are reserved by the

@@ -32,7 +32,7 @@ FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projec
 ASPNETCORE_URLS=http://+:8088
 ASPNETCORE_ENVIRONMENT=Development
 FOUNDRY_MODEL=gpt-5
-FOUNDRY_TOOLBOX_NAME=my-toolbox
+TOOLBOX_NAME=my-toolbox
 ```
 
 > **Note:** `.env` is gitignored. The `.env.example` template is checked in as a reference.

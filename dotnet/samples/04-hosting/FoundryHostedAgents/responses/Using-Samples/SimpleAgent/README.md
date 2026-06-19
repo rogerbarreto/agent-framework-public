@@ -49,7 +49,7 @@ With a hosted agent running:
 ```text
 ══════════════════════════════════════════════════════════
 Simple Agent Sample
-Connected to: http://localhost:8088/agents/hosted-toolbox-agent/endpoint/protocols/openai
+Connected to: https://localhost:8088/api/projects/local/agents/hosted-toolbox-agent/endpoint/protocols/openai
 Type a message or 'quit' to exit
 ══════════════════════════════════════════════════════════
 
