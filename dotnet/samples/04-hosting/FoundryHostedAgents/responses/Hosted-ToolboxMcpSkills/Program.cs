@@ -7,7 +7,7 @@
 // AgentSkillsProviderBuilder.UseMcpSkills().
 //
 // Required environment variables:
-//   FOUNDRY_PROJECT_ENDPOINT         - Azure AI Foundry project endpoint
+//   FOUNDRY_PROJECT_ENDPOINT         - Foundry project endpoint
 //   FOUNDRY_TOOLBOX_NAME              - Name of the Foundry Toolbox to connect to
 //   FOUNDRY_MODEL    - Model deployment name (default: gpt-5)
 
