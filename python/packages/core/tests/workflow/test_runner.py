@@ -158,7 +158,9 @@ async def test_runner_run_iteration_preserves_message_order_per_edge_runner() ->
         def __init__(self) -> None:
             self.received: list[int] = []
 
-        async def send_message(self, message: WorkflowMessage, state: State, ctx: RunnerContext) -> bool:
+        async def send_message(
+            self, message: WorkflowMessage, state: State, ctx: RunnerContext, *args: object, **kwargs: object
+        ) -> bool:
             message_data = message.data
             assert isinstance(message_data, MockMessage)
             self.received.append(message_data.data)
@@ -169,7 +171,7 @@ async def test_runner_run_iteration_preserves_message_order_per_edge_runner() ->
     runner = Runner([], {}, state, ctx, "test_name", graph_signature_hash="test_hash")
 
     edge_runner = RecordingEdgeRunner()
-    runner._edge_runner_map = {"source": [edge_runner]}  # type: ignore[assignment]
+    runner._edge_runner_map = {"source": [edge_runner]}  # type: ignore[assignment, list-item]  # ty: ignore[invalid-assignment]
 
     for index in range(5):
         await ctx.send_message(WorkflowMessage(data=MockMessage(data=index), source_id="source"))
@@ -188,7 +190,9 @@ async def test_runner_run_iteration_delivers_different_edge_runners_concurrently
             self.release = asyncio.Event()
             self.call_count = 0
 
-        async def send_message(self, message: WorkflowMessage, state: State, ctx: RunnerContext) -> bool:
+        async def send_message(
+            self, message: WorkflowMessage, state: State, ctx: RunnerContext, *args: object, **kwargs: object
+        ) -> bool:
             self.call_count += 1
             self.started.set()
             await self.release.wait()
@@ -199,7 +203,9 @@ async def test_runner_run_iteration_delivers_different_edge_runners_concurrently
             self.probe_completed = asyncio.Event()
             self.call_count = 0
 
-        async def send_message(self, message: WorkflowMessage, state: State, ctx: RunnerContext) -> bool:
+        async def send_message(
+            self, message: WorkflowMessage, state: State, ctx: RunnerContext, *args: object, **kwargs: object
+        ) -> bool:
             self.call_count += 1
             self.probe_completed.set()
             return True
@@ -210,7 +216,7 @@ async def test_runner_run_iteration_delivers_different_edge_runners_concurrently
 
     blocking_edge_runner = BlockingEdgeRunner()
     probe_edge_runner = ProbeEdgeRunner()
-    runner._edge_runner_map = {"source": [blocking_edge_runner, probe_edge_runner]}  # type: ignore[assignment]
+    runner._edge_runner_map = {"source": [blocking_edge_runner, probe_edge_runner]}  # type: ignore[assignment, list-item]  # ty: ignore[invalid-assignment]
 
     await ctx.send_message(WorkflowMessage(data=MockMessage(data=1), source_id="source"))
 
@@ -514,7 +520,7 @@ class CheckpointingContext(InProcRunnerContext):
         )
         return await self._storage.save(checkpoint)
 
-    async def load_checkpoint(self, checkpoint_id: str) -> WorkflowCheckpoint | None:  # pyright: ignore[reportIncompatibleMethodOverride]
+    async def load_checkpoint(self, checkpoint_id: str) -> WorkflowCheckpoint | None:  # type: ignore[override]  # pyrefly: ignore[bad-override]  # ty: ignore[invalid-method-override]  # pyright: ignore[reportIncompatibleMethodOverride]
         try:
             return await self._storage.load(checkpoint_id)
         except WorkflowCheckpointException:
@@ -766,7 +772,7 @@ async def test_runner_with_pre_loop_events():
     runner = Runner([], {}, state, ctx, "test_name", graph_signature_hash="test_hash")
 
     # Add an event before running
-    await ctx.add_event(WorkflowEvent.output(executor_id="test_executor", data="pre-loop-output"))
+    await ctx.add_event(WorkflowEvent("output", executor_id="test_executor", data="pre-loop-output"))
 
     events: list[WorkflowEvent] = []
     async for event in runner.run_until_convergence():
@@ -891,7 +897,7 @@ class ExecutorThatFailsWithEvents(Executor):
         # First emit an output event to the workflow context
         await ctx.yield_output(f"output-before-failure-{message.data}")
         # Add some events directly to the runner context
-        await self._runner_ctx.add_event(WorkflowEvent.output(executor_id=self.id, data="pending-event"))
+        await self._runner_ctx.add_event(WorkflowEvent("output", executor_id=self.id, data="pending-event"))
         # Fail on the specified iteration
         if self._iteration_count >= self._fail_on_iteration:
             raise RuntimeError("Executor failed with pending events")

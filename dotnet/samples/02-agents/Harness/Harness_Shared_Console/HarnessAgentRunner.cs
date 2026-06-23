@@ -19,14 +19,14 @@ namespace Harness.Shared.Console;
 public sealed class HarnessAgentRunner : IDisposable
 {
     private readonly AIAgent _agent;
-    private readonly AgentSession _session;
     private readonly AgentModeProvider? _modeProvider;
     private readonly MessageInjectingChatClient? _messageInjector;
     private readonly IReadOnlyList<CommandHandler> _commandHandlers;
     private readonly IReadOnlyList<ConsoleObserver> _observers;
     private readonly IUXStateDriver _ux;
-
     private readonly SemaphoreSlim _inputGate = new(1, 1);
+
+    private AgentSession _session;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessAgentRunner"/> class.
@@ -61,6 +61,19 @@ public sealed class HarnessAgentRunner : IDisposable
     /// <c>commandHandlers</c>.
     /// </summary>
     public string HelpText { get; }
+
+    /// <summary>
+    /// Replaces the current session with the specified session. Used by the UX driver
+    /// when importing a serialized session. This method is always called from within
+    /// a command handler (which already holds the input gate), so no additional
+    /// synchronization is needed.
+    /// </summary>
+    /// <param name="newSession">The new session to use.</param>
+    internal Task ReplaceSessionAsync(AgentSession newSession)
+    {
+        this._session = newSession;
+        return Task.CompletedTask;
+    }
 
     /// <inheritdoc/>
     public void Dispose() => this._inputGate.Dispose();
@@ -171,6 +184,11 @@ public sealed class HarnessAgentRunner : IDisposable
                         {
                             await observer.OnContentAsync(this._ux, content, this._agent, this._session).ConfigureAwait(false);
                         }
+                    }
+
+                    foreach (var observer in this._observers)
+                    {
+                        await observer.OnResponseUpdateAsync(this._ux, update, this._agent, this._session).ConfigureAwait(false);
                     }
 
                     if (!string.IsNullOrEmpty(update.Text))

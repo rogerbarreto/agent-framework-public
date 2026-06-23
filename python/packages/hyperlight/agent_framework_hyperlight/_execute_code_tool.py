@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import os
 import shutil
+import stat
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from copy import copy
@@ -86,6 +88,10 @@ class _RunConfig:
 
 class SandboxRuntime(Protocol):
     def execute(self, *, config: _RunConfig, code: str) -> list[Content]: ...
+
+
+class _NamedDirectory(Protocol):
+    name: str
 
 
 _T = TypeVar("_T")
@@ -483,15 +489,66 @@ def _display_mount_path(mount_path: str) -> str:
     return f"/input/{mount_path}"
 
 
+def _iter_real_entries(root: Path) -> Iterator[Path]:
+    """Walk ``root`` recursively, yielding directories and regular files only.
+
+    ``Path.rglob`` follows directory symlinks by default, which combined with
+    ``Path.is_file()`` / ``shutil.copy2`` (all follow symlinks) would expose
+    paths outside the configured input tree if the source tree is
+    attacker-controlled. This walker mirrors the safe behaviour by checking
+    ``is_symlink()`` at every directory level and never descending through one.
+
+    Non-regular files (sockets, FIFOs, devices) are also filtered out so the
+    signature mirrors exactly what ``_copy_path`` actually stages.
+    """
+    stack: list[Path] = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            try:
+                if child.is_symlink():
+                    continue
+                if child.is_dir():
+                    stack.append(child)
+                    yield child
+                elif child.is_file():
+                    yield child
+                # Non-regular files (sockets/FIFOs/devices) are skipped to
+                # match ``_copy_path``'s staging behaviour.
+            except OSError:
+                continue
+
+
 def _path_tree_signature(path: Path) -> tuple[tuple[str, int, int], ...]:
+    """Return a stable signature of the real (non-symlink) file tree under ``path``.
+
+    If ``path`` itself is a symlink, it is resolved first so the signature
+    reflects the real target's contents. This matches the public construction
+    flow (``_resolve_workspace_root`` / ``_normalize_file_mount_input`` already
+    resolve roots up front) and acts as defense in depth for any direct caller
+    that builds a ``_RunConfig`` without going through the constructor.
+
+    Symlinks encountered inside the walked tree are skipped, and ``lstat()`` is
+    used so size/mtime are read from the entry itself, never through a
+    target. The result mirrors what ``_copy_path`` actually stages.
+    """
+    if path.is_symlink():
+        try:
+            path = path.resolve(strict=True)
+        except OSError:
+            return ()
     if path.is_file():
-        stat = path.stat()
+        stat = path.lstat()
         return ((path.name, int(stat.st_size), int(stat.st_mtime_ns)),)
 
     entries: list[tuple[str, int, int]] = []
-    for candidate in sorted(path.rglob("*"), key=lambda value: value.as_posix()):
+    for candidate in sorted(_iter_real_entries(path), key=lambda value: value.as_posix()):
         try:
-            stat = candidate.stat()
+            stat = candidate.lstat()
         except FileNotFoundError:
             continue
         relative_path = candidate.relative_to(path).as_posix()
@@ -501,14 +558,37 @@ def _path_tree_signature(path: Path) -> tuple[tuple[str, int, int], ...]:
 
 
 def _copy_path(source: Path, destination: Path) -> None:
+    """Stage ``source`` into ``destination`` without following symlinks.
+
+    Symlinks (file or directory) found in the source tree are skipped entirely
+    so a sandbox input tree can only contain real entries that physically live
+    under the configured ``workspace_root`` or a ``file_mounts`` host path.
+    ``Path.is_dir()``, ``Path.is_file()`` and ``shutil.copy2`` all follow
+    symlinks by default, which is unsafe for symlinks planted in the source
+    tree at rest.
+
+    This helper does not attempt to make the copy atomic with respect to
+    concurrent mutation of the source tree. Callers that need protection from
+    an adversary modifying the workspace mid-stage should pass in an
+    immutable / snapshotted directory.
+    """
+    # Detect symlinks before doing anything else - ``is_symlink()`` does not
+    # follow the link, unlike ``is_dir()`` / ``is_file()``.
+    if source.is_symlink():
+        return
+
     if source.is_dir():
         destination.mkdir(parents=True, exist_ok=True)
         for child in sorted(source.iterdir(), key=lambda value: value.name):
             _copy_path(child, destination / child.name)
         return
 
+    if not source.is_file():
+        # Non-regular files (sockets, FIFOs, devices) are intentionally skipped.
+        return
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
+    shutil.copy2(source, destination, follow_symlinks=False)
 
 
 def _populate_input_dir(*, config: _RunConfig, input_root: Path) -> None:
@@ -520,10 +600,41 @@ def _populate_input_dir(*, config: _RunConfig, input_root: Path) -> None:
         _copy_path(mount.host_path, input_root / mount.mount_path)
 
 
+def _read_output_file_bytes(file_path: Path) -> bytes:
+    """Read ``file_path`` without following a symlink, even under a TOCTOU swap.
+
+    ``Path.read_bytes`` follows symlinks, so a sandbox payload that replaces an
+    output file with ``/output/leak.txt -> /host/secret`` between validation and
+    read could still exfiltrate a host file. Two layers defend against this:
+
+    * ``os.O_NOFOLLOW`` makes the kernel reject a final-component symlink with
+      ``ELOOP``. The flag is absent on some platforms (notably Windows), where
+      it degrades to ``0``, so it cannot be the only defense.
+    * The file is ``lstat``-ed before opening and ``fstat``-ed after; if the
+      ``(st_dev, st_ino)`` identity changed, or the pre-open entry is a symlink,
+      the read is refused. This closes the swap window on every platform.
+    """
+    pre_stat = file_path.lstat()
+    if stat.S_ISLNK(pre_stat.st_mode):
+        raise OSError(f"refusing to read symlinked output file: {file_path}")
+
+    fd = os.open(file_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened_stat = os.fstat(fd)
+        if (opened_stat.st_dev, opened_stat.st_ino) != (pre_stat.st_dev, pre_stat.st_ino):
+            raise OSError(f"output file changed between validation and read: {file_path}")
+    except BaseException:
+        os.close(fd)
+        raise
+
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
 def _create_file_content(file_path: Path, *, relative_path: str) -> Content:
     media_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     return Content.from_data(
-        data=file_path.read_bytes(),
+        data=_read_output_file_bytes(file_path),
         media_type=media_type,
         additional_properties={"path": f"/output/{relative_path}"},
     )
@@ -547,6 +658,50 @@ def _normalize_output_relative_path(*, output_file: object, root: Path) -> str |
     return "/".join(parts)
 
 
+def _is_safe_output_file(*, root: Path, host_path: Path) -> bool:
+    """Return True only if ``host_path`` is a real regular file safely under ``root``.
+
+    The ``/output`` directory is sandbox-controlled, so a payload can plant a
+    final-component symlink (``/output/leak.txt -> /host/secret``) or an
+    intermediate directory symlink to escape ``root`` and read host files.
+    ``Path.is_file`` follows symlinks, so this validator instead walks each path
+    component from ``root`` to ``host_path`` with ``lstat`` and rejects the path
+    if any component is a symlink, requiring the final entry to be a regular
+    file. ``..``/``.`` components are rejected up front because
+    ``Path.relative_to`` is purely lexical and would otherwise allow a listing
+    such as ``root / ".." / "secret.txt"`` to escape ``root`` without any
+    symlink. This mirrors the symlink-hardening already applied to the input
+    staging path (``_copy_path`` / ``_iter_real_entries``).
+    """
+    try:
+        relative = host_path.relative_to(root)
+    except ValueError:
+        return False
+
+    if not relative.parts or any(part in {"..", "."} for part in relative.parts):
+        return False
+
+    *parent_parts, final_part = relative.parts
+    current = root
+    for part in parent_parts:
+        current = current / part
+        try:
+            parent_stat = current.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(parent_stat.st_mode):
+            return False
+
+    current = current / final_part
+    try:
+        final_stat = current.lstat()
+    except OSError:
+        return False
+    if stat.S_ISLNK(final_stat.st_mode):
+        return False
+    return stat.S_ISREG(final_stat.st_mode)
+
+
 def _collect_output_relative_paths(*, sandbox: Any, root: Path) -> set[str]:
     relative_paths: set[str] = set()
 
@@ -560,7 +715,11 @@ def _collect_output_relative_paths(*, sandbox: Any, root: Path) -> set[str]:
             if (relative_path := _normalize_output_relative_path(output_file=output_file, root=root)) is not None:
                 relative_paths.add(relative_path)
 
-    for host_path in root.rglob("*"):
+    # ``Path.rglob`` follows directory symlinks and ``Path.is_file`` follows
+    # symlinks, both of which would surface paths outside the sandbox-controlled
+    # output tree. ``_iter_real_entries`` skips symlinks and never descends
+    # through a symlinked directory, yielding only real entries under ``root``.
+    for host_path in _iter_real_entries(root):
         if host_path.is_file():
             relative_paths.add(host_path.relative_to(root).as_posix())
 
@@ -570,7 +729,7 @@ def _collect_output_relative_paths(*, sandbox: Any, root: Path) -> set[str]:
 def _parse_output_files(
     *,
     sandbox: Any,
-    output_dir: TemporaryDirectory[str] | None,
+    output_dir: _NamedDirectory | None,
     expect_output_files: bool,
 ) -> list[Content]:
     if output_dir is None:
@@ -585,12 +744,12 @@ def _parse_output_files(
 
         for relative_path in sorted(relative_paths):
             host_path = root.joinpath(*PurePosixPath(relative_path).parts)
-            if not host_path.is_file():
+            if not _is_safe_output_file(root=root, host_path=host_path):
                 missing_files = True
                 continue
             try:
                 contents.append(_create_file_content(host_path, relative_path=relative_path))
-            except PermissionError:
+            except (PermissionError, OSError):
                 missing_files = True
 
         if not missing_files or attempt == OUTPUT_FILE_RETRY_ATTEMPTS - 1:

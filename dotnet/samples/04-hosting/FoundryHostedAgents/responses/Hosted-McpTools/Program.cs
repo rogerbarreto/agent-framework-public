@@ -28,10 +28,13 @@ using ModelContextProtocol.Client;
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
 
-var projectEndpoint = new Uri(Environment.GetEnvironmentVariable("AZURE_AI_PROJECT_ENDPOINT")
-    ?? throw new InvalidOperationException("AZURE_AI_PROJECT_ENDPOINT is not set."));
-var deployment = Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? "gpt-4o";
+var projectEndpoint = new Uri(Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+    ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
+var deployment = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
 
+// WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
+// In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
+// latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 // Use a chained credential: try a temporary dev token first (for local Docker debugging),
 // then fall back to DefaultAzureCredential (for local dev via dotnet run / managed identity in production).
 TokenCredential credential = new ChainedTokenCredential(
@@ -87,10 +90,9 @@ builder.Services.AddDevTemporaryLocalContributorSetup(); // Local Docker debuggi
 var app = builder.Build();
 app.MapFoundryResponses();
 
-// In Development, also map the OpenAI-compatible route that AIProjectClient uses.
-if (app.Environment.IsDevelopment())
-{
-    app.MapFoundryResponses("openai/v1");
-}
+// Contributor-only: in Development, also map the per-agent OpenAI route shape that live Foundry uses
+// so a local REPL client can target this server via AIProjectClient.AsAIAgent(Uri agentEndpoint).
+// Do not use this in production. Hosted Foundry agents only support the agent-endpoint path.
+app.MapDevTemporaryLocalAgentEndpoint();
 
 app.Run();
