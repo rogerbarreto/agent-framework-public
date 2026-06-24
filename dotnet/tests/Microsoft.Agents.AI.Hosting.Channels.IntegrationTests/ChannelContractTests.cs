@@ -5,7 +5,6 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Hosting.Channels.IntegrationTests.Support;
 using Microsoft.Agents.AI.Hosting.Channels.Responses;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Microsoft.Agents.AI.Hosting.Channels.IntegrationTests;
