@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.AI;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting.Channels.Responses;
@@ -131,22 +130,36 @@ public sealed class ResponsesChannel : Channel
         await WriteEventAsync(http, "response.created", new ResponsesStreamResponseEvent { Type = "response.created", Response = created }, ResponsesJsonContext.Default.ResponsesStreamResponseEvent).ConfigureAwait(false);
 
         var sb = new StringBuilder();
-        await foreach (var item in context.StreamAsync(request, http.RequestAborted).ConfigureAwait(false))
+        var updates = ExtractUpdatesAsync(context.StreamAsync(request, http.RequestAborted));
+        var transformed = this._options.StreamTransformHook is { } hook
+            ? hook.TransformAsync(updates, http.RequestAborted)
+            : updates;
+
+        await foreach (var update in transformed.ConfigureAwait(false))
         {
-            if (item is HostedStreamUpdate update)
+            var delta = update.Text;
+            if (!string.IsNullOrEmpty(delta))
             {
-                var delta = update.Update.Text;
-                if (!string.IsNullOrEmpty(delta))
-                {
-                    sb.Append(delta);
-                    var deltaEvent = new ResponsesStreamTextDeltaEvent { ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Delta = delta };
-                    await WriteEventAsync(http, "response.output_text.delta", deltaEvent, ResponsesJsonContext.Default.ResponsesStreamTextDeltaEvent).ConfigureAwait(false);
-                }
+                sb.Append(delta);
+                var deltaEvent = new ResponsesStreamTextDeltaEvent { ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Delta = delta };
+                await WriteEventAsync(http, "response.output_text.delta", deltaEvent, ResponsesJsonContext.Default.ResponsesStreamTextDeltaEvent).ConfigureAwait(false);
             }
         }
 
         var completed = BuildResponse(responseId, model, sb.ToString(), agentResponse: null, status: "completed", itemId: itemId);
         await WriteEventAsync(http, "response.completed", new ResponsesStreamResponseEvent { Type = "response.completed", Response = completed }, ResponsesJsonContext.Default.ResponsesStreamResponseEvent).ConfigureAwait(false);
+    }
+
+    private static async IAsyncEnumerable<AgentResponseUpdate> ExtractUpdatesAsync(
+        IAsyncEnumerable<HostedStreamItem> items)
+    {
+        await foreach (var item in items.ConfigureAwait(false))
+        {
+            if (item is HostedStreamUpdate update)
+            {
+                yield return update.Update;
+            }
+        }
     }
 
     private async ValueTask<HostedRunResult> ApplyResponseHookAsync(HostedRunResult result, ChannelRequest request, CancellationToken cancellationToken)

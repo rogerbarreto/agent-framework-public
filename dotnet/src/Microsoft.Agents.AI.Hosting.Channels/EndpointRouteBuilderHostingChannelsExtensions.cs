@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using Microsoft.Agents.AI.Hosting.Channels;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +24,7 @@ public static class EndpointRouteBuilderHostingChannelsExtensions
         Throw.IfNull(endpoints);
 
         var host = endpoints.ServiceProvider.GetRequiredService<AgentFrameworkHost>();
+        var registry = endpoints.ServiceProvider.GetRequiredService<ChannelLifecycleRegistry>();
         var context = new ChannelContext(endpoints.ServiceProvider, host);
         var hostGroup = endpoints.MapGroup(string.Empty);
 
@@ -32,6 +32,8 @@ public static class EndpointRouteBuilderHostingChannelsExtensions
         {
             var contribution = channel.Contribute(context);
             var channelGroup = string.IsNullOrEmpty(channel.Path) ? hostGroup : endpoints.MapGroup(channel.Path);
+
+            registry.Add(contribution.OnStartup, contribution.OnShutdown);
 
             foreach (var filter in contribution.EndpointFilters)
             {

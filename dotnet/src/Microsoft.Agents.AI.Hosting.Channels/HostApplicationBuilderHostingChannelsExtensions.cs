@@ -70,6 +70,8 @@ public static class HostApplicationBuilderHostingChannelsExtensions
         }
 
         services.TryAddSingleton<IIsolationKeysAccessor, IsolationKeysAccessor>();
+        services.TryAddSingleton<ChannelLifecycleRegistry>();
+        services.AddHostedService<ChannelLifecycleService>();
 
         registerTarget(services);
 

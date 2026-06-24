@@ -17,4 +17,10 @@ public sealed class ResponsesChannelOptions
 
     /// <summary>Optional response hook invoked before the channel serializes the originating response.</summary>
     public IChannelResponseHook? ResponseHook { get; set; }
+
+    /// <summary>
+    /// Optional stream-update hook applied by the host while the channel consumes streamed updates, before
+    /// the channel renders Server-Sent-Events. Applies only to streaming requests.
+    /// </summary>
+    public IChannelStreamTransformHook? StreamTransformHook { get; set; }
 }
