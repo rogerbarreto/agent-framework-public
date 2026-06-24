@@ -206,6 +206,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             var markers = InputConverter.ReadMcpToolboxMarkers(request);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string? resolutionError = null;
+            List<McpConsentInfo>? markerConsents = null;
 
             foreach (var (name, version) in markers)
             {
@@ -214,10 +215,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     continue;
                 }
 
-                IReadOnlyList<AITool>? toolboxTools = null;
+                FoundryToolboxService.ToolboxResolution resolution;
                 try
                 {
-                    toolboxTools = await this._toolboxService
+                    resolution = await this._toolboxService
                         .GetToolboxToolsAsync(name, version, cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -236,8 +237,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     break;
                 }
 
+                // The marker hit CONSENT_REQUIRED: collect its consent requirement (request-scoped)
+                // and keep resolving the other markers so we can surface every outstanding consent at
+                // once. This toolbox contributes no tools to this turn.
+                if (resolution.Consents.Count > 0)
+                {
+                    (markerConsents ??= []).AddRange(resolution.Consents);
+                    continue;
+                }
+
                 toolsToAdd ??= [];
-                foreach (var t in toolboxTools)
+                foreach (var t in resolution.Tools)
                 {
                     if (!toolsToAdd.Contains(t))
                     {
@@ -252,13 +262,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 yield break;
             }
 
-            // A lazy / per-request marker may have hit CONSENT_REQUIRED while resolving above
-            // (GetToolboxToolsAsync records the pending consent and returns no tools). Surface it
-            // now as an oauth_consent_request and stop, instead of silently running this turn
-            // without that toolbox. Any consent pending before marker resolution was already
-            // drained by ResolvePendingConsentsAsync, so anything here is newly discovered.
-            var markerConsents = this._toolboxService.GetPendingConsents();
-            if (markerConsents.Count > 0)
+            // A lazy / per-request marker that needs OAuth consent is surfaced as an
+            // oauth_consent_request and stops this turn, instead of silently running without that
+            // toolbox. The consent is scoped to this request (it was returned by GetToolboxToolsAsync,
+            // not recorded globally), so it cannot leak onto a request that did not reference the marker.
+            if (markerConsents is { Count: > 0 })
             {
                 foreach (var consent in markerConsents)
                 {

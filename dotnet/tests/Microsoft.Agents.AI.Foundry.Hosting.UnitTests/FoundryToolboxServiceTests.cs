@@ -198,10 +198,9 @@ public class FoundryToolboxServiceTests
         Assert.Empty(service.Tools);
 
         // A deferred (non-consent) toolbox is not a consent requirement: ConsentRequiredToolboxNames
-        // and GetPendingConsents() must stay empty. RecomputeStatus is the single source that keeps
-        // ConsentRequiredToolboxNames in sync with the pending-consent set, so they never diverge.
+        // must stay empty. RecomputeStatus is the single source that keeps ConsentRequiredToolboxNames
+        // in sync with the pending-consent set, so they never diverge.
         Assert.Empty(service.ConsentRequiredToolboxNames);
-        Assert.Empty(service.GetPendingConsents());
     }
 
     [Fact]

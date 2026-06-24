@@ -55,10 +55,6 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     private readonly HashSet<string> _deferredToolboxNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lazyOpenLock = new(1, 1);
 
-    // Immutable snapshot of _pendingConsents, rebuilt in RecomputeStatus under _lazyOpenLock so
-    // GetPendingConsents can return it without enumerating the live dictionary off-lock.
-    private IReadOnlyList<McpConsentInfo> _pendingConsentsSnapshot = [];
-
     private string? _resolvedEndpoint;
     private string? _featuresHeader;
     private string _agentName = "hosted-agent";
@@ -240,25 +236,6 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
         this.DeferredToolboxNames = [.. this._deferredToolboxNames];
 
-        // Flatten the pending-consent map to an immutable snapshot here, while we hold the lock
-        // (RecomputeStatus is only ever called under _lazyOpenLock). GetPendingConsents then returns
-        // this snapshot without touching the live dictionary, so concurrent requests cannot observe a
-        // mutating collection.
-        if (this._pendingConsents.Count == 0)
-        {
-            this._pendingConsentsSnapshot = [];
-        }
-        else
-        {
-            var snapshot = new List<McpConsentInfo>();
-            foreach (var consents in this._pendingConsents.Values)
-            {
-                snapshot.AddRange(consents);
-            }
-
-            this._pendingConsentsSnapshot = snapshot;
-        }
-
         this.StartupStatus = this.FailedToolboxNames.Count > 0
             ? FoundryToolboxStartupStatus.Unhealthy
             : this._pendingConsents.Count > 0
@@ -267,14 +244,6 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                     ? FoundryToolboxStartupStatus.Degraded
                     : FoundryToolboxStartupStatus.Healthy;
     }
-
-    /// <summary>
-    /// Returns a snapshot of the consent requirements currently outstanding across all toolboxes
-    /// (pre-registered and per-request markers), flattened to one entry per consent-gated tool source.
-    /// Does not retry or open anything; the caller surfaces each entry as an
-    /// <c>oauth_consent_request</c>. Empty when nothing is awaiting consent.
-    /// </summary>
-    internal IReadOnlyList<McpConsentInfo> GetPendingConsents() => this._pendingConsentsSnapshot;
 
     /// <summary>
     /// Retries enumeration for any pre-registered toolbox that was awaiting user OAuth consent at
@@ -442,11 +411,19 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// but does not affect the proxy URL used to connect to the toolbox.
     /// </param>
     /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>
+    /// A request-scoped <see cref="ToolboxResolution"/>: its <see cref="ToolboxResolution.Tools"/>
+    /// carry the resolved tools, or its <see cref="ToolboxResolution.Consents"/> carry the OAuth
+    /// consent requirements the caller must surface for this request. The consent requirement is
+    /// returned to the caller rather than recorded in the container-global pending-consent state, so a
+    /// marker referenced by one request can never inject tools into — or raise a consent prompt on — a
+    /// request that did not reference it. It also does not affect <see cref="StartupStatus"/>.
+    /// </returns>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the toolbox is not pre-registered and <see cref="FoundryToolboxOptions.StrictMode"/>
     /// is <see langword="true"/>, or when the toolbox endpoint is not configured.
     /// </exception>
-    public async ValueTask<IReadOnlyList<AITool>> GetToolboxToolsAsync(
+    internal async ValueTask<ToolboxResolution> GetToolboxToolsAsync(
         string toolboxName,
         string? version,
         CancellationToken cancellationToken)
@@ -455,7 +432,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         if (this._toolboxes.TryGetValue(toolboxName, out var cached))
         {
-            return cached.Tools;
+            return new ToolboxResolution(cached.Tools, []);
         }
 
         if (this._options.StrictMode && !this._options.ToolboxNames.Contains(toolboxName, StringComparer.OrdinalIgnoreCase))
@@ -477,23 +454,23 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             // Double-check after acquiring the lock to avoid duplicate opens under concurrency.
             if (this._toolboxes.TryGetValue(toolboxName, out cached))
             {
-                return cached.Tools;
+                return new ToolboxResolution(cached.Tools, []);
             }
 
             var result = await this.OpenToolboxAsync(toolboxName, version, cancellationToken).ConfigureAwait(false);
             if (result.Consents is { } pendingConsents)
             {
-                // The toolbox needs user OAuth consent before its tools can be enumerated.
-                // Record it as pending so the request handler can surface the consent prompt,
-                // and return no tools for this turn rather than failing the request.
-                this._pendingConsents[toolboxName] = pendingConsents;
-                this.RecomputeStatus();
-                return [];
+                // The toolbox needs user OAuth consent before its tools can be enumerated. Return the
+                // consent requirement to the caller so it surfaces an oauth_consent_request for THIS
+                // request only. Deliberately not recorded in the container-global _pendingConsents
+                // (that set is for pre-registered toolboxes), so it neither flips StartupStatus nor
+                // leaks into other requests.
+                return new ToolboxResolution([], pendingConsents);
             }
 
             cached = result.Cached!;
             this._toolboxes[toolboxName] = cached;
-            return cached.Tools;
+            return new ToolboxResolution(cached.Tools, []);
         }
         finally
         {
@@ -615,6 +592,15 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     }
 
     private sealed record CachedToolbox(McpClient Client, HttpClient HttpClient, IReadOnlyList<AITool> Tools);
+
+    /// <summary>
+    /// Request-scoped outcome of resolving a per-request toolbox marker via
+    /// <see cref="GetToolboxToolsAsync"/>. Either <see cref="Tools"/> carries the resolved tools, or
+    /// <see cref="Consents"/> carries the OAuth consent requirements the caller must surface for this
+    /// request. Marker resolution never mutates the container-global pending-consent or tool state, so
+    /// a marker referenced by one request can never leak into a request that did not ask for it.
+    /// </summary>
+    internal readonly record struct ToolboxResolution(IReadOnlyList<AITool> Tools, IReadOnlyList<McpConsentInfo> Consents);
 
     /// <summary>
     /// Outcome of an <see cref="OpenToolboxAsync"/> attempt. Exactly one of the two values is set:
