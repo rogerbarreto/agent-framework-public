@@ -24,7 +24,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <para>
 /// The consent URL lives in <c>errors[].error.message</c>. This parser extracts those URLs so
 /// <see cref="FoundryToolboxService"/> can keep the container routable and surface the consent
-/// requirement as a per-request <c>mcp_approval_request</c> instead of failing readiness.
+/// requirement as a per-request <c>oauth_consent_request</c> instead of failing readiness.
 /// </para>
 /// </remarks>
 internal static class ToolboxConsentParser

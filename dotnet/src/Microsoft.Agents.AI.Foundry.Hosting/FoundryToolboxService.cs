@@ -217,19 +217,22 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         }
 
         this.FailedToolboxNames = [];
-        this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
         this.RecomputeStatus();
     }
 
     /// <summary>
-    /// Recomputes <see cref="StartupStatus"/> and refreshes <see cref="DeferredToolboxNames"/> from
-    /// the current failed, pending-consent and deferred sets. A hard failure dominates; otherwise an
-    /// outstanding consent requirement keeps the container routable via
+    /// Recomputes <see cref="StartupStatus"/> and refreshes <see cref="ConsentRequiredToolboxNames"/>
+    /// and <see cref="DeferredToolboxNames"/> from the current failed, pending-consent and deferred
+    /// sets. This is the single point that derives the public consent/deferred snapshots from
+    /// <c>_pendingConsents</c> and <c>_deferredToolboxNames</c>, so every mutation of those sets only
+    /// needs to call this method. A hard failure dominates; otherwise an outstanding consent
+    /// requirement keeps the container routable via
     /// <see cref="FoundryToolboxStartupStatus.ConsentRequired"/>; a deferred toolbox keeps it routable
     /// via <see cref="FoundryToolboxStartupStatus.Degraded"/>; otherwise Healthy.
     /// </summary>
     private void RecomputeStatus()
     {
+        this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
         this.DeferredToolboxNames = [.. this._deferredToolboxNames];
 
         this.StartupStatus = this.FailedToolboxNames.Count > 0
@@ -239,6 +242,28 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                 : this._deferredToolboxNames.Count > 0
                     ? FoundryToolboxStartupStatus.Degraded
                     : FoundryToolboxStartupStatus.Healthy;
+    }
+
+    /// <summary>
+    /// Returns a snapshot of the consent requirements currently outstanding across all toolboxes
+    /// (pre-registered and per-request markers), flattened to one entry per consent-gated tool source.
+    /// Does not retry or open anything; the caller surfaces each entry as an
+    /// <c>oauth_consent_request</c>. Empty when nothing is awaiting consent.
+    /// </summary>
+    internal IReadOnlyList<McpConsentInfo> GetPendingConsents()
+    {
+        if (this._pendingConsents.Count == 0)
+        {
+            return [];
+        }
+
+        var snapshot = new List<McpConsentInfo>();
+        foreach (var consents in this._pendingConsents.Values)
+        {
+            snapshot.AddRange(consents);
+        }
+
+        return snapshot;
     }
 
     /// <summary>
@@ -310,7 +335,6 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                 this.Tools = [.. this.Tools, .. resolvedTools];
             }
 
-            this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
             this.RecomputeStatus();
 
             return stillPending;
@@ -388,7 +412,6 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                 this.Tools = [.. this.Tools, .. resolvedTools];
             }
 
-            this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
             this.RecomputeStatus();
         }
         finally

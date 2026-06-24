@@ -252,6 +252,29 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 yield break;
             }
 
+            // A lazy / per-request marker may have hit CONSENT_REQUIRED while resolving above
+            // (GetToolboxToolsAsync records the pending consent and returns no tools). Surface it
+            // now as an oauth_consent_request and stop, instead of silently running this turn
+            // without that toolbox. Any consent pending before marker resolution was already
+            // drained by ResolvePendingConsentsAsync, so anything here is newly discovered.
+            var markerConsents = this._toolboxService.GetPendingConsents();
+            if (markerConsents.Count > 0)
+            {
+                foreach (var consent in markerConsents)
+                {
+                    foreach (var consentEvent in EmitOAuthConsentRequest(
+                        stream,
+                        consent.ToolName,
+                        consent.ConsentUrl))
+                    {
+                        yield return consentEvent;
+                    }
+                }
+
+                yield return stream.EmitIncomplete(reason: null);
+                yield break;
+            }
+
             if (toolsToAdd?.Count > 0)
             {
                 chatOptions.Tools = [.. chatOptions.Tools ?? [], .. toolsToAdd];
