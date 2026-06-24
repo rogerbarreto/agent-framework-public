@@ -681,6 +681,7 @@
     <Project Path="tests/Microsoft.Agents.AI.Harness.UnitTests/Microsoft.Agents.AI.Harness.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Hosting.A2A.UnitTests/Microsoft.Agents.AI.Hosting.A2A.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Hosting.Channels.UnitTests/Microsoft.Agents.AI.Hosting.Channels.UnitTests.csproj" />
+    <Project Path="tests/Microsoft.Agents.AI.Hosting.Channels.IntegrationTests/Microsoft.Agents.AI.Hosting.Channels.IntegrationTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Hosting.AGUI.AspNetCore.UnitTests/Microsoft.Agents.AI.Hosting.AGUI.AspNetCore.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Hosting.AzureFunctions.UnitTests/Microsoft.Agents.AI.Hosting.AzureFunctions.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Hosting.OpenAI.UnitTests/Microsoft.Agents.AI.Hosting.OpenAI.UnitTests.csproj" />
