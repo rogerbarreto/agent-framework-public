@@ -21,6 +21,14 @@ internal sealed class FakeFunctionCallingChatClient : IChatClient
 {
     public const string FinalAnswer = "The weather in Seattle is sunny.";
 
+    private readonly IReadOnlyDictionary<string, object?> _arguments;
+
+    /// <summary>Initializes the fake. <paramref name="arguments"/> are sent on the emitted function call.</summary>
+    public FakeFunctionCallingChatClient(IReadOnlyDictionary<string, object?>? arguments = null)
+    {
+        this._arguments = arguments ?? new Dictionary<string, object?>();
+    }
+
     public ChatClientMetadata Metadata => new("fake-function-calling");
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -56,7 +64,7 @@ internal sealed class FakeFunctionCallingChatClient : IChatClient
         {
             MessageId = messageId,
             Role = ChatRole.Assistant,
-            Contents = [new FunctionCallContent(callId, tool.Name, new Dictionary<string, object?>())],
+            Contents = [new FunctionCallContent(callId, tool.Name, new Dictionary<string, object?>(this._arguments))],
         };
 
         await Task.Yield();

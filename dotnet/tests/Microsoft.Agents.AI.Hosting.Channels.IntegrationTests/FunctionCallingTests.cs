@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -19,9 +20,9 @@ namespace Microsoft.Agents.AI.Hosting.Channels.IntegrationTests;
 public class FunctionCallingTests
 {
     [Fact]
-    public async Task ToolIsInvoked_AndFinalAnswerRenderedAsync()
+    public async Task ParameterlessTool_IsInvoked_AndFinalAnswerRenderedAsync()
     {
-        // Arrange - a server-side tool the framework will execute during the function-call loop
+        // Arrange - a parameterless server-side tool the framework executes during the function-call loop
         var toolCalled = false;
         var weatherTool = AIFunctionFactory.Create(
             () => { toolCalled = true; return "sunny"; },
@@ -45,6 +46,37 @@ public class FunctionCallingTests
         // Assert - tool executed and the post-tool final answer was rendered
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(toolCalled, "the server-side tool should have been invoked by the function-calling loop");
+
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
+        var text = doc.RootElement.GetProperty("output")[0].GetProperty("content")[0].GetProperty("text").GetString();
+        Assert.Equal(FakeFunctionCallingChatClient.FinalAnswer, text);
+    }
+
+    [Fact]
+    public async Task ParameterizedTool_ReceivesArgument_AndFinalAnswerRenderedAsync()
+    {
+        // Arrange - a tool with a required parameter; the fake supplies the argument on the function call
+        string? capturedCity = null;
+        var weatherTool = AIFunctionFactory.Create(
+            (string city) => { capturedCity = city; return $"sunny in {city}"; },
+            name: "get_weather",
+            description: "Gets the weather for a city.");
+
+        var chatClient = new FakeFunctionCallingChatClient(new Dictionary<string, object?> { ["city"] = "Seattle" });
+        AIAgent agent = new ChatClientAgent(chatClient, instructions: null, name: "weather", tools: [weatherTool]);
+
+        await using var app = await TestHostApp.StartAsync(b => b.AddAgentFrameworkHost(agent).AddResponsesChannel());
+
+        // Act
+        var response = await app.Client.PostAsync(
+            new System.Uri("http://localhost/responses"),
+            Json("{ \"input\": \"What is the weather in Seattle?\" }"));
+        var body = await response.Content.ReadAsStringAsync();
+
+        // Assert - the argument bound and reached the tool, and the final answer was rendered
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Seattle", capturedCity);
 
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
