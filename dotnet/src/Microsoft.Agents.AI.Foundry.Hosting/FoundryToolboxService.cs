@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
@@ -49,6 +50,8 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     private readonly ILogger<FoundryToolboxService> _logger;
 
     private readonly Dictionary<string, CachedToolbox> _toolboxes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<McpConsentInfo>> _pendingConsents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deferredToolboxNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lazyOpenLock = new(1, 1);
 
     private string? _resolvedEndpoint;
@@ -79,6 +82,25 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// <see cref="StartAsync"/>. Empty when startup was successful or has not run yet.
     /// </summary>
     public IReadOnlyList<string> FailedToolboxNames { get; private set; } = [];
+
+    /// <summary>
+    /// Gets the names of pre-registered toolboxes whose tools could not be enumerated at
+    /// startup because a tool source requires user OAuth consent. Such toolboxes keep the
+    /// container routable (see <see cref="FoundryToolboxStartupStatus.ConsentRequired"/>); the
+    /// consent requirement is surfaced per-request and enumeration is retried via
+    /// <see cref="ResolvePendingConsentsAsync"/> once the user has consented.
+    /// </summary>
+    public IReadOnlyList<string> ConsentRequiredToolboxNames { get; private set; } = [];
+
+    /// <summary>
+    /// Gets the names of pre-registered toolboxes that could not be enumerated at startup due to a
+    /// non-consent error (for example, a tool source that requires a per-user delegated identity
+    /// which is only available on a user request's egress). Such toolboxes keep the container
+    /// routable (see <see cref="FoundryToolboxStartupStatus.Degraded"/>) and are retried per-request
+    /// via <see cref="RetryDeferredToolboxesAsync"/>, where the platform-injected per-user isolation
+    /// key is present on the toolbox proxy egress.
+    /// </summary>
+    public IReadOnlyList<string> DeferredToolboxNames { get; private set; } = [];
 
     /// <summary>
     /// Initializes a new instance of <see cref="FoundryToolboxService"/>.
@@ -130,7 +152,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         }
 
         var allTools = new List<AITool>();
-        var failed = new List<string>();
+        var deferred = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var toolboxName in this._options.ToolboxNames)
@@ -142,29 +164,237 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
             try
             {
-                var cached = await this.OpenToolboxAsync(toolboxName, version: null, cancellationToken).ConfigureAwait(false);
+                var result = await this.OpenToolboxAsync(toolboxName, version: null, cancellationToken).ConfigureAwait(false);
+                if (result.Consents is { } consents)
+                {
+                    // The toolbox could not enumerate because a tool source needs user OAuth consent.
+                    // Keep the container routable: record the requirement so the handler can surface it
+                    // per-request, and retry enumeration once the user has consented.
+                    this._pendingConsents[toolboxName] = consents;
+
+                    if (this._logger.IsEnabled(LogLevel.Information))
+                    {
+                        this._logger.LogInformation(
+                            "Toolbox '{ToolboxName}' requires user OAuth consent before its tools can be enumerated. " +
+                            "The container stays ready; the consent prompt is surfaced to the caller per-request.",
+                            toolboxName);
+                    }
+
+                    continue;
+                }
+
+                var cached = result.Cached!;
                 this._toolboxes[toolboxName] = cached;
                 allTools.AddRange(cached.Tools);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                if (this._logger.IsEnabled(LogLevel.Error))
+                // A non-consent failure at startup is often not permanent: the toolbox may require a
+                // per-user (delegated) identity that is only present on a user request's egress,
+                // where the platform stamps the per-user isolation key. Startup enumeration runs as
+                // the container's managed identity with no user context, so a delegated-only tool
+                // source (for example a Microsoft Graph / Agent365 connection) cannot list its tools
+                // yet. Rather than failing readiness and bricking the container, keep it routable and
+                // defer the toolbox: it is retried per-request via RetryDeferredToolboxesAsync, where
+                // the user context is available and enumeration can succeed (or surface consent).
+                if (this._logger.IsEnabled(LogLevel.Warning))
                 {
-                    this._logger.LogError(
+                    this._logger.LogWarning(
                         ex,
-                        "Failed to connect to toolbox '{ToolboxName}'. Tools from this toolbox will not be available.",
+                        "Toolbox '{ToolboxName}' could not be enumerated at startup; deferring it to per-request resolution. " +
+                        "The container stays ready and the toolbox is retried on the next request when the per-user context is available.",
                         toolboxName);
                 }
 
-                failed.Add(toolboxName);
+                deferred.Add(toolboxName);
             }
         }
 
         this.Tools = allTools;
-        this.FailedToolboxNames = failed;
-        this.StartupStatus = failed.Count == 0
-            ? FoundryToolboxStartupStatus.Healthy
-            : FoundryToolboxStartupStatus.Unhealthy;
+        foreach (var name in deferred)
+        {
+            this._deferredToolboxNames.Add(name);
+        }
+
+        this.FailedToolboxNames = [];
+        this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
+        this.RecomputeStatus();
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="StartupStatus"/> and refreshes <see cref="DeferredToolboxNames"/> from
+    /// the current failed, pending-consent and deferred sets. A hard failure dominates; otherwise an
+    /// outstanding consent requirement keeps the container routable via
+    /// <see cref="FoundryToolboxStartupStatus.ConsentRequired"/>; a deferred toolbox keeps it routable
+    /// via <see cref="FoundryToolboxStartupStatus.Degraded"/>; otherwise Healthy.
+    /// </summary>
+    private void RecomputeStatus()
+    {
+        this.DeferredToolboxNames = [.. this._deferredToolboxNames];
+
+        this.StartupStatus = this.FailedToolboxNames.Count > 0
+            ? FoundryToolboxStartupStatus.Unhealthy
+            : this._pendingConsents.Count > 0
+                ? FoundryToolboxStartupStatus.ConsentRequired
+                : this._deferredToolboxNames.Count > 0
+                    ? FoundryToolboxStartupStatus.Degraded
+                    : FoundryToolboxStartupStatus.Healthy;
+    }
+
+    /// <summary>
+    /// Retries enumeration for any pre-registered toolbox that was awaiting user OAuth consent at
+    /// startup. Call this at the start of request handling: once the user has completed consent
+    /// out of band, the proxy holds a valid token and <c>tools/list</c> now succeeds, so the
+    /// toolbox's tools become available and are appended to <see cref="Tools"/>.
+    /// </summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>
+    /// The consent requirements that are still outstanding (one per consent-gated tool source).
+    /// Empty when nothing is pending or every pending toolbox resolved. When non-empty, the caller
+    /// should surface each entry as an <c>oauth_consent_request</c> and stop, so the user can
+    /// complete consent and re-send the request.
+    /// </returns>
+    internal async ValueTask<IReadOnlyList<McpConsentInfo>> ResolvePendingConsentsAsync(CancellationToken cancellationToken)
+    {
+        // Fast path: nothing awaiting consent.
+        if (this.ConsentRequiredToolboxNames.Count == 0)
+        {
+            return [];
+        }
+
+        await this._lazyOpenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (this._pendingConsents.Count == 0)
+            {
+                return [];
+            }
+
+            var stillPending = new List<McpConsentInfo>();
+            var resolvedTools = new List<AITool>();
+
+            foreach (var toolboxName in new List<string>(this._pendingConsents.Keys))
+            {
+                try
+                {
+                    var result = await this.OpenToolboxAsync(toolboxName, version: null, cancellationToken).ConfigureAwait(false);
+                    if (result.Consents is { } consents)
+                    {
+                        // Still gated: refresh the consent info (the URL may rotate) and surface it.
+                        this._pendingConsents[toolboxName] = consents;
+                        stillPending.AddRange(consents);
+                        continue;
+                    }
+
+                    var cached = result.Cached!;
+                    this._toolboxes[toolboxName] = cached;
+                    resolvedTools.AddRange(cached.Tools);
+                    this._pendingConsents.Remove(toolboxName);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Transient/other error: leave the toolbox pending so a later request retries.
+                    // Do not surface a consent prompt (we have no URL); proceed without these tools.
+                    if (this._logger.IsEnabled(LogLevel.Warning))
+                    {
+                        this._logger.LogWarning(
+                            ex,
+                            "Retry of consent-gated toolbox '{ToolboxName}' failed; it remains pending.",
+                            toolboxName);
+                    }
+                }
+            }
+
+            if (resolvedTools.Count > 0)
+            {
+                this.Tools = [.. this.Tools, .. resolvedTools];
+            }
+
+            this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
+            this.RecomputeStatus();
+
+            return stillPending;
+        }
+        finally
+        {
+            this._lazyOpenLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Retries enumeration for any pre-registered toolbox that could not be opened at startup due to
+    /// a non-consent error (recorded in <see cref="DeferredToolboxNames"/>). Call this at the start of
+    /// request handling, before <see cref="ResolvePendingConsentsAsync"/>: the request's egress carries
+    /// the platform-injected per-user isolation key, so a toolbox that needs a delegated user identity
+    /// (for example a Microsoft Graph / Agent365 connection) can now enumerate as that user. On success
+    /// the toolbox's tools are appended to <see cref="Tools"/>; if the proxy now reports the source needs
+    /// user OAuth consent, the toolbox is moved to the pending-consent set so the caller surfaces the
+    /// consent prompt; if it still fails, it stays deferred and is retried on a later request.
+    /// </summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    internal async ValueTask RetryDeferredToolboxesAsync(CancellationToken cancellationToken)
+    {
+        // Fast path: nothing deferred.
+        if (this._deferredToolboxNames.Count == 0)
+        {
+            return;
+        }
+
+        await this._lazyOpenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (this._deferredToolboxNames.Count == 0)
+            {
+                return;
+            }
+
+            var resolvedTools = new List<AITool>();
+
+            foreach (var toolboxName in new List<string>(this._deferredToolboxNames))
+            {
+                try
+                {
+                    var result = await this.OpenToolboxAsync(toolboxName, version: null, cancellationToken).ConfigureAwait(false);
+                    if (result.Consents is { } consents)
+                    {
+                        // With the per-user context now present, the proxy reports the tool source
+                        // needs user OAuth consent. Move it to the pending-consent set (the handler
+                        // surfaces the prompt) and drop it from the deferred set.
+                        this._pendingConsents[toolboxName] = consents;
+                        this._deferredToolboxNames.Remove(toolboxName);
+                        continue;
+                    }
+
+                    var cached = result.Cached!;
+                    this._toolboxes[toolboxName] = cached;
+                    resolvedTools.AddRange(cached.Tools);
+                    this._deferredToolboxNames.Remove(toolboxName);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Still failing — keep it deferred and retry on a later request.
+                    if (this._logger.IsEnabled(LogLevel.Warning))
+                    {
+                        this._logger.LogWarning(
+                            ex,
+                            "Retry of deferred toolbox '{ToolboxName}' failed; it remains deferred.",
+                            toolboxName);
+                    }
+                }
+            }
+
+            if (resolvedTools.Count > 0)
+            {
+                this.Tools = [.. this.Tools, .. resolvedTools];
+            }
+
+            this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
+            this.RecomputeStatus();
+        }
+        finally
+        {
+            this._lazyOpenLock.Release();
+        }
     }
 
     /// <summary>
@@ -217,7 +447,18 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
                 return cached.Tools;
             }
 
-            cached = await this.OpenToolboxAsync(toolboxName, version, cancellationToken).ConfigureAwait(false);
+            var result = await this.OpenToolboxAsync(toolboxName, version, cancellationToken).ConfigureAwait(false);
+            if (result.Consents is { } pendingConsents)
+            {
+                // The toolbox needs user OAuth consent before its tools can be enumerated.
+                // Record it as pending so the request handler can surface the consent prompt,
+                // and return no tools for this turn rather than failing the request.
+                this._pendingConsents[toolboxName] = pendingConsents;
+                this.RecomputeStatus();
+                return [];
+            }
+
+            cached = result.Cached!;
             this._toolboxes[toolboxName] = cached;
             return cached.Tools;
         }
@@ -227,7 +468,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         }
     }
 
-    private async Task<CachedToolbox> OpenToolboxAsync(
+    private async Task<ToolboxOpenResult> OpenToolboxAsync(
         string toolboxName,
         string? version,
         CancellationToken cancellationToken)
@@ -268,7 +509,27 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             clientOptions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        IList<McpClientTool> mcpTools;
+        try
+        {
+            mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (McpProtocolException ex) when (
+            ToolboxConsentParser.TryParseConsentRequired(toolboxName, ex.Message, out var consents))
+        {
+            // A tool source needs user OAuth consent before it can be enumerated. Dispose the
+            // half-open client and signal the caller, which keeps the container routable and
+            // surfaces the consent prompt per-request instead of failing readiness.
+            await client.DisposeAsync().ConfigureAwait(false);
+            httpClient.Dispose();
+            return new ToolboxOpenResult(Cached: null, Consents: consents);
+        }
+        catch
+        {
+            await client.DisposeAsync().ConfigureAwait(false);
+            httpClient.Dispose();
+            throw;
+        }
 
         if (this._logger.IsEnabled(LogLevel.Information))
         {
@@ -286,7 +547,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.
 
-        return new CachedToolbox(client, httpClient, wrapped);
+        return new ToolboxOpenResult(new CachedToolbox(client, httpClient, wrapped), Consents: null);
     }
 
     /// <inheritdoc/>
@@ -306,4 +567,11 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     }
 
     private sealed record CachedToolbox(McpClient Client, HttpClient HttpClient, IReadOnlyList<AITool> Tools);
+
+    /// <summary>
+    /// Outcome of an <see cref="OpenToolboxAsync"/> attempt. Exactly one of the two values is set:
+    /// <see cref="Cached"/> when the toolbox opened and its tools were enumerated, or
+    /// <see cref="Consents"/> when enumeration is blocked pending user OAuth consent.
+    /// </summary>
+    private sealed record ToolboxOpenResult(CachedToolbox? Cached, IReadOnlyList<McpConsentInfo>? Consents);
 }

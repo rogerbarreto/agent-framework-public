@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Threading;
 using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
@@ -162,6 +163,39 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // in both the pre-registered list and the per-request markers.
         if (this._toolboxService is not null)
         {
+            // Retry any pre-registered toolbox that was deferred at startup because it could not be
+            // enumerated without a per-user context (non-consent failure). The request's egress now
+            // carries the platform-injected per-user isolation key, so a delegated tool source can
+            // enumerate as the user — or report that it needs OAuth consent, which is then surfaced
+            // by ResolvePendingConsentsAsync below.
+            await this._toolboxService
+                .RetryDeferredToolboxesAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // Resolve any pre-registered toolbox that was awaiting user OAuth consent at startup
+            // (CONSENT_REQUIRED at tools/list time). If consent is still outstanding, surface it to
+            // the caller as an oauth_consent_request and stop: the user completes consent out of band,
+            // then re-sends the request, at which point enumeration succeeds and the tools appear.
+            var pendingConsents = await this._toolboxService
+                .ResolvePendingConsentsAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (pendingConsents.Count > 0)
+            {
+                foreach (var consent in pendingConsents)
+                {
+                    foreach (var consentEvent in EmitOAuthConsentRequest(
+                        stream,
+                        consent.ToolName,
+                        consent.ConsentUrl))
+                    {
+                        yield return consentEvent;
+                    }
+                }
+
+                yield return stream.EmitIncomplete(reason: null);
+                yield break;
+            }
+
             List<AITool>? toolsToAdd = null;
 
             if (this._toolboxService.Tools.Count > 0)
@@ -286,13 +320,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (consentInfo is not null)
                 {
-                    // Emit mcp_approval_request output item + incomplete for the consent URL.
-                    foreach (var approvalEvent in stream.OutputItemMcpApprovalRequest(
-                        consentInfo.ToolboxName,
+                    // Emit oauth_consent_request output item + incomplete for the consent URL.
+                    foreach (var consentEvent in EmitOAuthConsentRequest(
+                        stream,
                         consentInfo.ToolName,
                         consentInfo.ConsentUrl))
                     {
-                        yield return approvalEvent;
+                        yield return consentEvent;
                     }
 
                     yield return stream.EmitIncomplete(reason: null);
@@ -332,6 +366,45 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 await sessionStore.SaveSessionAsync(agent, sessionConversationId, session, cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Emits an <c>oauth_consent_request</c> output item (<c>output_item.added</c> →
+    /// <c>output_item.done</c>) carrying the toolbox OAuth consent link.
+    /// </summary>
+    /// <remarks>
+    /// This is the canonical platform surface for a per-user OAuth/toolbox consent prompt: the
+    /// Foundry platform heads (Bot/Teams, A2A) natively render an <see cref="OAuthConsentRequestOutputItem"/>
+    /// as an "open consent link + resume" experience, and the item round-trips through history. It is
+    /// distinct from <c>mcp_approval_request</c>, which is the generic approve/deny tool gate that
+    /// expects an approval response. OAuth consent needs no reply: the user signs in out of band and
+    /// re-sends the request. This mirrors the Python <c>oauth_consent_request</c> emission for parity.
+    /// </remarks>
+    /// <param name="stream">The response event stream to emit on.</param>
+    /// <param name="serverLabel">The tool source / server label that requires consent.</param>
+    /// <param name="consentUrl">The OAuth consent URL the user must visit.</param>
+    /// <returns>An enumerable of events: <c>output_item.added</c> → <c>output_item.done</c>.</returns>
+    internal static IEnumerable<ResponseStreamEvent> EmitOAuthConsentRequest(
+        ResponseEventStream stream,
+        string serverLabel,
+        string consentUrl)
+    {
+        var item = new OAuthConsentRequestOutputItem(NewOAuthConsentItemId(), consentUrl, serverLabel);
+        var builder = stream.AddOutputItem<OAuthConsentRequestOutputItem>(item.Id);
+        yield return builder.EmitAdded(item);
+        yield return builder.EmitDone(item);
+    }
+
+    /// <summary>
+    /// Generates a wire-format-valid item id for an <c>oauth_consent_request</c> output item.
+    /// The Responses Server SDK requires ids of the shape <c>{prefix}_{50-char-body}</c>; we use the
+    /// <c>oacr</c> prefix (matching the Python emission) with 25 random bytes rendered as 50 hex chars.
+    /// </summary>
+    private static string NewOAuthConsentItemId()
+    {
+        Span<byte> bytes = stackalloc byte[25];
+        RandomNumberGenerator.Fill(bytes);
+        return "oacr_" + Convert.ToHexString(bytes);
     }
 
     /// <summary>
