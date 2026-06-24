@@ -379,8 +379,8 @@
   </Folder>
   <Folder Name="/Samples/04-hosting/DurableAgents/" />
   <Folder Name="/Samples/04-hosting/HostingChannels/">
-    <Project Path="samples/04-hosting/HostingChannels/01_Invocations/01_Invocations.csproj" />
-    <Project Path="samples/04-hosting/HostingChannels/02_Telegram/02_Telegram.csproj" />
+    <Project Path="samples/04-hosting/HostingChannels/01_ResponsesAgent/01_ResponsesAgent.csproj" />
+    <Project Path="samples/04-hosting/HostingChannels/02_ResponsesWorkflow/02_ResponsesWorkflow.csproj" />
   </Folder>
   <Folder Name="/Samples/04-hosting/DurableAgents/AzureFunctions/">
     <File Path="samples/04-hosting/DurableAgents/AzureFunctions/.editorconfig" />
@@ -625,8 +625,7 @@
     <Project Path="src/Microsoft.Agents.AI.Hosting.AspNetCore/Microsoft.Agents.AI.Hosting.AspNetCore.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Hosting.AzureFunctions/Microsoft.Agents.AI.Hosting.AzureFunctions.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Hosting.Channels/Microsoft.Agents.AI.Hosting.Channels.csproj" />
-    <Project Path="src/Microsoft.Agents.AI.Hosting.Channels.Invocations/Microsoft.Agents.AI.Hosting.Channels.Invocations.csproj" />
-    <Project Path="src/Microsoft.Agents.AI.Hosting.Channels.Telegram/Microsoft.Agents.AI.Hosting.Channels.Telegram.csproj" />
+    <Project Path="src/Microsoft.Agents.AI.Hosting.Channels.Responses/Microsoft.Agents.AI.Hosting.Channels.Responses.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Hosting.OpenAI/Microsoft.Agents.AI.Hosting.OpenAI.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Hosting/Microsoft.Agents.AI.Hosting.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Hyperlight/Microsoft.Agents.AI.Hyperlight.csproj" />

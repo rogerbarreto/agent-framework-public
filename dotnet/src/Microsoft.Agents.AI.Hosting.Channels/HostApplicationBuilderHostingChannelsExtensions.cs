@@ -6,7 +6,6 @@ using Microsoft.Agents.AI.Hosting.Channels;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Extensions.Hosting;
@@ -25,7 +24,7 @@ public static class HostApplicationBuilderHostingChannelsExtensions
     {
         Throw.IfNull(builder);
         Throw.IfNull(target);
-        return AddAgentFrameworkHostCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(_ => new AIAgentRunner(target)));
+        return AddCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(sp => new AIAgentRunner(target, sp.GetRequiredService<IHostStateStore>())));
     }
 
     /// <summary>Adds an agent-framework host whose target is the supplied <see cref="Workflow"/>.</summary>
@@ -36,13 +35,10 @@ public static class HostApplicationBuilderHostingChannelsExtensions
     {
         Throw.IfNull(builder);
         Throw.IfNull(target);
-        return AddAgentFrameworkHostCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(sp => new WorkflowRunner(target, sp.GetRequiredService<IHostStateStore>())));
+        return AddCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(_ => new WorkflowRunner(target)));
     }
 
-    /// <summary>
-    /// Adds an agent-framework host whose target is resolved from a factory. Generic overload for
-    /// alternative runners (Foundry, mocks, ...) supplied by other packages.
-    /// </summary>
+    /// <summary>Adds an agent-framework host whose target is resolved from a factory (for alternative runners).</summary>
     public static IAgentFrameworkHostBuilder AddAgentFrameworkHost<TTarget>(
         this IHostApplicationBuilder builder,
         Func<IServiceProvider, TTarget> targetFactory,
@@ -51,10 +47,10 @@ public static class HostApplicationBuilderHostingChannelsExtensions
     {
         Throw.IfNull(builder);
         Throw.IfNull(targetFactory);
-        return AddAgentFrameworkHostCore(builder, configure, services => services.TryAddSingleton<TTarget>(targetFactory));
+        return AddCore(builder, configure, services => services.TryAddSingleton(targetFactory));
     }
 
-    private static AgentFrameworkHostBuilder AddAgentFrameworkHostCore(
+    private static AgentFrameworkHostBuilder AddCore(
         IHostApplicationBuilder builder,
         Action<AgentFrameworkHostOptions>? configure,
         Action<IServiceCollection> registerTarget)
@@ -64,34 +60,26 @@ public static class HostApplicationBuilderHostingChannelsExtensions
 
         var services = builder.Services;
 
-        services.TryAddSingleton<IHostStateStore>(_ => new InMemoryHostStateStore());
-        services.TryAddSingleton<InProcessDurableTaskRunner>();
-        services.TryAddSingleton<IDurableTaskRunner>(sp => sp.GetRequiredService<InProcessDurableTaskRunner>());
-        services.AddHostedService(sp => sp.GetRequiredService<InProcessDurableTaskRunner>());
-
-        services.TryAddSingleton<ILinkPolicy>(_ => options.LinkPolicy ?? AllowAllLinkPolicy.Instance);
-        services.TryAddSingleton<IIsolationKeysAccessor, IsolationKeysAccessor>();
-
-        if (options.DefaultAllowlist is not null)
+        if (options.StatePaths is not null)
         {
-            services.TryAddSingleton(options.DefaultAllowlist);
+            services.TryAddSingleton<IHostStateStore>(_ => new FileHostStateStore(options.StatePaths));
         }
+        else
+        {
+            services.TryAddSingleton<IHostStateStore>(_ => new InMemoryHostStateStore());
+        }
+
+        services.TryAddSingleton<IIsolationKeysAccessor, IsolationKeysAccessor>();
 
         registerTarget(services);
 
         services.TryAddSingleton(options);
-        services.TryAddSingleton<AgentFrameworkHost>(sp => new AgentFrameworkHost(
+        services.TryAddSingleton(sp => new AgentFrameworkHost(
             sp,
             sp.GetRequiredService<IHostedTargetRunner>(),
             sp.GetRequiredService<System.Collections.Generic.IReadOnlyList<Channel>>(),
             sp.GetRequiredService<IHostStateStore>(),
-            sp.GetRequiredService<IDurableTaskRunner>(),
             sp.GetRequiredService<AgentFrameworkHostOptions>()));
-
-        services.TryAddSingleton<ResponseRouter>(sp => new ResponseRouter(
-            sp.GetRequiredService<AgentFrameworkHost>(),
-            sp.GetRequiredService<ILinkPolicy>(),
-            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ResponseRouter>>()));
 
         return new AgentFrameworkHostBuilder(services, options);
     }

@@ -8,8 +8,8 @@ using System.Threading.Tasks;
 namespace Microsoft.Agents.AI.Hosting.Channels;
 
 /// <summary>
-/// Handed to <see cref="Channel.Contribute"/>. Exposes the host's run / stream / authorization
-/// surface plus the persisted state store and durable task runner.
+/// Handed to <see cref="Channel.Contribute"/>. Exposes the host's run / stream surface plus the host and
+/// its state store.
 /// </summary>
 public interface IChannelContext
 {
@@ -22,30 +22,9 @@ public interface IChannelContext
     /// <summary>The host state store.</summary>
     IHostStateStore StateStore { get; }
 
-    /// <summary>The durable task runner that backs non-originating response delivery and background runs.</summary>
-    IDurableTaskRunner DurableRunner { get; }
-
-    /// <summary>
-    /// Funnel a channel-native identity through the host's authorization pipeline.
-    /// </summary>
-    ValueTask<AuthorizationOutcome> AuthorizeAsync(
-        ChannelIdentity identity,
-        AuthorizationRequest options,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Run the host target with the given request and return the (non-streaming) result.</summary>
+    /// <summary>Run the host target and return the (non-streaming) result.</summary>
     ValueTask<HostedRunResult> RunAsync(ChannelRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Stream the host target's response as <see cref="HostedStreamItem"/> envelopes.</summary>
     IAsyncEnumerable<HostedStreamItem> StreamAsync(ChannelRequest request, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Schedule outbound delivery for every non-originating destination resolved against
-    /// <see cref="ChannelRequest.ResponseTarget"/>. Originating delivery is NOT scheduled here;
-    /// channels render their own originating reply synchronously.
-    /// </summary>
-    ValueTask<IReadOnlyList<TaskHandle>> ScheduleResponseAsync(
-        HostedRunResult result,
-        ChannelRequest originating,
-        CancellationToken cancellationToken = default);
 }
