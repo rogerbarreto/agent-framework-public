@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,6 +54,10 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     private readonly Dictionary<string, IReadOnlyList<McpConsentInfo>> _pendingConsents = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _deferredToolboxNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lazyOpenLock = new(1, 1);
+
+    // Immutable snapshot of _pendingConsents, rebuilt in RecomputeStatus under _lazyOpenLock so
+    // GetPendingConsents can return it without enumerating the live dictionary off-lock.
+    private IReadOnlyList<McpConsentInfo> _pendingConsentsSnapshot = [];
 
     private string? _resolvedEndpoint;
     private string? _featuresHeader;
@@ -235,6 +240,25 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this.ConsentRequiredToolboxNames = [.. this._pendingConsents.Keys];
         this.DeferredToolboxNames = [.. this._deferredToolboxNames];
 
+        // Flatten the pending-consent map to an immutable snapshot here, while we hold the lock
+        // (RecomputeStatus is only ever called under _lazyOpenLock). GetPendingConsents then returns
+        // this snapshot without touching the live dictionary, so concurrent requests cannot observe a
+        // mutating collection.
+        if (this._pendingConsents.Count == 0)
+        {
+            this._pendingConsentsSnapshot = [];
+        }
+        else
+        {
+            var snapshot = new List<McpConsentInfo>();
+            foreach (var consents in this._pendingConsents.Values)
+            {
+                snapshot.AddRange(consents);
+            }
+
+            this._pendingConsentsSnapshot = snapshot;
+        }
+
         this.StartupStatus = this.FailedToolboxNames.Count > 0
             ? FoundryToolboxStartupStatus.Unhealthy
             : this._pendingConsents.Count > 0
@@ -250,21 +274,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// Does not retry or open anything; the caller surfaces each entry as an
     /// <c>oauth_consent_request</c>. Empty when nothing is awaiting consent.
     /// </summary>
-    internal IReadOnlyList<McpConsentInfo> GetPendingConsents()
-    {
-        if (this._pendingConsents.Count == 0)
-        {
-            return [];
-        }
-
-        var snapshot = new List<McpConsentInfo>();
-        foreach (var consents in this._pendingConsents.Values)
-        {
-            snapshot.AddRange(consents);
-        }
-
-        return snapshot;
-    }
+    internal IReadOnlyList<McpConsentInfo> GetPendingConsents() => this._pendingConsentsSnapshot;
 
     /// <summary>
     /// Retries enumeration for any pre-registered toolbox that was awaiting user OAuth consent at
@@ -448,7 +458,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             return cached.Tools;
         }
 
-        if (this._options.StrictMode)
+        if (this._options.StrictMode && !this._options.ToolboxNames.Contains(toolboxName, StringComparer.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 $"Toolbox '{toolboxName}' is not pre-registered via AddFoundryToolboxes(...). " +
@@ -503,6 +513,9 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             this._logger.LogInformation("Connecting to toolbox '{ToolboxName}' at {ProxyUrl}.", toolboxName, proxyUrl);
         }
 
+        // Build the endpoint URI before allocating the HttpClient so a malformed URL cannot leak it.
+        var endpoint = new Uri(proxyUrl);
+
         var handler = new FoundryToolboxBearerTokenHandler(this._credential, this._featuresHeader)
         {
             InnerHandler = new HttpClientHandler()
@@ -512,7 +525,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         var transportOptions = new HttpClientTransportOptions
         {
-            Endpoint = new Uri(proxyUrl),
+            Endpoint = endpoint,
             Name = toolboxName,
         };
 
@@ -527,14 +540,18 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             }
         };
 
-        var client = await McpClient.CreateAsync(
-            transport,
-            clientOptions,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
+        // McpClient.CreateAsync runs the MCP initialize handshake and can throw for an unreachable
+        // proxy (the deferred-toolbox case, retried per request). Keep it inside the try so the
+        // HttpClient is always disposed on failure rather than leaking a socket on every retry.
+        McpClient? client = null;
         IList<McpClientTool> mcpTools;
         try
         {
+            client = await McpClient.CreateAsync(
+                transport,
+                clientOptions,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
             mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (McpProtocolException ex) when (
@@ -543,13 +560,21 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             // A tool source needs user OAuth consent before it can be enumerated. Dispose the
             // half-open client and signal the caller, which keeps the container routable and
             // surfaces the consent prompt per-request instead of failing readiness.
-            await client.DisposeAsync().ConfigureAwait(false);
+            if (client is not null)
+            {
+                await client.DisposeAsync().ConfigureAwait(false);
+            }
+
             httpClient.Dispose();
             return new ToolboxOpenResult(Cached: null, Consents: consents);
         }
         catch
         {
-            await client.DisposeAsync().ConfigureAwait(false);
+            if (client is not null)
+            {
+                await client.DisposeAsync().ConfigureAwait(false);
+            }
+
             httpClient.Dispose();
             throw;
         }
@@ -570,7 +595,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.
 
-        return new ToolboxOpenResult(new CachedToolbox(client, httpClient, wrapped), Consents: null);
+        return new ToolboxOpenResult(new CachedToolbox(client!, httpClient, wrapped), Consents: null);
     }
 
     /// <inheritdoc/>

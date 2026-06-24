@@ -32,7 +32,6 @@
 
 using System.ClientModel.Primitives;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Azure.AI.Projects;
 using Azure.Identity;
 using DotNetEnv;
@@ -262,29 +261,21 @@ static string? TryExtractConsentUrlFromApproval(ToolApprovalRequestContent appro
         _ => null,
     };
 
-    if (arguments is null)
+    // Only the explicit consent_url key counts (the legacy mcp_approval_request consent shape).
+    // We deliberately do NOT scan arbitrary argument values for URLs, so a normal function-tool
+    // approval that happens to carry a URL argument is never misread as an OAuth consent request.
+    if (arguments is null || !arguments.TryGetValue("consent_url", out object? value))
     {
         return null;
     }
 
-    foreach (object? value in arguments.Values)
+    return value switch
     {
-        if (value is string s && LooksLikeUrl(s))
-        {
-            return s;
-        }
-
-        if (value is JsonElement { ValueKind: JsonValueKind.String } element
-            && element.GetString() is string elementString
-            && LooksLikeUrl(elementString))
-        {
-            return elementString;
-        }
-    }
-
-    string serialized = JsonSerializer.Serialize(arguments);
-    Match match = new Regex("https?://[^\\s\"']+").Match(serialized);
-    return match.Success ? match.Value : null;
+        string s when LooksLikeUrl(s) => s,
+        JsonElement { ValueKind: JsonValueKind.String } element
+            when element.GetString() is string elementString && LooksLikeUrl(elementString) => elementString,
+        _ => null,
+    };
 }
 
 static bool LooksLikeUrl(string value) =>
