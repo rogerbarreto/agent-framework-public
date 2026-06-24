@@ -112,12 +112,38 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
             // In a Foundry hosted container only the session-state directory ($HOME, default
             // /home/session) is writable and durably preserved across requests. Writing under the
             // filesystem root (the previous "/.checkpoints" default) fails because the root
-            // filesystem is read-only — see issue #6231.
-            string home = string.IsNullOrWhiteSpace(homeDirectory) ? DefaultHostedSessionDataDirectory : homeDirectory!;
+            // filesystem is read-only — see issue #6231. HOME is settable on the agent definition,
+            // so fall back to the default when it is missing, blank, a filesystem root (e.g. "/"),
+            // or otherwise unusable, to guarantee the store never lands directly under the root.
+            string home = IsUsableHostedHomeDirectory(homeDirectory) ? homeDirectory! : DefaultHostedSessionDataDirectory;
             return Path.Combine(home, LocalCheckpointDirectoryName);
         }
 
         return Path.Combine(currentDirectory, LocalCheckpointDirectoryName);
+    }
+
+    /// <summary>
+    /// Determines whether a hosted <c>HOME</c> value can safely root the session store. Rejects
+    /// null/blank values, a filesystem root (e.g. <c>"/"</c> or a drive root, which would put the
+    /// store back under the read-only container root and reintroduce issue #6231), and paths that
+    /// cannot be normalized.
+    /// </summary>
+    private static bool IsUsableHostedHomeDirectory(string? homeDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(homeDirectory))
+        {
+            return false;
+        }
+
+        try
+        {
+            string full = Path.GetFullPath(homeDirectory);
+            return !string.Equals(full, Path.GetPathRoot(full), StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc/>

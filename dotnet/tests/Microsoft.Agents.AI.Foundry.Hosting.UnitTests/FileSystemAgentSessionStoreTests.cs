@@ -300,6 +300,28 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
             root);
     }
 
+    [Theory]
+    [InlineData("/")]
+    public void ResolveDefaultRootDirectory_HostedWithFilesystemRootHome_FallsBackToDefault(string home)
+    {
+        // Arrange / Act: a filesystem-root HOME (e.g. "/") must NOT root the store at
+        // "/.checkpoints", which is read-only in the container and caused issue #6231.
+        var root = FileSystemAgentSessionStore.ResolveDefaultRootDirectory(
+            isHosted: true,
+            homeDirectory: home,
+            currentDirectory: "/some/cwd");
+
+        // Assert: falls back to the default session-data directory, never the filesystem root.
+        Assert.Equal(
+            Path.Combine(
+                FileSystemAgentSessionStore.DefaultHostedSessionDataDirectory,
+                FileSystemAgentSessionStore.LocalCheckpointDirectoryName),
+            root);
+        Assert.NotEqual(
+            Path.Combine(Path.GetPathRoot(Path.GetFullPath(home))!, FileSystemAgentSessionStore.LocalCheckpointDirectoryName),
+            root);
+    }
+
     [Fact]
     public async Task SaveSessionAsync_NonWritableDirectory_ThrowsClearActionableIOExceptionAsync()
     {
