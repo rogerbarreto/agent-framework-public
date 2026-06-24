@@ -119,6 +119,13 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this._logger = logger ?? NullLogger<FoundryToolboxService>.Instance;
     }
 
+    /// <summary>
+    /// Test-only seam for the network-doing toolbox-open step. When set, <see cref="OpenToolboxAsync"/>
+    /// delegates to this instead of connecting to the live MCP proxy, so the consent/tools resolution
+    /// and request-scoping logic can be unit-tested deterministically. Never set in production.
+    /// </summary>
+    internal Func<string, string?, CancellationToken, Task<ToolboxOpenResult>>? ToolboxOpener { get; set; }
+
     /// <inheritdoc/>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -483,6 +490,14 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         string? version,
         CancellationToken cancellationToken)
     {
+        // Test seam: when set, the open behavior (the only part that does real network I/O via the
+        // MCP transport) is supplied by the test so the consent/tools resolution logic can be
+        // exercised without a live toolbox proxy. Never set in production.
+        if (this.ToolboxOpener is { } opener)
+        {
+            return await opener(toolboxName, version, cancellationToken).ConfigureAwait(false);
+        }
+
         var proxyUrl = $"{this._resolvedEndpoint!}/toolboxes/{toolboxName}/mcp?api-version={this._options.ApiVersion}";
 
         if (this._logger.IsEnabled(LogLevel.Information))
@@ -583,7 +598,11 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     {
         foreach (var cached in this._toolboxes.Values)
         {
-            await cached.Client.DisposeAsync().ConfigureAwait(false);
+            if (cached.Client is not null)
+            {
+                await cached.Client.DisposeAsync().ConfigureAwait(false);
+            }
+
             cached.HttpClient.Dispose();
         }
 
@@ -591,7 +610,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this._lazyOpenLock.Dispose();
     }
 
-    private sealed record CachedToolbox(McpClient Client, HttpClient HttpClient, IReadOnlyList<AITool> Tools);
+    internal sealed record CachedToolbox(McpClient? Client, HttpClient HttpClient, IReadOnlyList<AITool> Tools);
 
     /// <summary>
     /// Request-scoped outcome of resolving a per-request toolbox marker via
@@ -607,5 +626,5 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// <see cref="Cached"/> when the toolbox opened and its tools were enumerated, or
     /// <see cref="Consents"/> when enumeration is blocked pending user OAuth consent.
     /// </summary>
-    private sealed record ToolboxOpenResult(CachedToolbox? Cached, IReadOnlyList<McpConsentInfo>? Consents);
+    internal sealed record ToolboxOpenResult(CachedToolbox? Cached, IReadOnlyList<McpConsentInfo>? Consents);
 }
