@@ -7,14 +7,14 @@ namespace Microsoft.Agents.AI.Hosting.Channels;
 /// derive from <see cref="Root"/> when unset. v1 owns only reset-session aliases and workflow checkpoint
 /// path derivation.
 /// </summary>
-public sealed record HostStatePathOptions
+public sealed class HostStatePathOptions
 {
-    /// <summary>Root directory under which per-component subpaths are derived.</summary>
-    public string? Root { get; init; }
+    /// <summary>Gets or sets the root directory under which per-component subpaths are derived.</summary>
+    public string? Root { get; set; }
 
-    /// <summary>Path for reset-session aliases.</summary>
-    public string? AliasesPath { get; init; }
+    /// <summary>Gets or sets the path for reset-session aliases.</summary>
+    public string? AliasesPath { get; set; }
 
-    /// <summary>Root path for per-isolation-key workflow checkpoint derivation.</summary>
-    public string? CheckpointsPath { get; init; }
+    /// <summary>Gets or sets the root path for per-isolation-key workflow checkpoint derivation.</summary>
+    public string? CheckpointsPath { get; set; }
 }

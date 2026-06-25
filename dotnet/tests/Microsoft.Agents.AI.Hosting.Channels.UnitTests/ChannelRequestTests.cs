@@ -8,7 +8,7 @@ public class ChannelRequestTests
     public void ChannelRequest_DefaultsAreMinimal()
     {
         // Arrange / Act
-        var request = new ChannelRequest { Channel = "responses", Operation = "message.create", Input = "hello" };
+        var request = new ChannelRequest("responses", "message.create", "hello");
 
         // Assert
         Assert.Equal(SessionMode.Auto, request.SessionMode);

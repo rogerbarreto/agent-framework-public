@@ -3,7 +3,7 @@
 namespace Microsoft.Agents.AI.Hosting.Channels;
 
 /// <summary>
-/// Base type for items yielded by <see cref="IChannelContext.StreamAsync"/>.
+/// Base type for items yielded by <see cref="ChannelContext.StreamAsync"/>.
 /// Covers both normalized agent updates (<see cref="HostedStreamUpdate"/>) and protocol-specific
 /// events (<see cref="HostedStreamEvent"/>) behind one stream type.
 /// </summary>
@@ -12,16 +12,49 @@ namespace Microsoft.Agents.AI.Hosting.Channels;
 /// <see cref="HostedRunResult"/> for downstream bookkeeping (intended-targets envelope,
 /// durable push scheduling).
 /// </remarks>
-public abstract record HostedStreamItem
+public abstract class HostedStreamItem
 {
     private protected HostedStreamItem() { }
 }
 
 /// <summary>Normalized agent stream update; lossless for messages, function calls, usage.</summary>
-public sealed record HostedStreamUpdate(AgentResponseUpdate Update) : HostedStreamItem;
+public sealed class HostedStreamUpdate : HostedStreamItem
+{
+    /// <summary>Gets the agent response update.</summary>
+    public AgentResponseUpdate Update { get; }
+
+    /// <summary>Initializes a new instance of <see cref="HostedStreamUpdate"/>.</summary>
+    /// <param name="update">The agent response update.</param>
+    public HostedStreamUpdate(AgentResponseUpdate update)
+    {
+        this.Update = update;
+    }
+}
 
 /// <summary>Protocol-specific event the framework does not model (workflow events, AG-UI events).</summary>
-public sealed record HostedStreamEvent(object Event) : HostedStreamItem;
+public sealed class HostedStreamEvent : HostedStreamItem
+{
+    /// <summary>Gets the protocol-specific event.</summary>
+    public object Event { get; }
+
+    /// <summary>Initializes a new instance of <see cref="HostedStreamEvent"/>.</summary>
+    /// <param name="event">The protocol-specific event.</param>
+    public HostedStreamEvent(object @event)
+    {
+        this.Event = @event;
+    }
+}
 
 /// <summary>Terminal item carrying the final result for post-stream bookkeeping.</summary>
-public sealed record HostedStreamCompleted(HostedRunResult Result) : HostedStreamItem;
+public sealed class HostedStreamCompleted : HostedStreamItem
+{
+    /// <summary>Gets the final run result.</summary>
+    public HostedRunResult Result { get; }
+
+    /// <summary>Initializes a new instance of <see cref="HostedStreamCompleted"/>.</summary>
+    /// <param name="result">The final run result.</param>
+    public HostedStreamCompleted(HostedRunResult result)
+    {
+        this.Result = result;
+    }
+}

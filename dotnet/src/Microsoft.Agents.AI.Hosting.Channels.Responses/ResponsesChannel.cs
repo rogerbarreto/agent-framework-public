@@ -37,7 +37,7 @@ public sealed class ResponsesChannel : Channel
     public override string Path => this._options.Path;
 
     /// <inheritdoc />
-    public override ChannelContribution Contribute(IChannelContext context)
+    public override ChannelContribution Contribute(ChannelContext context)
     {
         Throw.IfNull(context);
         return new ChannelContribution
@@ -46,7 +46,7 @@ public sealed class ResponsesChannel : Channel
         };
     }
 
-    private async Task HandleAsync(IChannelContext context, HttpContext http)
+    private async Task HandleAsync(ChannelContext context, HttpContext http)
     {
         ResponsesRequestModel? body;
         try
@@ -72,18 +72,18 @@ public sealed class ResponsesChannel : Channel
             return;
         }
 
-        var request = new ChannelRequest
+        var request = new ChannelRequest(
+            this.Name,
+            "message.create",
+            messages)
         {
-            Channel = this.Name,
-            Operation = "message.create",
-            Input = messages,
             Stream = body.Stream,
             Session = body.PreviousResponseId is null ? null : new ChannelSession { Key = body.PreviousResponseId },
         };
 
         if (this._options.RunHook is not null)
         {
-            var hookContext = new ChannelRunHookContext { Target = context.Host, ProtocolRequest = body };
+            var hookContext = new ChannelRunHookContext(context.Host) { ProtocolRequest = body };
             request = await this._options.RunHook.OnRequestAsync(request, hookContext, http.RequestAborted).ConfigureAwait(false);
         }
 
@@ -104,7 +104,7 @@ public sealed class ResponsesChannel : Channel
         }
     }
 
-    private async Task WriteJsonResponseAsync(IChannelContext context, ChannelRequest request, string? model, HttpContext http)
+    private async Task WriteJsonResponseAsync(ChannelContext context, ChannelRequest request, string? model, HttpContext http)
     {
         var result = await context.RunAsync(request, http.RequestAborted).ConfigureAwait(false);
         result = await this.ApplyResponseHookAsync(result, request, http.RequestAborted).ConfigureAwait(false);
@@ -117,7 +117,7 @@ public sealed class ResponsesChannel : Channel
         await JsonSerializer.SerializeAsync(http.Response.Body, response, ResponsesJsonContext.Default.ResponsesResponseModel, http.RequestAborted).ConfigureAwait(false);
     }
 
-    private async Task WriteStreamAsync(IChannelContext context, ChannelRequest request, string? model, HttpContext http)
+    private async Task WriteStreamAsync(ChannelContext context, ChannelRequest request, string? model, HttpContext http)
     {
         http.Response.StatusCode = StatusCodes.Status200OK;
         http.Response.ContentType = "text/event-stream";
@@ -168,7 +168,7 @@ public sealed class ResponsesChannel : Channel
         {
             return result;
         }
-        var ctx = new ChannelResponseContext { Request = request, ChannelName = this.Name };
+        var ctx = new ChannelResponseContext(request, this.Name);
         return await this._options.ResponseHook.OnResponseAsync(result, ctx, cancellationToken).ConfigureAwait(false);
     }
 

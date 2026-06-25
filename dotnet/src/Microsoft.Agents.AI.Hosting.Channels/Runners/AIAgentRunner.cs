@@ -43,9 +43,8 @@ public sealed class AIAgentRunner : IHostedTargetRunner
         var messages = CoerceToMessages(request.Input);
         var session = await this.ResolveSessionAsync(request, cancellationToken).ConfigureAwait(false);
         var response = await this._agent.RunAsync(messages, session, options: null, cancellationToken).ConfigureAwait(false);
-        return new HostedRunResult<AgentResponse>
+        return new HostedRunResult<AgentResponse>(response)
         {
-            Result = response,
             Session = request.Session,
         };
     }
@@ -67,8 +66,8 @@ public sealed class AIAgentRunner : IHostedTargetRunner
         }
 
         var aggregate = final is null
-            ? new HostedRunResult<AgentResponseUpdate?> { Result = null, Session = request.Session }
-            : (HostedRunResult)new HostedRunResult<AgentResponseUpdate> { Result = final, Session = request.Session };
+            ? new HostedRunResult<AgentResponseUpdate?>(null) { Session = request.Session }
+            : (HostedRunResult)new HostedRunResult<AgentResponseUpdate>(final) { Session = request.Session };
         yield return new HostedStreamCompleted(aggregate);
     }
 

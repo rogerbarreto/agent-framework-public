@@ -29,7 +29,7 @@ internal sealed class ProbeChannel : Channel
 
     public bool ShutdownFired { get; private set; }
 
-    public override ChannelContribution Contribute(IChannelContext context) => new()
+    public override ChannelContribution Contribute(ChannelContext context) => new()
     {
         EndpointFilters = [new HeaderStampFilter()],
         OnStartup = _ => { this.StartupFired = true; return default; },
@@ -43,7 +43,7 @@ internal sealed class ProbeChannel : Channel
                 endpoints.MapPost("/run", async (HttpContext http) =>
                 {
                     var input = await new System.IO.StreamReader(http.Request.Body).ReadToEndAsync(http.RequestAborted).ConfigureAwait(false);
-                    var request = new ChannelRequest { Channel = "probe", Operation = "message.create", Input = input };
+                    var request = new ChannelRequest("probe", "message.create", input);
                     var result = await context.RunAsync(request, http.RequestAborted).ConfigureAwait(false);
                     var text = (result.ResultObject as AgentResponse)?.Text ?? result.ResultObject?.ToString();
                     return Results.Text(text ?? string.Empty);
@@ -52,7 +52,7 @@ internal sealed class ProbeChannel : Channel
                 endpoints.MapPost("/stream", async (HttpContext http) =>
                 {
                     var input = await new System.IO.StreamReader(http.Request.Body).ReadToEndAsync(http.RequestAborted).ConfigureAwait(false);
-                    var request = new ChannelRequest { Channel = "probe", Operation = "message.create", Input = input, Stream = true };
+                    var request = new ChannelRequest("probe", "message.create", input) { Stream = true };
                     var updates = 0;
                     var completed = 0;
                     await foreach (var item in context.StreamAsync(request, http.RequestAborted).ConfigureAwait(false))

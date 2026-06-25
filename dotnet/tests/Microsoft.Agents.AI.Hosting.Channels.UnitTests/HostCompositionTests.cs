@@ -41,7 +41,7 @@ public class HostCompositionTests
         var host = app.Services.GetRequiredService<AgentFrameworkHost>();
 
         // Act
-        var result = await host.RunAsync(new ChannelRequest { Channel = "fake", Operation = "message.create", Input = "hi" }, CancellationToken.None);
+        var result = await host.RunAsync(new ChannelRequest("fake", "message.create", "hi"), CancellationToken.None);
 
         // Assert
         var typed = Assert.IsType<HostedRunResult<WorkflowRunResult>>(result);
@@ -51,7 +51,7 @@ public class HostCompositionTests
     private sealed class FakeChannel : Channel
     {
         public override string Name => "fake";
-        public override ChannelContribution Contribute(IChannelContext context) => new();
+        public override ChannelContribution Contribute(ChannelContext context) => new();
     }
 
     private sealed class EchoExecutor() : Executor<string, string>("EchoExecutor")

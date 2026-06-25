@@ -14,27 +14,27 @@ namespace Microsoft.Agents.AI.Hosting.Channels;
 /// a status-awaiting_input envelope and the resume token lives on
 /// <see cref="HostedRunResult.Session"/> attributes under the key <c>"workflow.resume_token"</c>.
 /// </remarks>
-public sealed record WorkflowRunResult
+public sealed class WorkflowRunResult
 {
-    /// <summary>Lifecycle status the runner reached when control returned.</summary>
-    public required WorkflowRunStatus Status { get; init; }
+    /// <summary>Gets or sets the lifecycle status the runner reached when control returned.</summary>
+    public WorkflowRunStatus Status { get; set; }
 
     /// <summary>
-    /// Outputs emitted by the workflow (from <c>WorkflowOutputEvent</c>). Order matches event order.
+    /// Gets or sets the outputs emitted by the workflow (from <c>WorkflowOutputEvent</c>). Order matches event order.
     /// </summary>
-    public IReadOnlyList<object?> Outputs { get; init; } = [];
+    public IReadOnlyList<object?> Outputs { get; set; } = [];
 
     /// <summary>
-    /// Pending external request that paused execution. Populated when
+    /// Gets or sets the pending external request that paused execution. Populated when
     /// <see cref="Status"/> is <see cref="WorkflowRunStatus.AwaitingInput"/>.
     /// </summary>
-    public ExternalRequest? PendingRequest { get; init; }
+    public ExternalRequest? PendingRequest { get; set; }
 
-    /// <summary>The workflow session id this run is associated with.</summary>
-    public string? SessionId { get; init; }
+    /// <summary>Gets or sets the workflow session id this run is associated with.</summary>
+    public string? SessionId { get; set; }
 
-    /// <summary>Failure detail when <see cref="Status"/> is <see cref="WorkflowRunStatus.Failed"/>.</summary>
-    public string? Error { get; init; }
+    /// <summary>Gets or sets the failure detail when <see cref="Status"/> is <see cref="WorkflowRunStatus.Failed"/>.</summary>
+    public string? Error { get; set; }
 }
 
 /// <summary>Lifecycle status of a <see cref="WorkflowRunResult"/>.</summary>

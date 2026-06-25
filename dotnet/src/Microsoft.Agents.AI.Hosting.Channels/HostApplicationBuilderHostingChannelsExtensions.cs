@@ -69,7 +69,6 @@ public static class HostApplicationBuilderHostingChannelsExtensions
             services.TryAddSingleton<IHostStateStore>(_ => new InMemoryHostStateStore());
         }
 
-        services.TryAddSingleton<IIsolationKeysAccessor, IsolationKeysAccessor>();
         services.TryAddSingleton<ChannelLifecycleRegistry>();
         services.AddHostedService<ChannelLifecycleService>();
 

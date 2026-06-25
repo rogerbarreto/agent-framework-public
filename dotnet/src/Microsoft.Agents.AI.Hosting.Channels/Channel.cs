@@ -30,5 +30,5 @@ public abstract class Channel
     }
 
     /// <summary>Returns the channel's contribution (routes, commands, lifecycle hooks, endpoint filters). Runs post-Build.</summary>
-    public abstract ChannelContribution Contribute(IChannelContext context);
+    public abstract ChannelContribution Contribute(ChannelContext context);
 }

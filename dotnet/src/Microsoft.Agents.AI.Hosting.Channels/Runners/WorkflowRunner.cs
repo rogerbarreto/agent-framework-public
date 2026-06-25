@@ -58,7 +58,7 @@ public sealed class WorkflowRunner : IHostedTargetRunner
             }
         }
 
-        var session = (request.Session ?? new ChannelSession()) with { Key = run.SessionId };
+        var session = new ChannelSession(request.Session ?? new ChannelSession()) { Key = run.SessionId };
         var result = pending is not null
             ? new WorkflowRunResult { Status = WorkflowRunStatus.AwaitingInput, PendingRequest = pending, Outputs = outputs, SessionId = run.SessionId }
             : new WorkflowRunResult { Status = WorkflowRunStatus.Completed, Outputs = outputs, SessionId = run.SessionId };
@@ -90,7 +90,7 @@ public sealed class WorkflowRunner : IHostedTargetRunner
             }
         }
 
-        var session = (request.Session ?? new ChannelSession()) with { Key = run.SessionId };
+        var session = new ChannelSession(request.Session ?? new ChannelSession()) { Key = run.SessionId };
         var result = pending is not null
             ? new WorkflowRunResult { Status = WorkflowRunStatus.AwaitingInput, PendingRequest = pending, Outputs = outputs, SessionId = run.SessionId }
             : new WorkflowRunResult { Status = WorkflowRunStatus.Completed, Outputs = outputs, SessionId = run.SessionId };
@@ -98,5 +98,5 @@ public sealed class WorkflowRunner : IHostedTargetRunner
     }
 
     private static HostedRunResult<WorkflowRunResult> Build(WorkflowRunResult result, ChannelSession? session) =>
-        new() { Result = result, Session = session };
+        new(result) { Session = session };
 }

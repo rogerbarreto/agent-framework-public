@@ -8,13 +8,26 @@ namespace Microsoft.Agents.AI.Hosting.Channels;
 /// <summary>
 /// Channel-native user identity observed on a <see cref="ChannelRequest"/>.
 /// </summary>
-/// <param name="Channel">The originating channel name (matches <see cref="Channel.Name"/>).</param>
-/// <param name="NativeId">The channel-native USER identifier (never the chat or conversation id).</param>
-public sealed record ChannelIdentity(string Channel, string NativeId)
+public sealed class ChannelIdentity
 {
+    /// <summary>Gets the originating channel name (matches <see cref="Channel.Name"/>).</summary>
+    public string Channel { get; }
+
+    /// <summary>Gets the channel-native USER identifier (never the chat or conversation id).</summary>
+    public string NativeId { get; }
+
     /// <summary>
-    /// Channel-defined attributes attached to this identity (e.g. display name, language).
+    /// Gets or sets the channel-defined attributes attached to this identity (e.g. display name, language).
     /// </summary>
-    public IReadOnlyDictionary<string, string> Attributes { get; init; } =
+    public IReadOnlyDictionary<string, string> Attributes { get; set; } =
         ImmutableDictionary<string, string>.Empty;
+
+    /// <summary>Initializes a new instance of <see cref="ChannelIdentity"/>.</summary>
+    /// <param name="channel">The originating channel name (matches <see cref="Channel.Name"/>).</param>
+    /// <param name="nativeId">The channel-native USER identifier (never the chat or conversation id).</param>
+    public ChannelIdentity(string channel, string nativeId)
+    {
+        this.Channel = channel;
+        this.NativeId = nativeId;
+    }
 }

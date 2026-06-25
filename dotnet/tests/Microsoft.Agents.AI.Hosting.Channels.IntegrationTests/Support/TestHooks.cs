@@ -13,7 +13,7 @@ namespace Microsoft.Agents.AI.Hosting.Channels.IntegrationTests.Support;
 internal sealed class RewriteInputRunHook(string replacement) : IChannelRunHook
 {
     public ValueTask<ChannelRequest> OnRequestAsync(ChannelRequest request, ChannelRunHookContext context, CancellationToken cancellationToken) =>
-        new(request with { Input = replacement });
+        new(new ChannelRequest(request) { Input = replacement });
 }
 
 /// <summary>
@@ -30,8 +30,8 @@ internal sealed class HeaderIsolationRunHook(IHttpContextAccessor accessor, stri
             return new(request);
         }
 
-        var session = (request.Session ?? new ChannelSession()) with { IsolationKey = key };
-        return new(request with { Session = session });
+        var session = new ChannelSession(request.Session ?? new ChannelSession()) { IsolationKey = key };
+        return new(new ChannelRequest(request) { Session = session });
     }
 }
 

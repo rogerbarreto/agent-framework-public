@@ -24,6 +24,6 @@ internal sealed class WorkflowInputRunHook : IChannelRunHook
             _ => request.Input.ToString() ?? string.Empty,
         };
 
-        return new(request with { Input = text });
+        return new(new ChannelRequest(request) { Input = text });
     }
 }

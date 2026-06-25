@@ -15,7 +15,7 @@ public class WorkflowRunnerTests
         var echo = new EchoExecutor();
         var workflow = new WorkflowBuilder(echo).WithOutputFrom(echo).Build();
         var runner = new WorkflowRunner(workflow);
-        var request = new ChannelRequest { Channel = "test", Operation = "message.create", Input = "ping" };
+        var request = new ChannelRequest("test", "message.create", "ping");
 
         // Act
         var result = await runner.RunAsync(request, CancellationToken.None);

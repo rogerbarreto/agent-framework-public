@@ -18,7 +18,7 @@ internal sealed class ChatMessageListRunHook : IChannelRunHook
     {
         if (request.Input is IEnumerable<ChatMessage> messages)
         {
-            return new(request with { Input = messages.ToList() });
+            return new(new ChannelRequest(request) { Input = messages.ToList() });
         }
 
         return new(request);

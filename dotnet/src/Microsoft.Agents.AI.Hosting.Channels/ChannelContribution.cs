@@ -14,27 +14,27 @@ namespace Microsoft.Agents.AI.Hosting.Channels;
 /// Returned by <see cref="Channel.Contribute"/>. Carries the routes, commands, endpoint filters,
 /// and lifecycle hooks the channel publishes to the running host.
 /// </summary>
-public sealed record ChannelContribution
+public sealed class ChannelContribution
 {
     /// <summary>
-    /// Route registration actions. The host invokes each one with an <see cref="IEndpointRouteBuilder"/>
+    /// Gets or sets the route registration actions. The host invokes each one with an <see cref="IEndpointRouteBuilder"/>
     /// rooted at <see cref="Channel.Path"/> via <see cref="EndpointRoutingApplicationBuilderExtensions"/>'
     /// group semantics, so map paths relative to <see cref="Channel.Path"/>.
     /// </summary>
-    public IReadOnlyList<Action<IEndpointRouteBuilder>> Routes { get; init; } = [];
+    public IReadOnlyList<Action<IEndpointRouteBuilder>> Routes { get; set; } = [];
 
     /// <summary>
-    /// Endpoint filters applied to the <see cref="Channel.Path"/>-rooted group. Replaces Python's
+    /// Gets or sets the endpoint filters applied to the <see cref="Channel.Path"/>-rooted group. Replaces Python's
     /// <c>middleware</c> slot.
     /// </summary>
-    public IReadOnlyList<IEndpointFilter> EndpointFilters { get; init; } = [];
+    public IReadOnlyList<IEndpointFilter> EndpointFilters { get; set; } = [];
 
-    /// <summary>Declarative commands; channels read these and call the protocol's native registration.</summary>
-    public IReadOnlyList<ChannelCommand> Commands { get; init; } = [];
+    /// <summary>Gets or sets the declarative commands; channels read these and call the protocol's native registration.</summary>
+    public IReadOnlyList<ChannelCommand> Commands { get; set; } = [];
 
-    /// <summary>Optional startup hook invoked once after DI is built. Useful for long-poll loops.</summary>
-    public Func<CancellationToken, ValueTask>? OnStartup { get; init; }
+    /// <summary>Gets or sets the optional startup hook invoked once after DI is built. Useful for long-poll loops.</summary>
+    public Func<CancellationToken, ValueTask>? OnStartup { get; set; }
 
-    /// <summary>Optional shutdown hook invoked during graceful shutdown.</summary>
-    public Func<CancellationToken, ValueTask>? OnShutdown { get; init; }
+    /// <summary>Gets or sets the optional shutdown hook invoked during graceful shutdown.</summary>
+    public Func<CancellationToken, ValueTask>? OnShutdown { get; set; }
 }
