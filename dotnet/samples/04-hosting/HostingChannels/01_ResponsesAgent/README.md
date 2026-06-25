@@ -13,8 +13,8 @@ Exposes an `AIAgent` on the OpenAI Responses-shaped channel from
 
 ## Requirements
 
-* `AZURE_OPENAI_ENDPOINT` set, `az login` completed (DefaultAzureCredential)
-* `AZURE_OPENAI_DEPLOYMENT_NAME` optional; defaults to `gpt-5.4-mini`
+* `OPENAI_API_KEY` set
+* `OPENAI_MODEL` optional; defaults to `gpt-5.4-mini`
 
 ## Try it
 
