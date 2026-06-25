@@ -41,7 +41,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// lazily connected otherwise.
 /// </para>
 /// </remarks>
-[Experimental(DiagnosticIds.Experiments.AIOpenAIResponses)]
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 {
     private readonly FoundryToolboxOptions _options;
