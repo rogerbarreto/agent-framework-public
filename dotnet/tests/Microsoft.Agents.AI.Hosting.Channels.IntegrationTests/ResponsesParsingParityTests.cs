@@ -103,6 +103,23 @@ public class ResponsesParsingParityTests
         Assert.Null(request.Identity);
     }
 
+    [Fact]
+    public async Task Identity_SafetyIdentifierPreferredOverUserAsync()
+    {
+        var request = await CaptureAsync("{ \"input\": \"hi\", \"safety_identifier\": \"abc\", \"user\": \"legacy\" }");
+        Assert.NotNull(request.Identity);
+        Assert.Equal("abc", request.Identity!.NativeId);
+    }
+
+    [Fact]
+    public async Task Identity_NonStringSafetyIdentifierIsIgnoredAsync()
+    {
+        // Python parse_responses_identity returns None for a non-string identifier rather than rejecting the
+        // request; the channel must tolerate it and surface no identity (HTTP 200, not 400).
+        var request = await CaptureAsync("{ \"input\": \"hi\", \"safety_identifier\": 42 }");
+        Assert.Null(request.Identity);
+    }
+
     [Theory]
     [InlineData("{ \"input\": 123 }")]
     [InlineData("{ \"input\": [] }")]

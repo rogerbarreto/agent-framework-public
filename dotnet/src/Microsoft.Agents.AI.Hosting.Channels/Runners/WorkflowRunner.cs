@@ -143,7 +143,10 @@ done:
 
         if (request.Attributes.TryGetValue(CheckpointIdAttribute, out var raw) && raw is string checkpointId && !string.IsNullOrEmpty(checkpointId))
         {
+            // Rehydrate the workflow from the caller-supplied checkpoint, then apply the new input so the
+            // resumed run advances and produces output (mirrors Python's restore-then-run seam).
             var resumed = await InProcessExecution.ResumeStreamingAsync(this.Workflow, new CheckpointInfo(sessionKey!, checkpointId), manager, cancellationToken).ConfigureAwait(false);
+            await SendInputAsync(resumed, request.Input).ConfigureAwait(false);
             return (resumed, store);
         }
 

@@ -23,9 +23,10 @@ internal sealed class ResponsesRequestModel
     [JsonPropertyName("max_output_tokens")] public int? MaxOutputTokens { get; set; }
     [JsonPropertyName("parallel_tool_calls")] public bool? ParallelToolCalls { get; set; }
 
-    // Caller identity: OpenAI Responses replaced `user` with `safety_identifier`.
-    [JsonPropertyName("safety_identifier")] public string? SafetyIdentifier { get; set; }
-    [JsonPropertyName("user")] public string? User { get; set; }
+    // Caller identity: OpenAI Responses replaced `user` with `safety_identifier`. A non-string value is
+    // tolerated and ignored (identity becomes null) rather than rejecting the request.
+    [JsonPropertyName("safety_identifier")][JsonConverter(typeof(LenientStringConverter))] public string? SafetyIdentifier { get; set; }
+    [JsonPropertyName("user")][JsonConverter(typeof(LenientStringConverter))] public string? User { get; set; }
 }
 
 /// <summary>Outbound Responses object (non-streaming + terminal stream payload).</summary>

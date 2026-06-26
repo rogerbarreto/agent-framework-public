@@ -77,6 +77,42 @@ public class WorkflowCheckpointTests
     }
 
     [Fact]
+    public async Task FileStore_ResumesFromSurfacedCheckpointIdAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "afhost-cp-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string checkpointId;
+
+            // First turn: run, commit a checkpoint, and capture the surfaced resume id. The store is disposed
+            // before the second turn so the exclusive index.jsonl lock is released (avoids a self-conflict).
+            using (var store = new FileHostStateStore(new HostStatePathOptions { Root = root }))
+            {
+                var runner = new WorkflowRunner(WorkflowFactory.Echo(), store);
+                var first = await runner.RunAsync(Request("carol"), default);
+                checkpointId = Assert.IsType<string>(first.Session!.Attributes[WorkflowRunner.CheckpointIdAttribute]);
+            }
+
+            Assert.False(string.IsNullOrEmpty(checkpointId));
+
+            // Second turn: pass the captured id back on the request attributes; the runner resumes from it.
+            using (var store = new FileHostStateStore(new HostStatePathOptions { Root = root }))
+            {
+                var runner = new WorkflowRunner(WorkflowFactory.Echo(), store);
+                var attributes = new Dictionary<string, object?> { [WorkflowRunner.CheckpointIdAttribute] = checkpointId };
+                var second = await runner.RunAsync(Request("carol", attributes), default);
+
+                var wr = Assert.IsType<WorkflowRunResult>(second.ResultObject);
+                Assert.Equal(WorkflowRunStatus.Completed, wr.Status);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    [Fact]
     public async Task InMemoryStore_RunsWithoutCheckpointingAsync()
     {
         // Arrange - the in-memory store yields no persistent location, so no checkpointing happens

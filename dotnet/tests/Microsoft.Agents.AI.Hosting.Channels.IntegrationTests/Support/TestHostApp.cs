@@ -29,7 +29,8 @@ internal sealed class TestHostApp : IAsyncDisposable
     /// </summary>
     public static async Task<TestHostApp> StartAsync(
         Func<WebApplicationBuilder, IAgentFrameworkHostBuilder> configureHost,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        Action<WebApplication>? configureApp = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -38,6 +39,7 @@ internal sealed class TestHostApp : IAsyncDisposable
         configureHost(builder);
 
         var app = builder.Build();
+        configureApp?.Invoke(app);
         app.MapAgentFrameworkHost();
         await app.StartAsync().ConfigureAwait(false);
 
