@@ -41,7 +41,7 @@ public class ResponsesRenderingTests
             types.Add(type);
             switch (type)
             {
-                case "reasoning": reasoningText = item.GetProperty("summary")[0].GetProperty("text").GetString(); break;
+                case "reasoning": reasoningText = item.GetProperty("content")[0].GetProperty("text").GetString(); break;
                 case "function_call": callName = item.GetProperty("name").GetString(); break;
                 case "function_call_output": functionOutput = item.GetProperty("output").GetString(); break;
                 case "message": messageText = item.GetProperty("content")[0].GetProperty("text").GetString(); break;

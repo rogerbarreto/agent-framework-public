@@ -65,6 +65,9 @@ public sealed class WorkflowRunner : IHostedTargetRunner
                         // The workflow paused awaiting external input; stop consuming or the stream blocks.
                         pending = rie.Request;
                         goto done;
+                    case AgentResponseUpdateEvent:
+                        // Streaming delta from an agent-based workflow; not a terminal output.
+                        break;
                     case WorkflowOutputEvent woe:
                         outputs.Add(woe.Data);
                         break;
@@ -104,7 +107,7 @@ done:
                     break;
                 }
 
-                if (evt is WorkflowOutputEvent woe)
+                if (evt is WorkflowOutputEvent woe and not AgentResponseUpdateEvent)
                 {
                     outputs.Add(woe.Data);
                 }
@@ -152,7 +155,11 @@ done:
     /// <summary>
     /// Send the channel input to the run using its <b>runtime</b> type so the workflow's typed start executor
     /// receives it. Passing <see cref="ChannelRequest.Input"/> directly to a generic run API would declare the
-    /// message type as <see cref="object"/>, which a typed executor never matches.
+    /// message type as <see cref="object"/>, which a typed executor never matches. A subsequent
+    /// <see cref="TurnToken"/> drives agent-based workflows (built via <c>AgentWorkflowBuilder</c>) to take a
+    /// turn and emit their outputs; it is harmlessly undelivered for plain executor workflows that have no
+    /// <see cref="TurnToken"/> handler, so it is sent unconditionally for parity with Python's high-level
+    /// <c>Workflow.run(message)</c> seam.
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2060:MakeGenericMethod", Justification = "Input is a reference type (string / ChatMessage list / workflow input); shared generics keep TrySendMessageAsync reachable.")]
     [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode", Justification = "Hosting runner is not used in AOT scenarios; the workflow input type is a reference type.")]
@@ -160,6 +167,7 @@ done:
     {
         var send = s_trySendMessage.MakeGenericMethod(input.GetType());
         await ((ValueTask<bool>)send.Invoke(run, [input])!).ConfigureAwait(false);
+        await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
     }
 
     private static readonly MethodInfo s_trySendMessage =

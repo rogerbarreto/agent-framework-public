@@ -1,11 +1,11 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -169,7 +169,7 @@ public sealed class ResponsesChannel : Channel
             var created = BuildEnvelope(responseId, model, status: "in_progress");
             await WriteEventAsync(http, "response.created", new ResponsesStreamResponseEvent { Type = "response.created", Response = created }, ResponsesJsonContext.Default.ResponsesStreamResponseEvent).ConfigureAwait(false);
 
-            var addedItem = new ResponsesOutputItem { Type = "message", Id = itemId, Role = "assistant", Status = "in_progress", Content = [] };
+            var addedItem = new ResponsesOutputItem { Type = "message", Id = itemId, Role = "assistant", Status = "in_progress", Content = new JsonArray() };
             await WriteEventAsync(http, "response.output_item.added", new ResponsesStreamOutputItemEvent { Type = "response.output_item.added", OutputIndex = 0, Item = addedItem }, ResponsesJsonContext.Default.ResponsesStreamOutputItemEvent).ConfigureAwait(false);
             await WriteEventAsync(http, "response.content_part.added", new ResponsesStreamContentPartEvent { Type = "response.content_part.added", ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Part = new ResponsesOutputText() }, ResponsesJsonContext.Default.ResponsesStreamContentPartEvent).ConfigureAwait(false);
 
@@ -211,7 +211,7 @@ public sealed class ResponsesChannel : Channel
         var donePart = new ResponsesOutputText { Text = finalText };
         await WriteEventAsync(http, "response.content_part.done", new ResponsesStreamContentPartEvent { Type = "response.content_part.done", ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Part = donePart }, ResponsesJsonContext.Default.ResponsesStreamContentPartEvent).ConfigureAwait(false);
 
-        var doneItem = new ResponsesOutputItem { Type = "message", Id = itemId, Role = "assistant", Status = "completed", Content = [donePart] };
+        var doneItem = new ResponsesOutputItem { Type = "message", Id = itemId, Role = "assistant", Status = "completed", Content = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = finalText, ["annotations"] = new JsonArray() }) };
         await WriteEventAsync(http, "response.output_item.done", new ResponsesStreamOutputItemEvent { Type = "response.output_item.done", OutputIndex = 0, Item = doneItem }, ResponsesJsonContext.Default.ResponsesStreamOutputItemEvent).ConfigureAwait(false);
 
         var completed = BuildEnvelope(responseId, model, status: "completed");
@@ -284,79 +284,13 @@ public sealed class ResponsesChannel : Channel
     /// </summary>
     private static List<ResponsesOutputItem> BuildOutputItems(object? resultObject)
     {
-        var items = new List<ResponsesOutputItem>();
-        List<ResponsesOutputText>? messageText = null;
-
-        void Flush()
-        {
-            if (messageText is { Count: > 0 })
-            {
-                items.Add(new ResponsesOutputItem
-                {
-                    Type = "message",
-                    Id = "msg_" + Guid.NewGuid().ToString("N"),
-                    Role = "assistant",
-                    Status = "completed",
-                    Content = messageText,
-                });
-                messageText = null;
-            }
-        }
-
+        var contents = new List<AIContent>();
         foreach (var message in ExtractMessages(resultObject))
         {
-            foreach (var content in message.Contents)
-            {
-                switch (content)
-                {
-                    case TextReasoningContent reasoning:
-                        Flush();
-                        items.Add(new ResponsesOutputItem
-                        {
-                            Type = "reasoning",
-                            Id = "rs_" + Guid.NewGuid().ToString("N"),
-                            Summary = [new ResponsesReasoningSummary { Text = reasoning.Text }],
-                        });
-                        break;
-                    case FunctionCallContent call:
-                        Flush();
-                        items.Add(new ResponsesOutputItem
-                        {
-                            Type = "function_call",
-                            Id = "fc_" + Guid.NewGuid().ToString("N"),
-                            CallId = call.CallId,
-                            Name = call.Name,
-                            Arguments = SerializeArguments(call.Arguments),
-                            Status = "completed",
-                        });
-                        break;
-                    case FunctionResultContent functionResult:
-                        Flush();
-                        items.Add(new ResponsesOutputItem
-                        {
-                            Type = "function_call_output",
-                            Id = "fco_" + Guid.NewGuid().ToString("N"),
-                            CallId = functionResult.CallId,
-                            Output = functionResult.Result?.ToString() ?? string.Empty,
-                            Status = "completed",
-                        });
-                        break;
-                    case TextContent text:
-                        (messageText ??= []).Add(new ResponsesOutputText { Text = text.Text });
-                        break;
-                    default:
-                        var fallback = content.ToString();
-                        if (!string.IsNullOrEmpty(fallback))
-                        {
-                            (messageText ??= []).Add(new ResponsesOutputText { Text = fallback });
-                        }
-                        break;
-                }
-            }
+            contents.AddRange(message.Contents);
         }
 
-        Flush();
-
+        var items = ResponsesOutputRenderer.Render(contents, status: "completed");
         if (items.Count == 0)
         {
             items.Add(new ResponsesOutputItem
@@ -365,7 +299,7 @@ public sealed class ResponsesChannel : Channel
                 Id = "msg_" + Guid.NewGuid().ToString("N"),
                 Role = "assistant",
                 Status = "completed",
-                Content = [new ResponsesOutputText { Text = ExtractText(resultObject) }],
+                Content = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = ExtractText(resultObject), ["annotations"] = new JsonArray() }),
             });
         }
 
@@ -404,6 +338,9 @@ public sealed class ResponsesChannel : Channel
                     }
 
                     break;
+                case AIContent content:
+                    yield return new ChatMessage(ChatRole.Assistant, [content]);
+                    break;
                 case string text:
                     yield return new ChatMessage(ChatRole.Assistant, text);
                     break;
@@ -421,44 +358,6 @@ public sealed class ResponsesChannel : Channel
         string s => s,
         _ => resultObject?.ToString() ?? string.Empty,
     };
-
-    private static string SerializeArguments(IDictionary<string, object?>? arguments)
-    {
-        if (arguments is null || arguments.Count == 0)
-        {
-            return "{}";
-        }
-
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            foreach (var argument in arguments)
-            {
-                writer.WritePropertyName(argument.Key);
-                WriteArgumentValue(writer, argument.Value);
-            }
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
-
-    private static void WriteArgumentValue(Utf8JsonWriter writer, object? value)
-    {
-        switch (value)
-        {
-            case null: writer.WriteNullValue(); break;
-            case JsonElement element: element.WriteTo(writer); break;
-            case string s: writer.WriteStringValue(s); break;
-            case bool b: writer.WriteBooleanValue(b); break;
-            case int i: writer.WriteNumberValue(i); break;
-            case long l: writer.WriteNumberValue(l); break;
-            case double d: writer.WriteNumberValue(d); break;
-            case float f: writer.WriteNumberValue(f); break;
-            case decimal m: writer.WriteNumberValue(m); break;
-            default: writer.WriteStringValue(value.ToString()); break;
-        }
-    }
 
     private static readonly Func<string?, string> s_defaultResponseIdFactory = _ => "resp_" + Guid.NewGuid().ToString("N");
 

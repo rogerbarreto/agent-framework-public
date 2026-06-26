@@ -14,4 +14,5 @@ namespace Microsoft.Agents.AI.Hosting.Channels.Responses;
 [JsonSerializable(typeof(ResponsesStreamTextDoneEvent))]
 [JsonSerializable(typeof(ResponsesErrorModel))]
 [JsonSerializable(typeof(System.Text.Json.JsonElement))]
+[JsonSerializable(typeof(System.Text.Json.Nodes.JsonNode))]
 internal sealed partial class ResponsesJsonContext : JsonSerializerContext;

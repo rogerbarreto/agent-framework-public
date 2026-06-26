@@ -35,20 +35,32 @@ public class AgentWorkflowTests
             Json("{ \"input\": \"hello\" }"));
         var body = await response.Content.ReadAsStringAsync();
 
-        // Assert - the workflow ran to completion and rendered a non-empty Responses object
+        // Assert - the workflow ran to completion and projected the agents' chained replies
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
-        // NOTE: the BuildSequential agent workflow yields no WorkflowOutputEvent through this host path, so its
-        // agent text is not projected; output projection (FlattenWorkflowOutputs) covers output-producing
-        // workflows. Here we assert the envelope carries a rendered output item.
-        var hasMessage = false;
+
+        // The terminal WorkflowOutputEvent carries the chained ChatMessage list; FlattenWorkflowOutputs
+        // projects it, so the last agent's reply text renders into a message output item.
+        var rendered = false;
         foreach (var item in doc.RootElement.GetProperty("output").EnumerateArray())
         {
-            if (item.GetProperty("type").GetString() == "message") { hasMessage = true; break; }
+            if (item.GetProperty("type").GetString() != "message")
+            {
+                continue;
+            }
+
+            foreach (var content in item.GetProperty("content").EnumerateArray())
+            {
+                if (content.TryGetProperty("text", out var text) &&
+                    text.GetString()?.Contains(FakeChatAgent.Reply, System.StringComparison.Ordinal) == true)
+                {
+                    rendered = true;
+                }
+            }
         }
 
-        Assert.True(hasMessage);
+        Assert.True(rendered, $"expected rendered output to contain '{FakeChatAgent.Reply}'. Body: {body}");
     }
 
     private static StringContent Json(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
