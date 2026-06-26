@@ -37,9 +37,11 @@ public sealed class InMemoryHostStateStore : IHostStateStore
     }
 
     /// <inheritdoc />
-    public ValueTask<string> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken)
+    public ValueTask<string?> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken)
     {
         Throw.IfNullOrEmpty(isolationKey);
-        return new($"checkpoints/{isolationKey}");
+
+        // The in-memory store does not persist checkpoints, so there is no on-disk location to derive.
+        return default;
     }
 }

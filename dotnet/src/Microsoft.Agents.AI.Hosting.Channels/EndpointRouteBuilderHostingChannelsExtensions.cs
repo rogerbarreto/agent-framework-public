@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using Microsoft.Agents.AI.Hosting.Channels;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -28,12 +29,21 @@ public static class EndpointRouteBuilderHostingChannelsExtensions
         var context = new ChannelContext(endpoints.ServiceProvider, host);
         var hostGroup = endpoints.MapGroup(string.Empty);
 
+        // Lift Foundry-provided isolation headers into IsolationKeys.Current per request, but only when the
+        // Foundry hosting environment flag is present. Absent the flag the raw headers are ignored.
+        IEndpointFilter? isolationFilter = IsFoundryHostingEnvironment() ? new IsolationKeysEndpointFilter() : null;
+
         foreach (var channel in host.Channels)
         {
             var contribution = channel.Contribute(context);
             var channelGroup = string.IsNullOrEmpty(channel.Path) ? hostGroup : endpoints.MapGroup(channel.Path);
 
             registry.Add(contribution.OnStartup, contribution.OnShutdown);
+
+            if (isolationFilter is not null)
+            {
+                channelGroup.AddEndpointFilter(isolationFilter);
+            }
 
             foreach (var filter in contribution.EndpointFilters)
             {
@@ -48,4 +58,7 @@ public static class EndpointRouteBuilderHostingChannelsExtensions
 
         return hostGroup;
     }
+
+    private static bool IsFoundryHostingEnvironment()
+        => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FOUNDRY_HOSTING_ENVIRONMENT"));
 }

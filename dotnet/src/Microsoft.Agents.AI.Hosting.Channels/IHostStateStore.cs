@@ -23,6 +23,10 @@ public interface IHostStateStore
     /// <summary>Read the active session-id alias for an isolation key.</summary>
     ValueTask<string?> GetActiveSessionAliasAsync(string isolationKey, CancellationToken cancellationToken);
 
-    /// <summary>Derive the workflow checkpoint location for an isolation key.</summary>
-    ValueTask<string> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken);
+    /// <summary>
+    /// Derive the persistent workflow checkpoint location for an isolation key, or <see langword="null"/>
+    /// when this store does not persist checkpoints (e.g. the in-memory store). Implementations must reject
+    /// path-traversal patterns in the isolation key.
+    /// </summary>
+    ValueTask<string?> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken);
 }

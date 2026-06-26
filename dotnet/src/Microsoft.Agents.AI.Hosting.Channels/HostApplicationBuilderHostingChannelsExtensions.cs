@@ -35,7 +35,7 @@ public static class HostApplicationBuilderHostingChannelsExtensions
     {
         Throw.IfNull(builder);
         Throw.IfNull(target);
-        return AddCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(_ => new WorkflowRunner(target)));
+        return AddCore(builder, configure, services => services.TryAddSingleton<IHostedTargetRunner>(sp => new WorkflowRunner(target, sp.GetRequiredService<IHostStateStore>())));
     }
 
     /// <summary>Adds an agent-framework host whose target is resolved from a factory (for alternative runners).</summary>
@@ -71,6 +71,8 @@ public static class HostApplicationBuilderHostingChannelsExtensions
 
         services.TryAddSingleton<ChannelLifecycleRegistry>();
         services.AddHostedService<ChannelLifecycleService>();
+
+        services.TryAddSingleton<IIsolationKeysAccessor, IsolationKeysAccessor>();
 
         registerTarget(services);
 

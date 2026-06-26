@@ -49,8 +49,7 @@ public class FunctionCallingTests
 
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
-        var text = doc.RootElement.GetProperty("output")[0].GetProperty("content")[0].GetProperty("text").GetString();
-        Assert.Equal(FakeFunctionCallingChatClient.FinalAnswer, text);
+        Assert.Equal(FakeFunctionCallingChatClient.FinalAnswer, MessageText(doc));
     }
 
     [Fact]
@@ -80,8 +79,9 @@ public class FunctionCallingTests
 
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
-        var text = doc.RootElement.GetProperty("output")[0].GetProperty("content")[0].GetProperty("text").GetString();
-        Assert.Equal(FakeFunctionCallingChatClient.FinalAnswer, text);
+        Assert.Equal(FakeFunctionCallingChatClient.FinalAnswer, MessageText(doc));
+        // The function call is rendered as its own output item (rich rendering parity).
+        Assert.Contains(doc.RootElement.GetProperty("output").EnumerateArray(), o => o.GetProperty("type").GetString() == "function_call");
     }
 
     [Fact]
@@ -103,6 +103,19 @@ public class FunctionCallingTests
         Assert.Equal("response.created", System.Linq.Enumerable.First(frames.Events()));
         Assert.Equal("response.completed", System.Linq.Enumerable.Last(frames.Events()));
         Assert.Contains(FakeFunctionCallingChatClient.FinalAnswer, body);
+    }
+
+    private static string? MessageText(JsonDocument doc)
+    {
+        foreach (var item in doc.RootElement.GetProperty("output").EnumerateArray())
+        {
+            if (item.GetProperty("type").GetString() == "message")
+            {
+                return item.GetProperty("content")[0].GetProperty("text").GetString();
+            }
+        }
+
+        return null;
     }
 
     private static StringContent Json(string json) => new(json, System.Text.Encoding.UTF8, "application/json");

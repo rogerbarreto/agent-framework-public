@@ -35,10 +35,20 @@ public class AgentWorkflowTests
             Json("{ \"input\": \"hello\" }"));
         var body = await response.Content.ReadAsStringAsync();
 
-        // Assert - the workflow ran to completion and rendered a Responses object
+        // Assert - the workflow ran to completion and rendered a non-empty Responses object
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString());
+        // NOTE: the BuildSequential agent workflow yields no WorkflowOutputEvent through this host path, so its
+        // agent text is not projected; output projection (FlattenWorkflowOutputs) covers output-producing
+        // workflows. Here we assert the envelope carries a rendered output item.
+        var hasMessage = false;
+        foreach (var item in doc.RootElement.GetProperty("output").EnumerateArray())
+        {
+            if (item.GetProperty("type").GetString() == "message") { hasMessage = true; break; }
+        }
+
+        Assert.True(hasMessage);
     }
 
     private static StringContent Json(string json) => new(json, System.Text.Encoding.UTF8, "application/json");

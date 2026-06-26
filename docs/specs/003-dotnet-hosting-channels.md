@@ -57,11 +57,11 @@ checkpoint wiring — and leaves protocol shape inside channel packages.
 2. **Composition: builder-centric.** `builder.AddAgentFrameworkHost(target).AddXxxChannel(...)` then
    `app.MapAgentFrameworkHost()`.
 3. **Channel contract: `abstract class Channel` + hook interfaces.** `Channel` exposes `Name`, `Path`,
-   `ConfigureServices`, `Contribute`. `ChannelContribution` (record, init-only) carries routes, endpoint
-   filters (middleware), commands, and startup/shutdown callbacks. Optional per-channel hooks
+   `ConfigureServices`, `Contribute`. `ChannelContribution` (a plain mutable `sealed class`) carries routes,
+   endpoint filters (middleware), commands, and startup/shutdown callbacks. Optional per-channel hooks
    (`IChannelRunHook`, `IChannelResponseHook`, `IChannelStreamTransformHook`) are small separate interfaces.
 4. **Channel lifecycle: two-phase.** `ConfigureServices(IServiceCollection)` at `AddXxxChannel` time;
-   `Contribute(IChannelContext)` at `MapAgentFrameworkHost` time. Matches the ASP.NET Core
+   `Contribute(ChannelContext)` at `MapAgentFrameworkHost` time. Matches the ASP.NET Core
    `ConfigureServices` + `Configure` split.
 5. **Target runner: swappable `IHostedTargetRunner`.** `AIAgentRunner` for `AIAgent`, `WorkflowRunner` for
    `Workflow`. Channels never branch on target type. (A Foundry hosted-agent runner is a later, additive
@@ -81,11 +81,11 @@ checkpoint wiring — and leaves protocol shape inside channel packages.
    `app.MapAgentFrameworkHost(this IEndpointRouteBuilder)`. Non-HTTP channels auto-start via `IHostedService`.
 10. **Naming: literal port.** Host type `AgentFrameworkHost`; extensions `AddAgentFrameworkHost(...)` /
     `MapAgentFrameworkHost(...)`; channel-add extensions `AddResponsesChannel(...)`.
-11. **Isolation context propagation: static `IsolationKeys.Current` + DI `IIsolationKeysAccessor`,** both
-    backed by `AsyncLocal<IsolationKeys?>`, lifted from `x-agent-user-isolation-key` /
-    `x-agent-chat-isolation-key` by host middleware **only when the Foundry hosting environment flag is
-    present**. Distinct from the app-level `IsolationKey`. v1 ships the plumbing; reusing the header names
-    does not make this the supported Foundry Hosted Agents surface.
+11. **Isolation context propagation: `IsolationKeys.Current` (AsyncLocal) + DI `IIsolationKeysAccessor`,**
+    lifted from `x-agent-user-isolation-key` / `x-agent-chat-isolation-key` by a host-applied endpoint filter
+    **only when the Foundry hosting environment flag (`FOUNDRY_HOSTING_ENVIRONMENT`) is present**. Distinct
+    from the app-level `ChannelSession.IsolationKey`. Mirrors the Python host's Foundry isolation middleware;
+    reusing the header names does not make this the supported Foundry Hosted Agents surface.
 12. **Workflow channel surface: workflow-agnostic channels.** Carried by `WorkflowRunner : IHostedTargetRunner`,
     generic `HostedRunResult<TResult>`, free-form `ChannelRequest.Attributes` (reserved key
     `workflow.checkpoint_id` for caller-supplied checkpoint resume), and workflow checkpoint storage on
@@ -105,17 +105,17 @@ Microsoft.Agents.AI.Hosting.Channels                 (core)
 ├── HostApplicationBuilderHostingChannelsExtensions   (AddAgentFrameworkHost on IHostApplicationBuilder)
 ├── EndpointRouteBuilderHostingChannelsExtensions     (MapAgentFrameworkHost on IEndpointRouteBuilder)
 ├── Channel                                           (abstract class)
-├── ChannelContribution                               (record, init-only)
-├── ChannelCommand
-├── ChannelCommandContext
-├── ChannelRequest                                    (record)
-├── ChannelSession                                    (record; Key / ConversationId / IsolationKey nullable)
+├── ChannelContribution                               (sealed class; mutable get/set)
+├── ChannelCommand                                    (Name / Description / Handler)
+├── ChannelCommandContext                             (Request / Reply callback)
+├── ChannelRequest                                    (sealed class; ctor Channel/Operation/Input + copy ctor)
+├── ChannelSession                                    (sealed class; Key / ConversationId / IsolationKey nullable + copy ctor)
 ├── SessionMode                                       (enum: Auto / Required / Disabled)
-├── ChannelIdentity                                   (request metadata only)
-├── HostedRunResult                                   (non-generic base)
-├── HostedRunResult<TResult>                          (generic envelope)
-├── HostedStreamItem                                  (Update / Event / Completed)
-├── IChannelContext
+├── ChannelIdentity                                   (sealed class; ctor Channel/NativeId; request metadata only)
+├── HostedRunResult                                   (abstract class; non-generic base)
+├── HostedRunResult<TResult>                          (sealed class; generic envelope)
+├── HostedStreamItem                                  (abstract class; Update / Event / Completed)
+├── ChannelContext                                    (sealed class; host-constructed run/stream surface)
 ├── IChannelRunHook        + ChannelRunHookContext
 ├── IChannelResponseHook   + ChannelResponseContext
 ├── IChannelStreamTransformHook
@@ -126,14 +126,13 @@ Microsoft.Agents.AI.Hosting.Channels                 (core)
 ├── IHostStateStore                                   (reset-session aliases + checkpoint path only)
 ├── InMemoryHostStateStore
 ├── FileHostStateStore
-├── HostStatePathOptions                              (Root / RunnerPath-free; Aliases / Checkpoints)
-├── IsolationKeys
-├── IIsolationKeysAccessor
-└── IsolationKeysMiddleware                           (Foundry-flag gated header lift)
+├── HostStatePathOptions                              (Root / Aliases / Checkpoints)
+├── IsolationKeys                                     (sealed class; Current AsyncLocal + Foundry header consts)
+└── IIsolationKeysAccessor                            (DI accessor; internal Foundry-flag-gated lift filter)
 
 Microsoft.Agents.AI.Hosting.Channels.Responses
 ├── ResponsesChannel
-├── ResponsesChannelOptions                           (Path / RunHook / ResponseHook)
+├── ResponsesChannelOptions                           (Path / RunHook / ResponseHook / StreamTransformHook)
 └── AgentFrameworkHostBuilderResponsesExtensions      (AddResponsesChannel)
 ```
 
@@ -173,9 +172,9 @@ public sealed class AgentFrameworkHost
     public ValueTask ResetSessionAsync(string isolationKey, CancellationToken cancellationToken = default);
 }
 
-public sealed record AgentFrameworkHostOptions
+public sealed class AgentFrameworkHostOptions
 {
-    public HostStatePathOptions? StatePaths { get; init; }
+    public HostStatePathOptions? StatePaths { get; set; }
 }
 ```
 
@@ -228,31 +227,35 @@ public abstract class Channel
     public abstract string Name { get; }
     public virtual string Path => string.Empty;       // host wraps Routes in endpoints.MapGroup(Path)
     public virtual void ConfigureServices(IServiceCollection services) { }
-    public abstract ChannelContribution Contribute(IChannelContext context);
+    public abstract ChannelContribution Contribute(ChannelContext context);
 }
 
-public sealed record ChannelContribution
+public sealed class ChannelContribution
 {
-    public IReadOnlyList<Action<IEndpointRouteBuilder>> Routes { get; init; } = [];
-    public IReadOnlyList<IEndpointFilter> EndpointFilters { get; init; } = [];   // host-level middleware
-    public IReadOnlyList<ChannelCommand> Commands { get; init; } = [];
-    public Func<CancellationToken, ValueTask>? OnStartup { get; init; }
-    public Func<CancellationToken, ValueTask>? OnShutdown { get; init; }
+    public IReadOnlyList<Action<IEndpointRouteBuilder>> Routes { get; set; } = [];
+    public IReadOnlyList<IEndpointFilter> EndpointFilters { get; set; } = [];   // host-level middleware
+    public IReadOnlyList<ChannelCommand> Commands { get; set; } = [];
+    public Func<CancellationToken, ValueTask>? OnStartup { get; set; }
+    public Func<CancellationToken, ValueTask>? OnShutdown { get; set; }
 }
 
-public interface IChannelContext
+// Host-owned, channel-consumed: a sealed class with an internal constructor, not an interface
+// (channels only consume it, so the interface added nothing).
+public sealed class ChannelContext
 {
-    IServiceProvider Services { get; }
-    AgentFrameworkHost Host { get; }
-    IHostStateStore StateStore { get; }
+    internal ChannelContext(IServiceProvider services, AgentFrameworkHost host);
 
-    ValueTask<HostedRunResult> RunAsync(ChannelRequest request, CancellationToken cancellationToken = default);
-    IAsyncEnumerable<HostedStreamItem> StreamAsync(ChannelRequest request, CancellationToken cancellationToken = default);
+    public IServiceProvider Services { get; }
+    public AgentFrameworkHost Host { get; }
+    public IHostStateStore StateStore { get; }
+
+    public ValueTask<HostedRunResult> RunAsync(ChannelRequest request, CancellationToken cancellationToken = default);
+    public IAsyncEnumerable<HostedStreamItem> StreamAsync(ChannelRequest request, CancellationToken cancellationToken = default);
 }
 ```
 
 > Hooks are discovered by the host: a channel implements `IChannelRunHook` / `IChannelResponseHook` /
-> `IChannelStreamTransformHook` directly, or routes app-supplied hooks through its options record
+> `IChannelStreamTransformHook` directly, or routes app-supplied hooks through its options object
 > (`ResponsesChannelOptions.RunHook`, etc.). `ChannelRunHook` runs after channel parsing and before target
 > invocation; `ChannelResponseHook` runs after invocation and before the originating channel serializes;
 > `ChannelStreamTransformHook` is applied by the host while the channel consumes streamed updates.
@@ -260,32 +263,42 @@ public interface IChannelContext
 ### Channel-neutral request envelope
 
 ```csharp
-public sealed record ChannelRequest
+public sealed class ChannelRequest
 {
-    public required string Channel { get; init; }
-    public required string Operation { get; init; }          // "message.create", "command.invoke", ...
-    public required object Input { get; init; }              // string / ChatMessage / IEnumerable<ChatMessage> / workflow input
-    public ChannelSession? Session { get; init; }
-    public ChannelIdentity? Identity { get; init; }          // request metadata only
-    public string? ConversationId { get; init; }
-    public ChatOptions? Options { get; init; }
-    public SessionMode SessionMode { get; init; } = SessionMode.Auto;
-    public IReadOnlyDictionary<string, object?> Metadata { get; init; } = ImmutableDictionary<string, object?>.Empty;
-    public IReadOnlyDictionary<string, object?> Attributes { get; init; } = ImmutableDictionary<string, object?>.Empty;
-    public bool Stream { get; init; }
+    public ChannelRequest(string channel, string operation, object input);   // required members -> ctor params
+    public ChannelRequest(ChannelRequest other);                             // copy constructor (replaces `with`)
+
+    public string Channel { get; }                           // get-only
+    public string Operation { get; }                         // get-only ("message.create", "command.invoke", ...)
+    public object Input { get; set; }                        // string / ChatMessage / IEnumerable<ChatMessage> / workflow input
+    public ChannelSession? Session { get; set; }
+    public ChannelIdentity? Identity { get; set; }           // request metadata only
+    public string? ConversationId { get; set; }
+    public ChatOptions? Options { get; set; }
+    public SessionMode SessionMode { get; set; } = SessionMode.Auto;
+    public IReadOnlyDictionary<string, object?> Metadata { get; set; } = ImmutableDictionary<string, object?>.Empty;
+    public IReadOnlyDictionary<string, object?> Attributes { get; set; } = ImmutableDictionary<string, object?>.Empty;
+    public bool Stream { get; set; }
 }
 
-public sealed record ChannelSession
+public sealed class ChannelSession
 {
-    public string? Key { get; init; }                        // caller-supplied (previous_response_id, ...)
-    public string? ConversationId { get; init; }
-    public string? IsolationKey { get; init; }               // opaque session partition key
-    public IReadOnlyDictionary<string, object?> Attributes { get; init; } = ImmutableDictionary<string, object?>.Empty;
+    public ChannelSession();
+    public ChannelSession(ChannelSession other);             // copy constructor (replaces `with`)
+
+    public string? Key { get; set; }                         // caller-supplied (previous_response_id, ...)
+    public string? ConversationId { get; set; }
+    public string? IsolationKey { get; set; }                // opaque session partition key
+    public IReadOnlyDictionary<string, object?> Attributes { get; set; } = ImmutableDictionary<string, object?>.Empty;
 }
 
-public sealed record ChannelIdentity(string Channel, string NativeId)
+public sealed class ChannelIdentity
 {
-    public IReadOnlyDictionary<string, string> Attributes { get; init; } = ImmutableDictionary<string, string>.Empty;
+    public ChannelIdentity(string channel, string nativeId);
+
+    public string Channel { get; }                           // get-only
+    public string NativeId { get; }                          // get-only (the USER id, never the chat/conversation id)
+    public IReadOnlyDictionary<string, string> Attributes { get; set; } = ImmutableDictionary<string, string>.Empty;
 }
 
 public enum SessionMode { Auto, Required, Disabled }
@@ -294,23 +307,39 @@ public enum SessionMode { Auto, Required, Disabled }
 ### Results + streaming
 
 ```csharp
-public abstract record HostedRunResult
+public abstract class HostedRunResult
 {
-    public ChannelSession? Session { get; init; }
+    public ChannelSession? Session { get; set; }
     public abstract object? ResultObject { get; }
 }
 
-public sealed record HostedRunResult<TResult> : HostedRunResult
+public sealed class HostedRunResult<TResult> : HostedRunResult
 {
-    public required TResult Result { get; init; }
+    public HostedRunResult(TResult result);
+    public TResult Result { get; }                           // get-only
     public override object? ResultObject => this.Result;
-    public HostedRunResult<TNew> Replace<TNew>(TNew newResult) => new() { Result = newResult, Session = this.Session };
+    public HostedRunResult<TNew> Replace<TNew>(TNew newResult) => new(newResult) { Session = this.Session };
 }
 
-public abstract record HostedStreamItem;
-public sealed record HostedStreamUpdate(AgentResponseUpdate Update) : HostedStreamItem;   // normalized agent stream
-public sealed record HostedStreamEvent(object Event) : HostedStreamItem;                  // protocol/workflow events
-public sealed record HostedStreamCompleted(HostedRunResult Result) : HostedStreamItem;    // terminal
+public abstract class HostedStreamItem { private protected HostedStreamItem() { } }
+
+public sealed class HostedStreamUpdate : HostedStreamItem     // normalized agent stream
+{
+    public HostedStreamUpdate(AgentResponseUpdate update);
+    public AgentResponseUpdate Update { get; }
+}
+
+public sealed class HostedStreamEvent : HostedStreamItem      // protocol/workflow events
+{
+    public HostedStreamEvent(object @event);
+    public object Event { get; }
+}
+
+public sealed class HostedStreamCompleted : HostedStreamItem  // terminal
+{
+    public HostedStreamCompleted(HostedRunResult result);
+    public HostedRunResult Result { get; }
+}
 ```
 
 ### Host state store (limited)
@@ -322,21 +351,25 @@ public interface IHostStateStore
     ValueTask RotateSessionAliasAsync(string isolationKey, CancellationToken cancellationToken);
     ValueTask<string?> GetActiveSessionAliasAsync(string isolationKey, CancellationToken cancellationToken);
 
-    // Workflow checkpoint path derivation for an isolation key.
-    ValueTask<string> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken);
+    // Persistent workflow checkpoint location for an isolation key, or null when this store does not persist
+    // checkpoints (e.g. the in-memory store). Implementations reject path-traversal patterns in the key.
+    ValueTask<string?> GetCheckpointLocationAsync(string isolationKey, CancellationToken cancellationToken);
 }
 
-public sealed record HostStatePathOptions
+public sealed class HostStatePathOptions
 {
-    public string? Root { get; init; }              // shorthand: derives subpaths if unset
-    public string? AliasesPath { get; init; }       // reset-session aliases
-    public string? CheckpointsPath { get; init; }   // workflow checkpoint derivation root
+    public string? Root { get; set; }               // shorthand: derives subpaths if unset
+    public string? AliasesPath { get; set; }        // reset-session aliases
+    public string? CheckpointsPath { get; set; }    // workflow checkpoint derivation root
 }
 ```
 
-> Workflow checkpoint *storage* stays on `WorkflowBuilder.CheckpointStorage`. `IHostStateStore` only derives
-> the per-isolation-key location. There is no continuation store, link grant, last-seen ledger, or identity
-> registry in v1.
+> `InMemoryHostStateStore` (default) returns `null` from `GetCheckpointLocationAsync` (no persistent
+> checkpoints). `FileHostStateStore` is `IDisposable`: it takes an exclusive single-owner OS lock on its root
+> directory (a second store over the same directory fails fast), validates the isolation key against a
+> path-traversal denylist (no separators/NUL, not dot-only/absolute/drive-rooted), and returns a per-key
+> checkpoint directory. There is no continuation store, link grant, last-seen ledger, or identity registry
+> in v1.
 
 ### Hosted target runner
 
@@ -347,23 +380,31 @@ public interface IHostedTargetRunner
     IAsyncEnumerable<HostedStreamItem> StreamAsync(ChannelRequest request, CancellationToken cancellationToken);
 }
 
-internal sealed class AIAgentRunner(AIAgent agent) : IHostedTargetRunner { /* ... */ }
-internal sealed class WorkflowRunner(Workflow workflow) : IHostedTargetRunner { /* ... */ }
+public sealed class AIAgentRunner(AIAgent agent, IHostStateStore stateStore) : IHostedTargetRunner { /* ... */ }
+public sealed class WorkflowRunner(Workflow workflow, IHostStateStore? stateStore = null) : IHostedTargetRunner { /* ... */ }
 ```
 
-`WorkflowRunner` drives `InProcessExecution.RunStreamingAsync`, accumulates `WorkflowOutputEvent`, and pauses
-on `RequestInfoEvent` into `WorkflowRunResult { Status = AwaitingInput }`. Resume is **caller-driven** via a
-checkpoint reference supplied on `ChannelRequest.Attributes["workflow.checkpoint_id"]`; there is no
-host-owned continuation token in v1.
+`AIAgentRunner` resolves an `AgentSession` per isolation key, enforces `SessionMode.Required`, and forwards
+`ChannelRequest.Options` (wrapped in `ChatClientAgentRunOptions`). `WorkflowRunner` drives
+`InProcessExecution.RunStreamingAsync`, accumulates `WorkflowOutputEvent`, and pauses on `RequestInfoEvent`
+into `WorkflowRunResult { Status = AwaitingInput }`. When the state store yields a persistent checkpoint
+location for the request's isolation key, the run is checkpointed there (via a `FileSystemJsonCheckpointStore`
++ `CheckpointManager`); the committed checkpoint id is surfaced on the result session attributes
+(`"workflow.checkpoint_id"`), and a request carrying that id on `ChannelRequest.Attributes` resumes from it.
 
 ### Isolation keys
 
 ```csharp
-public sealed record IsolationKeys(string? UserKey, string? ChatKey)
+public sealed class IsolationKeys
 {
-    public static AsyncLocal<IsolationKeys?> CurrentSlot { get; } = new();
-    public static IsolationKeys? Current { get => CurrentSlot.Value; set => CurrentSlot.Value = value; }
+    public IsolationKeys(string? userKey, string? chatKey);
+
+    public string? UserKey { get; }                          // get-only
+    public string? ChatKey { get; }                          // get-only
     public bool IsEmpty => this.UserKey is null && this.ChatKey is null;
+
+    public static IsolationKeys? Current { get; set; }       // AsyncLocal-backed, scoped to the request flow
+
     public const string UserHeader = "x-agent-user-isolation-key";
     public const string ChatHeader = "x-agent-chat-isolation-key";
 }
@@ -371,8 +412,11 @@ public sealed record IsolationKeys(string? UserKey, string? ChatKey)
 public interface IIsolationKeysAccessor { IsolationKeys? Current { get; } }
 ```
 
-`IsolationKeysMiddleware` lifts the headers into `IsolationKeys.Current` **only when the Foundry hosting
-environment flag is present**; absent the flag, raw isolation headers are ignored.
+An internal `IsolationKeysEndpointFilter` lifts the two headers into `IsolationKeys.Current` for the request
+and resets it afterwards. `MapAgentFrameworkHost` applies the filter to every channel route **only when
+`FOUNDRY_HOSTING_ENVIRONMENT` is set**; absent the flag (or absent both headers) the request passes through and
+`Current` stays `null`. `AddAgentFrameworkHost` registers `IIsolationKeysAccessor` so Foundry-aware providers
+read the keys without each channel parsing headers. Mirrors the Python host's `_FoundryIsolationASGIMiddleware`.
 
 ## Responses channel
 
@@ -383,24 +427,34 @@ generators from `Microsoft.Agents.AI.Hosting.OpenAI` where practical.
 ```csharp
 public sealed class ResponsesChannel : Channel
 {
+    public ResponsesChannel(ResponsesChannelOptions options);
     public override string Name => "responses";
     public override string Path => this._options.Path;       // default "/responses"
-    public override ChannelContribution Contribute(IChannelContext context);  // POST {Path} + nested response routes
+    public override ChannelContribution Contribute(ChannelContext context);  // POST {Path}
 }
 
 public sealed class ResponsesChannelOptions
 {
-    public string Path { get; set; } = "/responses";
+    public string Path { get; set; } = "/responses";        // "" mounts at the app root
     public IChannelRunHook? RunHook { get; set; }
     public IChannelResponseHook? ResponseHook { get; set; }
+    public IChannelStreamTransformHook? StreamTransformHook { get; set; }
 }
 ```
 
 - A Responses request maps to a `ChannelRequest` (`Operation = "message.create"`, `Input` = parsed input
-  items, `Session.Key` = `previous_response_id` when present, `Session.IsolationKey` derived by the channel
-  or host middleware from a trusted source).
-- The originating Responses response (and SSE stream) is rendered by the channel. Streaming serialization
-  stays in the channel; the host applies `IChannelStreamTransformHook` as updates are consumed.
+  items incl. `input_text` / `input_image` / `input_file` / hosted-file content, generation options remapped
+  to `ChatOptions` and stripped by the default run hook, identity from `safety_identifier`/`user`,
+  `Session.IsolationKey` = `previous_response_id` -> Foundry chat key -> minted `response_id`). Malformed
+  input is rejected with HTTP 422.
+- The originating Responses response is rendered by the channel as typed output items: coalesced assistant
+  text into `message` items, plus `reasoning`, `function_call`, and `function_call_output` items (unmodeled
+  content falls back to text). Streaming emits the richer SSE sequence — `response.created`,
+  `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`,
+  `response.output_text.done`, `response.content_part.done`, `response.output_item.done`,
+  `response.completed` — applies the `IChannelResponseHook` to the final streamed result, and on a mid-stream
+  error emits a `response.failed` event (not a post-headers JSON error). The host applies
+  `IChannelStreamTransformHook` as updates are consumed.
 - For a `Workflow` target, the run hook prepares typed workflow input and the channel renders
   `RequestInfoEvent` as the protocol's awaiting-input shape; resume is caller-driven via the checkpoint id.
 
@@ -455,7 +509,7 @@ The run hook turns the parsed Responses input into the workflow's typed input. I
 | Session continuity | Unit | Identical `IsolationKey` resolves to the same cached `AgentSession`; `ResetSessionAsync` rotates the alias. |
 | `ResponsesChannel` | Integration (`TestServer`) | Responses request round-trips the full `ChatMessage` content list (no lossy collapse); SSE stream renders. |
 | Workflow path | Integration | `RequestInfoEvent` renders awaiting-input; re-invoke with `workflow.checkpoint_id` resumes. |
-| Isolation middleware | Unit (`TestServer`) | Headers lift into `IsolationKeys.Current` only under the Foundry flag; ignored otherwise. |
+| Isolation lift | Unit + Integration | `IsolationKeys.Current` binds from the two headers under the Foundry flag and resets per request; ignored without the flag; empty header treated as absent; concurrent requests stay isolated. |
 
 ## Phasing
 

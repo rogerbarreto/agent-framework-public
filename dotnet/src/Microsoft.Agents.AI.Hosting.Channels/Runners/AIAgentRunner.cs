@@ -42,7 +42,8 @@ public sealed class AIAgentRunner : IHostedTargetRunner
         Throw.IfNull(request);
         var messages = CoerceToMessages(request.Input);
         var session = await this.ResolveSessionAsync(request, cancellationToken).ConfigureAwait(false);
-        var response = await this._agent.RunAsync(messages, session, options: null, cancellationToken).ConfigureAwait(false);
+        var runOptions = request.Options is null ? null : new ChatClientAgentRunOptions(request.Options);
+        var response = await this._agent.RunAsync(messages, session, runOptions, cancellationToken).ConfigureAwait(false);
         return new HostedRunResult<AgentResponse>(response)
         {
             Session = request.Session,
@@ -57,9 +58,10 @@ public sealed class AIAgentRunner : IHostedTargetRunner
         Throw.IfNull(request);
         var messages = CoerceToMessages(request.Input);
         var session = await this.ResolveSessionAsync(request, cancellationToken).ConfigureAwait(false);
+        var runOptions = request.Options is null ? null : new ChatClientAgentRunOptions(request.Options);
 
         AgentResponseUpdate? final = null;
-        await foreach (var update in this._agent.RunStreamingAsync(messages, session, options: null, cancellationToken).ConfigureAwait(false))
+        await foreach (var update in this._agent.RunStreamingAsync(messages, session, runOptions, cancellationToken).ConfigureAwait(false))
         {
             final = update;
             yield return new HostedStreamUpdate(update);
@@ -81,6 +83,12 @@ public sealed class AIAgentRunner : IHostedTargetRunner
         var isolationKey = request.Session?.IsolationKey;
         if (string.IsNullOrEmpty(isolationKey))
         {
+            if (request.SessionMode == SessionMode.Required)
+            {
+                throw new InvalidOperationException(
+                    "SessionMode.Required: the request must carry a ChannelSession.IsolationKey to resolve or create a session, but none was supplied.");
+            }
+
             return null;
         }
 

@@ -36,9 +36,9 @@ public class ResponsesProtocolTests
         // Arrange
         await using var app = await TestHostApp.StartAsync(b => b.AddAgentFrameworkHost(new EchoAgent()).AddResponsesChannel());
 
-        // Act - Responses input-item array shape
+        // Act - Responses input-item array shape (message envelope)
         var response = await app.Client.PostAsync(new System.Uri("http://localhost/responses"),
-            Json("{ \"input\": [ { \"role\": \"user\", \"content\": \"piece\" } ] }"));
+            Json("{ \"input\": [ { \"type\": \"message\", \"role\": \"user\", \"content\": \"piece\" } ] }"));
         var body = await response.Content.ReadAsStringAsync();
 
         // Assert - echo agent reflected the parsed user text
@@ -66,7 +66,7 @@ public class ResponsesProtocolTests
     }
 
     [Fact]
-    public async Task MissingInput_Returns400Async()
+    public async Task MissingInput_Returns422Async()
     {
         // Arrange
         await using var app = await TestHostApp.StartAsync(b => b.AddAgentFrameworkHost(new FakeChatAgent()).AddResponsesChannel());
@@ -74,8 +74,8 @@ public class ResponsesProtocolTests
         // Act
         var response = await app.Client.PostAsync(new System.Uri("http://localhost/responses"), Json("{ }"));
 
-        // Assert
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // Assert - missing input is an unprocessable entity (Python parity), not a transport error
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
     }
 
     [Fact]
