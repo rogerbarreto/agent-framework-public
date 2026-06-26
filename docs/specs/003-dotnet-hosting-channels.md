@@ -386,11 +386,13 @@ public sealed class WorkflowRunner(Workflow workflow, IHostStateStore? stateStor
 
 `AIAgentRunner` resolves an `AgentSession` per isolation key, enforces `SessionMode.Required`, and forwards
 `ChannelRequest.Options` (wrapped in `ChatClientAgentRunOptions`). `WorkflowRunner` drives
-`InProcessExecution.RunStreamingAsync`, accumulates `WorkflowOutputEvent`, and pauses on `RequestInfoEvent`
-into `WorkflowRunResult { Status = AwaitingInput }`. When the state store yields a persistent checkpoint
-location for the request's isolation key, the run is checkpointed there (via a `FileSystemJsonCheckpointStore`
-+ `CheckpointManager`); the committed checkpoint id is surfaced on the result session attributes
-(`"workflow.checkpoint_id"`), and a request carrying that id on `ChannelRequest.Attributes` resumes from it.
+`InProcessExecution.OpenStreamingAsync`, sends the input by its runtime type plus a `TurnToken` (so agent-based
+workflows take a turn), collects terminal `WorkflowOutputEvent`s (excluding streaming `AgentResponseUpdateEvent`
+deltas), and pauses on `RequestInfoEvent` into `WorkflowRunResult { Status = AwaitingInput }`. When the state
+store yields a persistent checkpoint location for the request's isolation key, the run is checkpointed there
+(via a `FileSystemJsonCheckpointStore` + `CheckpointManager`); the committed checkpoint id is surfaced on the
+result session attributes (`"workflow.checkpoint_id"`), and a request carrying that id on
+`ChannelRequest.Attributes` resumes from it (rehydrate, then apply the new input).
 
 ### Isolation keys
 
@@ -444,19 +446,30 @@ public sealed class ResponsesChannelOptions
 
 - A Responses request maps to a `ChannelRequest` (`Operation = "message.create"`, `Input` = parsed input
   items incl. `input_text` / `input_image` / `input_file` / hosted-file content, generation options remapped
-  to `ChatOptions` and stripped by the default run hook, identity from `safety_identifier`/`user`,
-  `Session.IsolationKey` = `previous_response_id` -> Foundry chat key -> minted `response_id`). Malformed
-  input is rejected with HTTP 422.
-- The originating Responses response is rendered by the channel as typed output items: coalesced assistant
-  text into `message` items, plus `reasoning`, `function_call`, and `function_call_output` items (unmodeled
-  content falls back to text). Streaming emits the richer SSE sequence — `response.created`,
+  to `ChatOptions` and stripped by the default run hook, identity from `safety_identifier`/`user` — a
+  non-string identifier is ignored rather than rejected, `Session.IsolationKey` = `previous_response_id` ->
+  Foundry chat key -> minted `response_id`). Malformed input is rejected with HTTP 422.
+- The originating Responses response is rendered by the channel (`ResponsesOutputRenderer`) as typed output
+  items: assistant text coalesced into `message` items, `reasoning`, `function_call`, `function_call_output`
+  (with media results projected into `input_text` / `input_image` / `input_file` parts), `mcp_call`,
+  `code_interpreter_call`, `image_generation_call`, and `mcp_approval_request` / `mcp_approval_response`.
+  Adjacent call/result content for the same id coalesces into a single item (across messages too), and a
+  provider raw item carried on `AIContent.RawRepresentation` is passed through verbatim, with a later raw item
+  of the same `(type, id)` replacing an earlier partial. Workflow outputs (messages, agent responses, or bare
+  content) project through the same renderer. Streaming emits the richer SSE sequence — `response.created`,
   `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`,
-  `response.output_text.done`, `response.content_part.done`, `response.output_item.done`,
-  `response.completed` — applies the `IChannelResponseHook` to the final streamed result, and on a mid-stream
-  error emits a `response.failed` event (not a post-headers JSON error). The host applies
-  `IChannelStreamTransformHook` as updates are consumed.
-- For a `Workflow` target, the run hook prepares typed workflow input and the channel renders
-  `RequestInfoEvent` as the protocol's awaiting-input shape; resume is caller-driven via the checkpoint id.
+  `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, `response.completed`
+  — and additionally emits `response.reasoning_text.delta`/`.done` and
+  `response.function_call_arguments.delta`/`.done` plus dedicated output items for non-text streamed content;
+  the completed envelope is rendered from the accumulated streamed updates when no final agent response is
+  available. It applies the `IChannelResponseHook` to the final streamed result, and on a mid-stream error
+  emits a `response.failed` event (not a post-headers JSON error). The host applies
+  `IChannelStreamTransformHook` as updates are consumed. The deferred SSE stream runs under the request's
+  parent trace span.
+- For a `Workflow` target, the run hook prepares typed workflow input; agent-based workflows are driven with a
+  `TurnToken` so their replies render, and the channel renders `RequestInfoEvent` as the protocol's
+  awaiting-input shape. Resume is caller-driven via the surfaced checkpoint id: the runner rehydrates from the
+  checkpoint and then applies the new input so the resumed run advances.
 
 ## E2E code samples
 
