@@ -152,6 +152,45 @@ internal sealed class ResponsesStreamTextDoneEvent
     [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
 }
 
+/// <summary>SSE payload for response.reasoning_text.delta.</summary>
+internal sealed class ResponsesStreamReasoningTextDeltaEvent
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "response.reasoning_text.delta";
+    [JsonPropertyName("item_id")] public string ItemId { get; set; } = string.Empty;
+    [JsonPropertyName("output_index")] public int OutputIndex { get; set; }
+    [JsonPropertyName("content_index")] public int ContentIndex { get; set; }
+    [JsonPropertyName("delta")] public string Delta { get; set; } = string.Empty;
+}
+
+/// <summary>SSE payload for response.reasoning_text.done.</summary>
+internal sealed class ResponsesStreamReasoningTextDoneEvent
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "response.reasoning_text.done";
+    [JsonPropertyName("item_id")] public string ItemId { get; set; } = string.Empty;
+    [JsonPropertyName("output_index")] public int OutputIndex { get; set; }
+    [JsonPropertyName("content_index")] public int ContentIndex { get; set; }
+    [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>SSE payload for response.function_call_arguments.delta.</summary>
+internal sealed class ResponsesStreamFunctionCallArgumentsDeltaEvent
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "response.function_call_arguments.delta";
+    [JsonPropertyName("item_id")] public string ItemId { get; set; } = string.Empty;
+    [JsonPropertyName("output_index")] public int OutputIndex { get; set; }
+    [JsonPropertyName("delta")] public string Delta { get; set; } = string.Empty;
+}
+
+/// <summary>SSE payload for response.function_call_arguments.done.</summary>
+internal sealed class ResponsesStreamFunctionCallArgumentsDoneEvent
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "response.function_call_arguments.done";
+    [JsonPropertyName("item_id")] public string ItemId { get; set; } = string.Empty;
+    [JsonPropertyName("output_index")] public int OutputIndex { get; set; }
+    [JsonPropertyName("arguments")] public string Arguments { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string? Name { get; set; }
+}
+
 /// <summary>Error envelope.</summary>
 internal sealed class ResponsesErrorModel
 {

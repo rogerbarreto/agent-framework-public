@@ -162,6 +162,8 @@ public sealed class ResponsesChannel : Channel
 
         var itemId = "msg_" + Guid.NewGuid().ToString("N");
         var sb = new StringBuilder();
+        var accumulated = new List<AgentResponseUpdate>();
+        var nextOutputIndex = 1;
         HostedRunResult? finalResult = null;
 
         try
@@ -180,12 +182,25 @@ public sealed class ResponsesChannel : Channel
 
             await foreach (var update in transformed.ConfigureAwait(false))
             {
-                var delta = update.Text;
-                if (!string.IsNullOrEmpty(delta))
+                accumulated.Add(update);
+                foreach (var content in update.Contents)
                 {
-                    sb.Append(delta);
-                    var deltaEvent = new ResponsesStreamTextDeltaEvent { ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Delta = delta };
-                    await WriteEventAsync(http, "response.output_text.delta", deltaEvent, ResponsesJsonContext.Default.ResponsesStreamTextDeltaEvent).ConfigureAwait(false);
+                    if (content is TextContent text)
+                    {
+                        if (!string.IsNullOrEmpty(text.Text))
+                        {
+                            sb.Append(text.Text);
+                            var deltaEvent = new ResponsesStreamTextDeltaEvent { ItemId = itemId, OutputIndex = 0, ContentIndex = 0, Delta = text.Text };
+                            await WriteEventAsync(http, "response.output_text.delta", deltaEvent, ResponsesJsonContext.Default.ResponsesStreamTextDeltaEvent).ConfigureAwait(false);
+                        }
+
+                        continue;
+                    }
+
+                    if (await this.EmitNonTextContentAsync(http, content, nextOutputIndex).ConfigureAwait(false))
+                    {
+                        nextOutputIndex++;
+                    }
                 }
             }
         }
@@ -219,12 +234,77 @@ public sealed class ResponsesChannel : Channel
         {
             completed.Output.AddRange(BuildOutputItems(hookResponse));
         }
+        else if (accumulated.Count > 0)
+        {
+            // Finalize unavailable (e.g. the agent stream could not produce a final response): render the
+            // completed envelope from the accumulated streamed updates, matching Python's stream finalizer.
+            completed.Output.AddRange(BuildOutputItems(accumulated.ToAgentResponse()));
+        }
         else
         {
             completed.Output.Add(doneItem);
         }
+
         await WriteEventAsync(http, "response.completed", new ResponsesStreamResponseEvent { Type = "response.completed", Response = completed }, ResponsesJsonContext.Default.ResponsesStreamResponseEvent).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Emits the SSE events for a single non-text streamed content. Reasoning and function-call content emit
+    /// an in-progress item, their incremental delta/done events, then the completed item; every other
+    /// renderable content emits an output_item.added/done pair carrying the rendered item. Returns whether an
+    /// output item was produced (and thus the output index should advance).
+    /// </summary>
+    private async ValueTask<bool> EmitNonTextContentAsync(HttpContext http, AIContent content, int outputIndex)
+    {
+        switch (content)
+        {
+            case TextReasoningContent reasoning:
+                var reasoningAdded = new ResponsesOutputItem { Type = "reasoning", Id = "rs_" + Guid.NewGuid().ToString("N"), Summary = new JsonArray(), Content = new JsonArray(), Status = "in_progress" };
+                await this.WriteOutputItemEventAsync(http, "response.output_item.added", outputIndex, reasoningAdded).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(reasoning.Text))
+                {
+                    await WriteEventAsync(http, "response.reasoning_text.delta", new ResponsesStreamReasoningTextDeltaEvent { ItemId = reasoningAdded.Id, OutputIndex = outputIndex, ContentIndex = 0, Delta = reasoning.Text! }, ResponsesJsonContext.Default.ResponsesStreamReasoningTextDeltaEvent).ConfigureAwait(false);
+                    await WriteEventAsync(http, "response.reasoning_text.done", new ResponsesStreamReasoningTextDoneEvent { ItemId = reasoningAdded.Id, OutputIndex = outputIndex, ContentIndex = 0, Text = reasoning.Text! }, ResponsesJsonContext.Default.ResponsesStreamReasoningTextDoneEvent).ConfigureAwait(false);
+                }
+
+                var reasoningDone = ResponsesOutputRenderer.Render([content], status: "completed")[0];
+                reasoningDone.Id = reasoningAdded.Id;
+                await this.WriteOutputItemEventAsync(http, "response.output_item.done", outputIndex, reasoningDone).ConfigureAwait(false);
+                return true;
+
+            case FunctionCallContent call:
+                var arguments = ResponsesOutputRenderer.SerializeArguments(call.Arguments);
+                var callId = call.CallId ?? "call_" + Guid.NewGuid().ToString("N");
+                var name = string.IsNullOrEmpty(call.Name) ? "tool" : call.Name;
+                var callAdded = new ResponsesOutputItem { Type = "function_call", Id = "fc_" + Guid.NewGuid().ToString("N"), CallId = callId, Name = name, Arguments = string.Empty, Status = "in_progress" };
+                await this.WriteOutputItemEventAsync(http, "response.output_item.added", outputIndex, callAdded).ConfigureAwait(false);
+                if (call.Arguments is { Count: > 0 })
+                {
+                    await WriteEventAsync(http, "response.function_call_arguments.delta", new ResponsesStreamFunctionCallArgumentsDeltaEvent { ItemId = callAdded.Id, OutputIndex = outputIndex, Delta = arguments }, ResponsesJsonContext.Default.ResponsesStreamFunctionCallArgumentsDeltaEvent).ConfigureAwait(false);
+                    await WriteEventAsync(http, "response.function_call_arguments.done", new ResponsesStreamFunctionCallArgumentsDoneEvent { ItemId = callAdded.Id, OutputIndex = outputIndex, Arguments = arguments, Name = name }, ResponsesJsonContext.Default.ResponsesStreamFunctionCallArgumentsDoneEvent).ConfigureAwait(false);
+                }
+
+                var callDone = ResponsesOutputRenderer.Render([content], status: "completed")[0];
+                callDone.Id = callAdded.Id;
+                await this.WriteOutputItemEventAsync(http, "response.output_item.done", outputIndex, callDone).ConfigureAwait(false);
+                return true;
+
+            default:
+                var items = ResponsesOutputRenderer.Render([content], status: "completed");
+                var produced = false;
+                foreach (var item in items)
+                {
+                    produced = true;
+                    await this.WriteOutputItemEventAsync(http, "response.output_item.added", outputIndex, item).ConfigureAwait(false);
+                    await this.WriteOutputItemEventAsync(http, "response.output_item.done", outputIndex, item).ConfigureAwait(false);
+                }
+
+                return produced;
+        }
+    }
+
+    private Task WriteOutputItemEventAsync(HttpContext http, string type, int outputIndex, ResponsesOutputItem item) =>
+        WriteEventAsync(http, type, new ResponsesStreamOutputItemEvent { Type = type, OutputIndex = outputIndex, Item = item }, ResponsesJsonContext.Default.ResponsesStreamOutputItemEvent);
 
     private static async IAsyncEnumerable<AgentResponseUpdate> StreamUpdatesAsync(
         IAsyncEnumerable<HostedStreamItem> items,
