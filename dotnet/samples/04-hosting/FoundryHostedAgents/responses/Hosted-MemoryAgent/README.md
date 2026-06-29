@@ -1,7 +1,7 @@
 ﻿# Hosted-MemoryAgent
 
 A hosted Foundry agent that uses **FoundryMemoryProvider** to remember user-private details across
-requests and across sessions, scoped per end user via the Foundry platform's isolation keys. The
+requests and across sessions, scoped per end user via the Foundry platform's user identity. The
 agent plays a friendly travel assistant: tell it about your trip, ask follow-up questions in a new
 session, and it recalls what it learned about you.
 
@@ -9,10 +9,9 @@ This sample exists to demonstrate two things together:
 
 1. How to host an agent that consumes a `Microsoft.Extensions.AI.AIContextProvider` (specifically
    `FoundryMemoryProvider`) under the Foundry Responses hosting layer.
-2. How the new `HostedSessionContext` flows from the `Foundry` platform isolation headers
-   (`x-agent-user-isolation-key`, `x-agent-chat-isolation-key`) through the
-   `HostedSessionIsolationKeyProvider` into the provider's `stateInitializer`, so memories are
-   partitioned per user automatically.
+2. How the `HostedSessionContext` flows from the Foundry platform user-identity header
+   (`x-agent-user-id`) through the `HostedSessionIsolationKeyProvider` into the provider's
+   `stateInitializer`, so memories are partitioned per user automatically.
 
 ## Prerequisites
 
@@ -63,7 +62,7 @@ falls back to the `HOSTED_USER_ISOLATION_KEY` environment variable,
 defaulting to a single `local-dev-*` bucket when it is not set.
 
 > **Production warning.** Never register `DevTemporaryLocalSessionIsolationKeyProvider` in
-> production. The Foundry platform sets the isolation keys for every inbound request, and
+> production. The Foundry platform sets the user-identity key for every inbound request, and
 > client-supplied environment variables can be forged.
 
 ## Running directly (contributors)
