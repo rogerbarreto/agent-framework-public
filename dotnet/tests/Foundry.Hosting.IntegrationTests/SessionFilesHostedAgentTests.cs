@@ -170,8 +170,7 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
                 // the platform owns its lifecycle (no isolation key in our hands).
                 try
                 {
-                    await sessionFiles.DeleteAsync(
-                        localPath: TestDataFileName);
+                    await sessionFiles.DeleteAsync(TestDataFileName);
                 }
                 catch
                 {
