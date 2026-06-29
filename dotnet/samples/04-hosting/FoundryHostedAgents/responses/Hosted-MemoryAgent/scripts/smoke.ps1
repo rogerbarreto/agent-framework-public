@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 <#
 .SYNOPSIS
   Local smoke test for the Hosted-MemoryAgent sample.
@@ -50,7 +50,6 @@ function Start-Container([string]$UserKey, [string]$ChatKey, [string]$ContainerN
         -e AGENT_NAME=hosted-memory-agent `
         -e AZURE_BEARER_TOKEN=$bearer `
         -e HOSTED_USER_ISOLATION_KEY=$UserKey `
-        -e HOSTED_CHAT_ISOLATION_KEY=$ChatKey `
         --env-file .env `
         $ImageName | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "docker run failed for $ContainerName." }

@@ -63,8 +63,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var agent = this.ResolveAgent(request);
         var sessionStore = this.ResolveSessionStore(request);
 
-        // 2. Load or create a new session from the interaction
-        var sessionConversationId = request.GetConversationId();
+        // 2. Load or create a new session from the interaction.
+        // Map the request to a stable MAF AgentSession key: conversation_id when present, else the
+        // partition embedded in previous_response_id (chains converge), else the minted response id
+        // (cold start). Container session id is intentionally not used — it spans many conversations.
+        var conversationId = request.GetConversationId();
+        var sessionConversationId = HostedConversationKey.Resolve(
+            conversationId, request.PreviousResponseId, context.ResponseId);
 
         var chatClientAgent = agent.GetService<ChatClientAgent>();
 
@@ -84,9 +89,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             throw new InvalidOperationException(
                 $"The registered {nameof(HostedSessionIsolationKeyProvider)} returned null for the current request. " +
-                "Ensure the Foundry platform is providing the x-agent-user-isolation-key and x-agent-chat-isolation-key headers, " +
+                "Ensure the Foundry platform is providing the x-agent-user-id header, " +
                 "or register a custom provider that supplies fallback values for local development.");
         }
+
+        // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
+        // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
+        // point below: AsyncLocal writes made in this streaming iterator are reverted across yield
+        // boundaries, so a single up-front assignment would be lost before the toolbox/MCP calls run.
+        var platformCallId = context.PlatformContext?.CallId;
+        HostedCallContext.CallId = platformCallId;
 
         if (session is not null)
         {
@@ -98,8 +110,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 // prior hosted-agent request having stamped a context). Stamp it now.
                 session.SetHostedContext(resolvedHostedContext);
             }
-            else if (!string.Equals(existingHostedContext.UserId, resolvedHostedContext.UserId, StringComparison.Ordinal)
-                || !string.Equals(existingHostedContext.ChatId, resolvedHostedContext.ChatId, StringComparison.Ordinal))
+            else if (!string.Equals(existingHostedContext.UserId, resolvedHostedContext.UserId, StringComparison.Ordinal))
             {
                 // Resume path: the persisted identity must match the live request. A mismatch
                 // signals either a cross-user session leak or in-process tampering of the
@@ -124,7 +135,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // (e.g. resuming a workflow paused at an external-input port), the workflow's
         // checkpointed state already contains the prior turns' messages — replaying history
         // would re-drive completed actions and break HITL resume semantics.
-        var isResume = !string.IsNullOrWhiteSpace(sessionConversationId)
+        var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
             && session?.StateBag?.Count > 0;
         if (!isResume)
         {
@@ -163,6 +174,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // in both the pre-registered list and the per-request markers.
         if (this._toolboxService is not null)
         {
+            // Re-apply the call id: the EmitCreated/EmitInProgress yields above reverted the ambient
+            // value, and the toolbox tools/list + consent egress below must carry it per request.
+            HostedCallContext.CallId = platformCallId;
+
             // Retry any pre-registered toolbox that was deferred at startup because it could not be
             // enumerated without a per-user context (non-consent failure). The request's egress now
             // carries the platform-injected per-user isolation key, so a delegated tool source can
@@ -312,6 +327,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             while (true)
             {
+                // Re-apply the call id before each pull from the agent stream: the per-event yields
+                // below revert the ambient AsyncLocal, but the MCP tools/call egress that happens
+                // inside MoveNextAsync must carry the platform call id on every request.
+                HostedCallContext.CallId = platformCallId;
+
                 bool shutdownDetected = false;
                 McpConsentInfo? consentInfo = null;
                 ResponseStreamEvent? failedEvent = null;

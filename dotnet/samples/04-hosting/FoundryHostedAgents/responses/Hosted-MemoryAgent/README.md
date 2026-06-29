@@ -44,7 +44,6 @@ For local container runs only (the platform supplies these in production):
 
 ```env
 HOSTED_USER_ISOLATION_KEY=alice
-HOSTED_CHAT_ISOLATION_KEY=alice-chat-1
 ```
 
 > `.env` is gitignored. The `.env.example` template is checked in as a reference.
@@ -53,15 +52,15 @@ HOSTED_CHAT_ISOLATION_KEY=alice-chat-1
 
 | Layer | Source of the user identity |
 |---|---|
-| Inbound request | The Foundry platform sets `x-agent-user-isolation-key` and `x-agent-chat-isolation-key` headers on every request. |
-| Hosting layer | `AgentFrameworkResponseHandler` resolves a `HostedSessionIsolationKeyProvider` from DI and calls `GetKeysAsync(context, request, ct)`. The default implementation reads `context.Isolation.UserIsolationKey` and `context.Isolation.ChatIsolationKey`. |
-| Session | The handler stores the resolved values on the session as a `HostedSessionContext` on the first request, and validates the values on every subsequent request that resumes the same conversation (mismatch returns 403). |
+| Inbound request | The Foundry platform sets the `x-agent-user-id` header on every request. |
+| Hosting layer | `AgentFrameworkResponseHandler` resolves a `HostedSessionIsolationKeyProvider` from DI and calls `GetKeysAsync(context, request, ct)`. The default implementation reads `context.PlatformContext.UserIdKey`. |
+| Session | The handler stores the resolved value on the session as a `HostedSessionContext` on the first request, and validates it on every subsequent request that resumes the same conversation (mismatch returns 403). |
 | Memory provider | The sample's `stateInitializer` reads `session.GetHostedContext().UserId` and uses it as the `FoundryMemoryProviderScope`. Memories are partitioned per user. |
 
-When running outside the Foundry platform the headers are absent. The sample registers
+When running outside the Foundry platform the header is absent. The sample registers
 `DevTemporaryLocalSessionIsolationKeyProvider` (via `AddDevTemporaryLocalContributorSetup`) which
-falls back to the `HOSTED_USER_ISOLATION_KEY` and `HOSTED_CHAT_ISOLATION_KEY` environment variables,
-defaulting to a single `local-dev-*` bucket when neither is set.
+falls back to the `HOSTED_USER_ISOLATION_KEY` environment variable,
+defaulting to a single `local-dev-*` bucket when it is not set.
 
 > **Production warning.** Never register `DevTemporaryLocalSessionIsolationKeyProvider` in
 > production. The Foundry platform sets the isolation keys for every inbound request, and
@@ -121,7 +120,6 @@ docker run --rm -p 8088:8088 \
   -e AGENT_NAME=hosted-memory-agent \
   -e AZURE_BEARER_TOKEN=$AZURE_BEARER_TOKEN \
   -e HOSTED_USER_ISOLATION_KEY=alice \
-  -e HOSTED_CHAT_ISOLATION_KEY=alice-chat-1 \
   --env-file .env \
   hosted-memory-agent
 ```
