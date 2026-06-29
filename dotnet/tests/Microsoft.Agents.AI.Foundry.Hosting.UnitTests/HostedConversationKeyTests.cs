@@ -32,7 +32,11 @@ public class HostedConversationKeyTests
     public void PartitionOf_Raw_WhenNoKnownLength() => Assert.Equal("conv-123", HostedConversationKey.PartitionOf("conv-123"));
 
     [Fact]
-    public void PartitionOf_Null_ReturnsNull() => Assert.Null(HostedConversationKey.PartitionOf(" "));
+    public void PartitionOf_NullOrWhitespace_ReturnsNull()
+    {
+        Assert.Null(HostedConversationKey.PartitionOf(null));
+        Assert.Null(HostedConversationKey.PartitionOf(" "));
+    }
 
     [Fact]
     public void Resolve_PrefersConversation_ThenPrev_ThenResponse()
