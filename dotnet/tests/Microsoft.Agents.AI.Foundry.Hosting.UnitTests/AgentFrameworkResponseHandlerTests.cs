@@ -938,6 +938,29 @@ public class AgentFrameworkResponseHandlerTests
         Assert.Null(agent.ObservedCallId);
     }
 
+    [Fact]
+    public async Task CreateAsync_AfterStreamCompletes_DoesNotLeakCallIdToCallerContextAsync()
+    {
+        // Arrange
+        var agent = new CallIdCapturingAgent();
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider("alice"), new InMemoryAgentSessionStore());
+        var (request, ctx) = BuildChainRequest("caresp_" + new string('0', 50), callId: "call-xyz");
+
+        // The caller's ambient call id starts clear.
+        Assert.Null(HostedCallContext.CallId);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert: HostedCallContext is documented request-scoped. The handler sets the AsyncLocal inside
+        // its streaming iterator (observed by the agent run — see VisibleDuringAgentRun above), but that
+        // write never escapes to the caller's execution context. After the stream completes the caller's
+        // ambient call id is still null, so a stale call id cannot leak into a subsequent request that is
+        // handled on the same thread.
+        Assert.Equal("call-xyz", agent.ObservedCallId);
+        Assert.Null(HostedCallContext.CallId);
+    }
+
     private static AgentFrameworkResponseHandler BuildHandlerWith(AIAgent agent, HostedSessionIsolationKeyProvider provider, AgentSessionStore store)
     {
         var services = new ServiceCollection();
