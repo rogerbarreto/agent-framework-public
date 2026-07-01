@@ -76,9 +76,11 @@ ChatClientAgent agent = projectClient.AsAIAgent(new ChatClientAgentOptions()
 // Host the agent as a Foundry Hosted Agent using the Responses API.
 //
 // Per-user memory isolation comes from the platform-injected x-agent-user-id header, resolved by the
-// default HostedSessionIsolationKeyProvider — no local provider registration is needed. Running
-// locally with no such header, isolation is simply not triggered (a single shared bucket). To
-// simulate distinct users locally, send an x-agent-user-id request header (see scripts/smoke.ps1).
+// default HostedSessionIsolationKeyProvider into the session's HostedSessionContext. This sample scopes
+// memory per user via HostedFoundryMemoryProviderScopes.PerUser(), which REQUIRES that context: a
+// request with no resolved user identity throws. So locally you must send an x-agent-user-id request
+// header (see scripts/smoke.ps1); vary it to simulate distinct users. On the Foundry platform the
+// header is always present, so no local provider registration is needed.
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddFoundryResponses(agent);
 

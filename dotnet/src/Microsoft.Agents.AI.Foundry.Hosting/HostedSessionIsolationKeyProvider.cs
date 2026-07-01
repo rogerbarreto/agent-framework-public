@@ -26,11 +26,12 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// (e.g., during local Docker debugging).
 /// </para>
 /// <para>
-/// Implementations must return a <see cref="HostedSessionContext"/> whose <see cref="HostedSessionContext.UserId"/>
-/// is non-null and non-whitespace. Returning null (or throwing from <see cref="GetKeysAsync"/>) when the
-/// container is hosted by Foundry is treated as a configuration error and surfaces as a 500 from the
-/// hosting layer. When the container is not hosted (local development), a null result is tolerated:
-/// per-user isolation is simply not triggered and the request proceeds without user partitioning.
+/// When an implementation returns a <see cref="HostedSessionContext"/>, its
+/// <see cref="HostedSessionContext.UserId"/> must be non-null and non-whitespace. Returning null (or
+/// throwing from <see cref="GetKeysAsync"/>) when the container is hosted by Foundry is treated as a
+/// configuration error and surfaces as a 500 from the hosting layer. When the container is not hosted
+/// (local development), a null result is tolerated: per-user isolation is simply not triggered and the
+/// request proceeds without user partitioning.
 /// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]

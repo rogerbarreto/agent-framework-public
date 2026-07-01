@@ -107,8 +107,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Map the request to a stable MAF AgentSession key: conversation_id when present, else the
         // partition embedded in previous_response_id (chains converge), else the minted response id
         // (cold start). Container session id is intentionally not used — it spans many conversations.
-        // The session store partitions persisted state per user via resolvedUserId so one
-        // user can never observe another user's session, even with a forged conversation id.
+        // The session store partitions persisted state per user via resolvedUserId so one user can
+        // never observe another user's session, even with a forged conversation id. Locally
+        // (resolvedUserId is null) there is no user to partition on, so the session is unscoped/shared
+        // by design — per-user isolation applies only when a user identity was resolved (hosted).
         var conversationId = request.GetConversationId();
         var sessionConversationId = HostedConversationKey.Resolve(
             conversationId, request.PreviousResponseId, context.ResponseId);

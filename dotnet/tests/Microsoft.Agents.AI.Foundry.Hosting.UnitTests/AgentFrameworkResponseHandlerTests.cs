@@ -1076,9 +1076,10 @@ public class AgentFrameworkResponseHandlerTests
             // Act: the request drains without throwing.
             await DrainEventsAsync(handler.CreateAsync(req, ctx.Object, CancellationToken.None));
 
-            // Assert: the session is written under the agent bucket with NO per-user segment.
+            // Assert: the session is written under the agent bucket with NO per-user (u-*) segment.
             Assert.True(File.Exists(Path.Combine(store.RootDirectory, "a-concierge", "c-trip.json")));
-            Assert.False(Directory.Exists(Path.Combine(store.RootDirectory, "a-concierge", "u-")));
+            var agentDir = Path.Combine(store.RootDirectory, "a-concierge");
+            Assert.Empty(Directory.GetDirectories(agentDir, "u-*"));
         }
         finally
         {

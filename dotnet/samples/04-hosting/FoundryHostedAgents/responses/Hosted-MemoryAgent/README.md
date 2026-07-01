@@ -50,10 +50,11 @@ ASPNETCORE_ENVIRONMENT=Development
 | Session | The handler stores the resolved value on the session as a `HostedSessionContext` on the first request, and validates it on every subsequent request that resumes the same conversation (mismatch returns 403). |
 | Memory provider | The sample's `stateInitializer` reads `session.GetHostedContext().UserId` and uses it as the `FoundryMemoryProviderScope`. Memories are partitioned per user. |
 
-When running outside the Foundry platform the header is absent, so per-user isolation is simply not
-triggered: requests succeed and share a single unscoped bucket (no local provider registration is
-required). To simulate distinct users locally, send an `x-agent-user-id` request header — the default
-`HostedSessionIsolationKeyProvider` reads it exactly as it reads the platform-injected value.
+This sample scopes memory per user via `HostedFoundryMemoryProviderScopes.PerUser()`, which requires a
+resolved user identity — a request with none throws. So locally you **must** send an `x-agent-user-id`
+request header (vary it to simulate distinct users); the default `HostedSessionIsolationKeyProvider`
+reads it exactly as it reads the platform-injected value. On the Foundry platform the header is always
+present, so no local provider registration is needed.
 
 ## Running directly (contributors)
 
@@ -171,4 +172,4 @@ standard `Dockerfile` instead of `Dockerfile.contributor`. See the commented sec
 | **Agent definition** | Inline (`AsAIAgent(model, instructions)`) | Inline, plus `AIContextProviders = [memoryProvider]` |
 | **State** | None beyond the conversation history | Per-user memories persisted in Foundry Memory |
 | **Identity** | Not used | Required: `HostedSessionContext.UserId` flows into the memory scope |
-| **Local dev** | Works with no identity header (per-user isolation not triggered) | Send an `x-agent-user-id` header to simulate distinct users |
+| **Local dev** | Works with no identity header (per-user isolation not triggered) | Requires an `x-agent-user-id` header (memory is per-user); vary it to simulate distinct users |
