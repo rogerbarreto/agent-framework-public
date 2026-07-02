@@ -436,6 +436,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(toolboxName);
+        EnsureSafeToolboxName(toolboxName);
 
         if (this._toolboxes.TryGetValue(toolboxName, out var cached))
         {
@@ -485,11 +486,64 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Validates that <paramref name="toolboxName"/> is a single, safe path segment before it is
+    /// interpolated into the toolbox proxy request URL.
+    /// </summary>
+    /// <remarks>
+    /// The name is fully percent-decoded in a bounded loop (so single- and multi-level encoded
+    /// separators are neutralized) and then rejected when the decoded value is empty, contains a
+    /// path separator (<c>/</c> or <c>\</c>), or is a relative-path segment (<c>.</c> or <c>..</c>).
+    /// <see cref="Uri"/> canonicalizes such segments (including their encoded forms) when it builds
+    /// the request URI, so without this guard a caller-influenced name could move the request target
+    /// away from <c>/toolboxes/{name}/mcp</c> to another path on the same host — while the
+    /// managed-identity token is still attached to the outbound request. Keeping the name to a single
+    /// segment also blocks encoded-separator smuggling that a downstream proxy might decode.
+    /// </remarks>
+    /// <param name="toolboxName">The toolbox name to validate.</param>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the name is not a safe single path segment.
+    /// </exception>
+    private static void EnsureSafeToolboxName(string toolboxName)
+    {
+        var decoded = toolboxName;
+        for (var i = 0; i < 5; i++)
+        {
+            var next = Uri.UnescapeDataString(decoded);
+            if (string.Equals(next, decoded, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            decoded = next;
+        }
+
+        var invalid =
+            decoded.Length == 0
+            || decoded.IndexOf('/') >= 0
+            || decoded.IndexOf('\\') >= 0
+            || string.Equals(decoded, ".", StringComparison.Ordinal)
+            || string.Equals(decoded, "..", StringComparison.Ordinal);
+
+        if (invalid)
+        {
+            throw new InvalidOperationException(
+                $"Toolbox name '{toolboxName}' is not a valid single-segment identifier. " +
+                "Toolbox names must not contain path separators or relative-path segments.");
+        }
+    }
+
     private async Task<ToolboxOpenResult> OpenToolboxAsync(
         string toolboxName,
         string? version,
         CancellationToken cancellationToken)
     {
+        // Defense-in-depth: every open path (startup, lazy per-request, consent retry, deferred
+        // retry) funnels through here, so validate the name at the single point where it is used to
+        // build the request URL. This guarantees a name that is not a safe single path segment can
+        // never form the proxy target, independent of the caller.
+        EnsureSafeToolboxName(toolboxName);
+
         // Test seam: when set, the open behavior (the only part that does real network I/O via the
         // MCP transport) is supplied by the test so the consent/tools resolution logic can be
         // exercised without a live toolbox proxy. Never set in production.
