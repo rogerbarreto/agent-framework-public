@@ -260,6 +260,7 @@ public class FoundryToolboxServiceTests
     [InlineData("../../admin")]
     [InlineData("..%2f..%2fadmin")]
     [InlineData("%2e%2e/%2e%2e/admin")]
+    [InlineData("%25252525252f")]
     [InlineData("a/b")]
     [InlineData("..")]
     [InlineData(".")]
@@ -268,15 +269,16 @@ public class FoundryToolboxServiceTests
     {
         // Arrange: non-strict mode with a resolved endpoint and a benign opener seam, so a
         // well-formed single-segment name would resolve successfully. A name carrying path
-        // separators or relative-path segments (including their percent-encoded forms) must be
-        // rejected before any request URL is built, so it can never move the request target and
-        // carry the managed-identity token to an unintended endpoint.
+        // separators or relative-path segments (including their percent-encoded forms, or encoding
+        // nested deeper than the decode cap) must be rejected before any request URL is built, so it
+        // can never move the request target and carry the managed-identity token to an unintended
+        // endpoint.
         var options = new FoundryToolboxOptions
         {
             StrictMode = false,
             EndpointOverride = "https://proj.example/api/projects/proj",
         };
-        var service = new FoundryToolboxService(
+        await using var service = new FoundryToolboxService(
             Options.Create(options),
             Mock.Of<TokenCredential>())
         {

@@ -492,13 +492,15 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// The name is fully percent-decoded in a bounded loop (so single- and multi-level encoded
-    /// separators are neutralized) and then rejected when the decoded value is empty, contains a
-    /// path separator (<c>/</c> or <c>\</c>), or is a relative-path segment (<c>.</c> or <c>..</c>).
+    /// separators are neutralized) and then rejected when the decoded value is empty, still contains
+    /// a percent sign (residual/over-deep encoding), contains a path separator (<c>/</c> or <c>\</c>),
+    /// or is a relative-path segment (<c>.</c> or <c>..</c>).
     /// <see cref="Uri"/> canonicalizes such segments (including their encoded forms) when it builds
     /// the request URI, so without this guard a caller-influenced name could move the request target
     /// away from <c>/toolboxes/{name}/mcp</c> to another path on the same host — while the
-    /// managed-identity token is still attached to the outbound request. Keeping the name to a single
-    /// segment also blocks encoded-separator smuggling that a downstream proxy might decode.
+    /// managed-identity token is still attached to the outbound request. Rejecting a residual percent
+    /// sign also blocks encoding nested deeper than the decode cap, which a downstream proxy might
+    /// still resolve to a separator.
     /// </remarks>
     /// <param name="toolboxName">The toolbox name to validate.</param>
     /// <exception cref="InvalidOperationException">
@@ -520,6 +522,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
 
         var invalid =
             decoded.Length == 0
+            || decoded.IndexOf('%') >= 0
             || decoded.IndexOf('/') >= 0
             || decoded.IndexOf('\\') >= 0
             || string.Equals(decoded, ".", StringComparison.Ordinal)
