@@ -265,13 +265,18 @@ public class FoundryToolboxServiceTests
     [InlineData("..")]
     [InlineData(".")]
     [InlineData("box\\..\\secret")]
+    [InlineData("foo?x=1")]
+    [InlineData("foo#frag")]
+    [InlineData("bad%3fx=1")]
+    [InlineData("tb%23frag")]
+    [InlineData("a%2fb")]
     public async Task GetToolboxToolsAsync_RejectsNonSingleSegmentToolboxNameAsync(string unsafeName)
     {
         // Arrange: non-strict mode with a resolved endpoint and a benign opener seam, so a
-        // well-formed single-segment name would resolve successfully. A name carrying path
-        // separators or relative-path segments (including their percent-encoded forms, or encoding
-        // nested deeper than the decode cap) must be rejected before any request URL is built, so it
-        // can never move the request target and carry the managed-identity token to an unintended
+        // well-formed single-segment name would resolve successfully. A name that would move the
+        // request target — path separators, relative-path segments, a query/fragment delimiter that
+        // ends the path early, or any of their percent-encoded forms — must be rejected before any
+        // request URL is built, so it can never carry the managed-identity token to an unintended
         // endpoint.
         var options = new FoundryToolboxOptions
         {
@@ -301,11 +306,16 @@ public class FoundryToolboxServiceTests
     [InlineData("sales")]
     [InlineData("box.v2")]
     [InlineData("a..b")]
+    [InlineData("tb:v1")]
+    [InlineData("tb@1")]
+    [InlineData("a(b)")]
     public async Task GetToolboxToolsAsync_AllowsWellFormedSingleSegmentNameAsync(string validName)
     {
-        // Arrange: a well-formed single-segment name (including names that merely contain a dot
-        // that is not a standalone relative-path segment) must still resolve through the opener,
-        // so the hardening does not reject legitimate toolbox names.
+        // Arrange: a well-formed single-segment name — including names that merely contain a
+        // character which stays inside the path segment (a dot that is not a standalone relative-path
+        // segment, or reserved characters such as ':' , '@' , and parentheses) — must still resolve
+        // through the opener. Validation is effect-based (does the name change the request target?),
+        // so it does not lock out legitimate names.
         AITool tool = AIFunctionFactory.Create(() => "ok", name: "some_tool");
         var options = new FoundryToolboxOptions
         {
