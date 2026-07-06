@@ -899,7 +899,7 @@ public class OpenTelemetryAgentTests
         // Compaction tests running in parallel can land in this exporter. Flush this run's spans, then scope the
         // assertions to the trace produced by this test (identified by its single invoke_agent span) so foreign
         // spans on the same source cannot affect the count or source-name checks.
-        tracerProvider.ForceFlush();
+        Assert.True(tracerProvider.ForceFlush(10000), "Failed to flush activities before taking the snapshot.");
         var snapshot = activities.Snapshot();
         var invokeAgent = Assert.Single(snapshot, a => a.DisplayName.StartsWith("invoke_agent", StringComparison.Ordinal));
         var ours = snapshot.Where(a => a.TraceId == invokeAgent.TraceId).ToList();
