@@ -1789,20 +1789,18 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         """Validate that the approval response itself corresponds to the pending request.
 
         The response must carry the request id that was shown for review and embed the exact
-        function call (name + arguments) that was requested. This rejects a mismatched approved
-        response whose id or embedded ``function_call`` differs from the pending request, rather
-        than trusting only that the invocation metadata carries a currently-pending call_id.
+        function call (name + arguments) that was requested. Both the response id and the embedded
+        function-call id are **required** to be present and equal to the pending ``call_id`` — a
+        crafted response that omits either identifier (``id=None`` / ``function_call.call_id=None``)
+        is rejected rather than allowed to skip the binding.
         """
         embedded = getattr(approval_response, "function_call", None)
         if self._signature_from_function_call(embedded) != body_signature:
             return False
-        # The response id (and the embedded call id, when present) must name the pending request.
+        # Both identifiers must be present and name the pending request (no None bypass).
         response_id = getattr(approval_response, "id", None)
         embedded_call_id = getattr(embedded, "call_id", None)
-        return not (
-            (response_id is not None and response_id != call_id)
-            or (embedded_call_id is not None and embedded_call_id != call_id)
-        )
+        return response_id == call_id and embedded_call_id == call_id
 
     def _matches_pending_approval(self, context: FunctionInvocationContext) -> bool:
         """Return whether an approved, call-bound approval matches this exact invocation.

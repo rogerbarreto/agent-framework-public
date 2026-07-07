@@ -1004,6 +1004,62 @@ class TestPolicyEnforcementMiddleware:
         assert isinstance(replay_context.result, Content)
         assert replay_context.result.type == "function_approval_request"
 
+    async def test_approval_response_missing_identifiers_is_rejected(self, mock_function):
+        """An approved response that omits its id / embedded call id must not authorize execution.
+
+        The response id and embedded ``function_call.call_id`` are required to be present and equal
+        to the pending call id, so a crafted response with ``id=None`` / ``call_id=None`` (even with
+        a matching function name and arguments) cannot skip the binding.
+        """
+        middleware = PolicyEnforcementFunctionMiddleware(approval_on_violation=True)
+
+        # Arrange: legitimately request approval for the protected function under a call_id.
+        request_context = FunctionInvocationContext(
+            function=mock_function,
+            arguments=mock_function.args_schema(arg="test"),
+        )
+        request_context.metadata["context_label"] = ContentLabel(integrity=IntegrityLabel.UNTRUSTED)
+        request_context.metadata["call_id"] = "reused-call-id"
+
+        async def stop_before_execute() -> None:
+            pytest.fail("Tool execution should not continue before approval")
+
+        with pytest.raises(MiddlewareTermination):
+            await middleware.process(request_context, stop_before_execute)
+
+        # Act: forge an approved response with matching function name + arguments but no identifiers.
+        idless_function_call = Content.from_function_call(
+            call_id=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            name=mock_function.name,
+            arguments='{"arg": "test"}',
+        )
+        idless_response = Content.from_function_approval_response(
+            approved=True,
+            id=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            function_call=idless_function_call,
+        )
+
+        replay_context = FunctionInvocationContext(
+            function=mock_function,
+            arguments=mock_function.args_schema(arg="test"),
+        )
+        replay_context.metadata["context_label"] = ContentLabel(integrity=IntegrityLabel.UNTRUSTED)
+        replay_context.metadata["call_id"] = "reused-call-id"
+        replay_context.metadata["approval_response"] = idless_response
+
+        executed = False
+
+        async def execute() -> None:
+            nonlocal executed
+            executed = True
+
+        # Assert: the identifier-less response does not authorize execution; approval is re-requested.
+        with pytest.raises(MiddlewareTermination):
+            await middleware.process(replay_context, execute)
+        assert executed is False
+        assert isinstance(replay_context.result, Content)
+        assert replay_context.result.type == "function_approval_request"
+
     async def test_approved_call_id_cannot_authorize_under_escalated_label(self, mock_function):
         """An approval granted under one security label must not authorize a more sensitive label.
 
