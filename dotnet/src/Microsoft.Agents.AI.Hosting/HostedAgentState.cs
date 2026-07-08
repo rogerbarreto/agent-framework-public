@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting;
 
@@ -46,7 +47,7 @@ public sealed class HostedAgentState
     /// <exception cref="ArgumentNullException"><paramref name="agent"/> is <see langword="null"/>.</exception>
     public HostedAgentState(AIAgent agent, AgentSessionStore? sessionStore = null, bool enableSessionLocking = false)
     {
-        ArgumentNullException.ThrowIfNull(agent);
+        _ = Throw.IfNull(agent);
 
         this.Agent = agent;
         this._sessionStore = sessionStore ?? new InMemoryAgentSessionStore();
@@ -66,7 +67,7 @@ public sealed class HostedAgentState
     /// <returns>The resolved or newly created <see cref="AgentSession"/>.</returns>
     public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionId);
         return this._sessionStore.GetSessionAsync(this.Agent, sessionId, cancellationToken);
     }
 
@@ -80,8 +81,8 @@ public sealed class HostedAgentState
     /// <returns>A task representing the asynchronous save operation.</returns>
     public ValueTask SaveSessionAsync(string sessionId, AgentSession session, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
-        ArgumentNullException.ThrowIfNull(session);
+        _ = Throw.IfNullOrEmpty(sessionId);
+        _ = Throw.IfNull(session);
         return this._sessionStore.SaveSessionAsync(this.Agent, sessionId, session, cancellationToken);
     }
 
@@ -94,7 +95,7 @@ public sealed class HostedAgentState
     /// <exception cref="NotSupportedException">The underlying store does not support deletion.</exception>
     public ValueTask DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionId);
         return this._sessionStore.DeleteSessionAsync(this.Agent, sessionId, cancellationToken);
     }
 
@@ -110,7 +111,7 @@ public sealed class HostedAgentState
     /// </remarks>
     public async ValueTask<IAsyncDisposable> LockSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionId);
 
         if (this._sessionLocks is null)
         {

@@ -40,9 +40,10 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
     using JsonDocument doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: cancellationToken).ConfigureAwait(false);
     JsonElement body = doc.RootElement;
 
-    // The candidate continuation id is untrusted. A real app authenticates the caller and authorizes/binds
-    // this key before using it as the workflow's checkpoint session id. This sample falls back to a fresh id.
-    string sessionId = OpenAIResponses.GetSessionId(body) ?? OpenAIResponses.CreateResponseId();
+    // Workflow checkpoint resume needs a STABLE key across turns. previous_response_id changes every turn,
+    // so key on the conversation id (constant for the conversation). The candidate is untrusted: a real app
+    // authenticates the caller and authorizes/binds this key before using it. This sample falls back to a fresh id.
+    string sessionId = GetConversationId(body) ?? OpenAIResponses.CreateResponseId();
 
     OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
 
@@ -65,3 +66,20 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
 });
 
 app.Run();
+
+// Reads the stable conversation id (string or object form) from the request body. Unlike previous_response_id,
+// the conversation id is constant across turns, so it is a valid workflow checkpoint session key.
+static string? GetConversationId(JsonElement body)
+{
+    if (!body.TryGetProperty("conversation", out JsonElement conversation))
+    {
+        return null;
+    }
+
+    return conversation.ValueKind switch
+    {
+        JsonValueKind.String => conversation.GetString(),
+        JsonValueKind.Object when conversation.TryGetProperty("id", out JsonElement id) => id.GetString(),
+        _ => null,
+    };
+}

@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 
@@ -51,6 +52,26 @@ public class OpenAIResponsesTests
     {
         // Arrange
         using var doc = JsonDocument.Parse("""{ "input": "hi" }""");
+
+        // Act & Assert
+        Assert.Null(OpenAIResponses.GetSessionId(doc.RootElement));
+    }
+
+    [Fact]
+    public void ToAgentRunRequest_InvalidBody_ThrowsArgumentException()
+    {
+        // Arrange (missing the required "input" field)
+        using var doc = JsonDocument.Parse("""{ "model": "x" }""");
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>("body", () => OpenAIResponses.ToAgentRunRequest(doc.RootElement));
+    }
+
+    [Fact]
+    public void GetSessionId_MalformedBody_ReturnsNull()
+    {
+        // Arrange (an array is not a valid Responses body)
+        using var doc = JsonDocument.Parse("""[ 1, 2, 3 ]""");
 
         // Act & Assert
         Assert.Null(OpenAIResponses.GetSessionId(doc.RootElement));

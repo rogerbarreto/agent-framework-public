@@ -28,7 +28,8 @@ curl -s http://localhost:5000/responses -H "content-type: application/json" \
 ```
 
 The response JSON includes the recorded checkpoint id in its summary text. Send a follow-up request with
-the same `previous_response_id` (or `conversation`) to resume from that checkpoint.
+the same `conversation` id to resume from that checkpoint. Use a **stable** key: `conversation` stays
+constant across turns, whereas `previous_response_id` changes every turn and is not a valid checkpoint key.
 
 ## Notes
 

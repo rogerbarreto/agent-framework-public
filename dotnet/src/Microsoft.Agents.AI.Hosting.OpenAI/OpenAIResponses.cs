@@ -43,8 +43,21 @@ public static class OpenAIResponses
     /// <exception cref="NotSupportedException">A request setting is not supported by the configured mapping.</exception>
     public static OpenAIResponsesRunRequest ToAgentRunRequest(JsonElement body, OpenAIResponsesMapOptions? mapOptions = null)
     {
-        CreateResponse request = body.Deserialize(OpenAIHostingJsonContext.Default.CreateResponse)
-            ?? throw new ArgumentException("The request body could not be parsed as an OpenAI Responses request.", nameof(body));
+        CreateResponse request;
+        try
+        {
+            request = body.Deserialize(OpenAIHostingJsonContext.Default.CreateResponse)
+                ?? throw new ArgumentException("The request body could not be parsed as an OpenAI Responses request.", nameof(body));
+        }
+        catch (JsonException ex)
+        {
+            throw new ArgumentException("The request body could not be parsed as an OpenAI Responses request.", nameof(body), ex);
+        }
+
+        if (request.Input is null)
+        {
+            throw new ArgumentException("The request body is missing the required 'input' field.", nameof(body));
+        }
 
         AgentRunOptions? options = (mapOptions ?? new OpenAIResponsesMapOptions()).RunOptionsFactory(request.ToRequestInfo());
 
@@ -108,16 +121,32 @@ public static class OpenAIResponses
     /// </summary>
     /// <param name="body">The OpenAI Responses-shaped request body.</param>
     /// <returns>
-    /// The <c>previous_response_id</c> or <c>conversation</c> id when present; otherwise <see langword="null"/>.
+    /// The <c>previous_response_id</c> when present; otherwise the <c>conversation</c> id when present;
+    /// otherwise <see langword="null"/>. Returns <see langword="null"/> for a body that cannot be parsed.
     /// </returns>
     /// <remarks>
     /// This is kept separate from <see cref="ToAgentRunRequest(JsonElement, OpenAIResponsesMapOptions?)"/> so the
     /// trust boundary stays visible: using a request-derived key is an explicit application decision. The returned
     /// value is an <strong>untrusted candidate key</strong> until the application has authorized it for the caller.
+    /// <para>
+    /// The Responses protocol treats <c>previous_response_id</c> and <c>conversation</c> as mutually exclusive; if a
+    /// payload sets both, this helper prefers <c>previous_response_id</c> (the response-chain pointer). Note that
+    /// <c>previous_response_id</c> changes each turn and is therefore not a stable partition key; prefer the
+    /// <c>conversation</c> id when a stable key is required (for example a workflow checkpoint cursor key).
+    /// </para>
     /// </remarks>
     public static string? GetSessionId(JsonElement body)
     {
-        CreateResponse? request = body.Deserialize(OpenAIHostingJsonContext.Default.CreateResponse);
+        CreateResponse? request;
+        try
+        {
+            request = body.Deserialize(OpenAIHostingJsonContext.Default.CreateResponse);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
         return request?.PreviousResponseId ?? request?.Conversation?.Id;
     }
 

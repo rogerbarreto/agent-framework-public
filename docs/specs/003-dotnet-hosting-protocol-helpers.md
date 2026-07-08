@@ -197,6 +197,11 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
 
 ### Workflow over Responses with checkpoint resume
 
+Workflow checkpoint resume requires a **stable** session key across turns. `previous_response_id` changes
+every turn, so it is not a valid checkpoint key; use the `conversation` id (constant for the conversation).
+Because `GetSessionId(...)` prefers `previous_response_id`, a workflow route reads the conversation id
+directly rather than calling `GetSessionId(...)`.
+
 ```csharp
 var state = new HostedWorkflowState(workflow); // in-memory checkpoints + cursor
 
@@ -205,7 +210,8 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
     using var doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct);
     JsonElement body = doc.RootElement;
 
-    string sessionId = Authorize(http.User, OpenAIResponses.GetSessionId(body))
+    // Stable, authorized checkpoint key. GetConversationId(...) reads the conversation id (string or object).
+    string sessionId = Authorize(http.User, GetConversationId(body))
         ?? OpenAIResponses.CreateResponseId();
 
     var run = OpenAIResponses.ToAgentRunRequest(body);

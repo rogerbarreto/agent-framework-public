@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting;
 
@@ -46,7 +47,7 @@ public sealed class HostedWorkflowState
     /// <exception cref="ArgumentNullException"><paramref name="workflow"/> is <see langword="null"/>.</exception>
     public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null)
     {
-        ArgumentNullException.ThrowIfNull(workflow);
+        _ = Throw.IfNull(workflow);
 
         this.Workflow = workflow;
         this._checkpointManager = checkpointManager ?? CheckpointManager.CreateInMemory();
@@ -69,8 +70,8 @@ public sealed class HostedWorkflowState
     public async ValueTask<HostedWorkflowRunResult> RunOrResumeAsync<TInput>(string sessionId, TInput input, CancellationToken cancellationToken = default)
         where TInput : notnull
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
-        ArgumentNullException.ThrowIfNull(input);
+        _ = Throw.IfNullOrEmpty(sessionId);
+        _ = Throw.IfNull(input);
 
         Run run = this._cursor.TryGetValue(sessionId, out CheckpointInfo? head)
             ? await InProcessExecution.ResumeAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false)
@@ -97,7 +98,7 @@ public sealed class HostedWorkflowState
     /// <returns><see langword="true"/> when a checkpoint is recorded for the session; otherwise <see langword="false"/>.</returns>
     public bool TryGetCheckpoint(string sessionId, out CheckpointInfo? checkpoint)
     {
-        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionId);
         return this._cursor.TryGetValue(sessionId, out checkpoint);
     }
 }
