@@ -61,6 +61,10 @@ public abstract class DelegatingAgentSessionStore : AgentSessionStore
         => this.InnerStore.SaveSessionAsync(agent, conversationId, session, cancellationToken);
 
     /// <inheritdoc/>
+    public override ValueTask DeleteSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+        => this.InnerStore.DeleteSessionAsync(agent, conversationId, cancellationToken);
+
+    /// <inheritdoc/>
     /// <remarks>
     /// This implementation first checks if this instance satisfies the service request.
     /// If not, it chains the request to the inner store, allowing services to be retrieved

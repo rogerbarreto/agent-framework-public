@@ -63,5 +63,12 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
         };
     }
 
+    /// <inheritdoc/>
+    public override ValueTask DeleteSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+    {
+        this._threads.TryRemove(GetKey(conversationId, agent.Id), out _);
+        return default;
+    }
+
     private static string GetKey(string conversationId, string agentId) => $"{agentId}:{conversationId}";
 }

@@ -22,4 +22,10 @@ public sealed class NoopAgentSessionStore : AgentSessionStore
     {
         return agent.CreateSessionAsync(cancellationToken);
     }
+
+    /// <inheritdoc/>
+    public override ValueTask DeleteSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+    {
+        return new ValueTask();
+    }
 }

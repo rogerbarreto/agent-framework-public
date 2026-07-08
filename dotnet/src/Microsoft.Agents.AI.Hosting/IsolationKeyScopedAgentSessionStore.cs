@@ -106,4 +106,11 @@ public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
         string scopedConversationId = await this.GetScopedConversationIdAsync(conversationId, cancellationToken).ConfigureAwait(false);
         await this.InnerStore.SaveSessionAsync(agent, scopedConversationId, session, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public override async ValueTask DeleteSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+    {
+        string scopedConversationId = await this.GetScopedConversationIdAsync(conversationId, cancellationToken).ConfigureAwait(false);
+        await this.InnerStore.DeleteSessionAsync(agent, scopedConversationId, cancellationToken).ConfigureAwait(false);
+    }
 }

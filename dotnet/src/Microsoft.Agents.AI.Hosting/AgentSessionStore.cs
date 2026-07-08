@@ -76,6 +76,24 @@ public abstract class AgentSessionStore
         string conversationId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Deletes a stored agent session, if present.
+    /// </summary>
+    /// <param name="agent">The agent that owns this session.</param>
+    /// <param name="conversationId">The unique identifier for the conversation/session to delete.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous delete operation.</returns>
+    /// <remarks>
+    /// The default implementation throws <see cref="NotSupportedException"/>. Stores that support removal
+    /// override this method. Deleting a missing session is a no-op for stores that override it.
+    /// </remarks>
+    /// <exception cref="NotSupportedException">The store does not support deletion.</exception>
+    public virtual ValueTask DeleteSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{this.GetType().Name} does not support session deletion.");
+
     /// <summary>Asks the <see cref="AgentSessionStore"/> for an object of the specified type <paramref name="serviceType"/>.</summary>
     /// <param name="serviceType">The type of object being requested.</param>
     /// <param name="serviceKey">An optional key that can be used to help identify the target service.</param>
