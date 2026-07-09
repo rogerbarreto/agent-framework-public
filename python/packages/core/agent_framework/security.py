@@ -1628,12 +1628,15 @@ class _PendingPolicyApproval(NamedTuple):
     re-authorize a call that differs in any of them. ``body_signature`` covers the function name and
     arguments; ``label_key`` the security label (integrity/confidentiality) shown for review;
     ``session_key`` the session the approval was requested in (the isolation boundary at this layer;
-    there is no separate user identity here).
+    there is no separate user identity here); ``disclosed_violations`` the canonical set of violation
+    types disclosed in the approval request, so an approval granted for one set of risks cannot wave
+    a different (e.g. larger) set that a replay computes after the tool's policy metadata changes.
     """
 
     body_signature: str
     label_key: str
     session_key: str
+    disclosed_violations: tuple[str, ...]
 
 
 @experimental(feature_id=ExperimentalFeature.FIDES)
@@ -1765,12 +1768,28 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         session = context.session
         return session.session_id if session is not None else ""
 
-    def _pending_record(self, context: FunctionInvocationContext) -> _PendingPolicyApproval:
-        """Build the binding record for the current invocation."""
+    def _violation_set_key(self, violations: list[dict[str, Any]]) -> tuple[str, ...]:
+        """Canonicalize the disclosed violations into a stable, order-independent key.
+
+        Each entry pairs the violation type with its canonical policy reason, so a replay that
+        trips the *same* violation type but a materially *different* risk (e.g. the tool's
+        ``max_allowed_confidentiality`` destination changed, keeping the type but changing the
+        reason) no longer matches and must re-request approval. The approval is thus bound to
+        exactly the risks disclosed to the user, not merely to their category names.
+        """
+        return tuple(sorted(f"{v['violation_type']}\x00{v['audit']['reason']}" for v in violations))
+
+    def _pending_record(
+        self,
+        context: FunctionInvocationContext,
+        violations: list[dict[str, Any]],
+    ) -> _PendingPolicyApproval:
+        """Build the binding record for the current invocation and disclosed violation set."""
         return _PendingPolicyApproval(
             body_signature=self._call_body_signature(context),
             label_key=self._context_label_key(context),
             session_key=self._session_key(context),
+            disclosed_violations=self._violation_set_key(violations),
         )
 
     def _signature_from_function_call(self, function_call: Any) -> str | None:
@@ -1802,15 +1821,21 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         embedded_call_id = getattr(embedded, "call_id", None)
         return response_id == call_id and embedded_call_id == call_id
 
-    def _matches_pending_approval(self, context: FunctionInvocationContext) -> bool:
+    def _matches_pending_approval(
+        self,
+        context: FunctionInvocationContext,
+        current_violations: list[dict[str, Any]],
+    ) -> bool:
         """Return whether an approved, call-bound approval matches this exact invocation.
 
         True only when an approved ``function_approval_response`` is present, the call_id is still
         awaiting approval, the response itself (its id and embedded ``function_call``) matches the
         pending request, and the current invocation matches every bound dimension recorded when
-        approval was requested: function + arguments, the security label, and the session. Does not
-        mutate state; consumption is done separately via :meth:`_consume_pending_approval` once the
-        approval actually waves a detected violation.
+        approval was requested: function + arguments, the security label, the session, and the
+        exact set of violation types disclosed to the user. If the invocation now trips a different
+        set of violations than was disclosed, this returns False so the caller re-requests approval
+        for the new set. Does not mutate state; consumption is done separately via
+        :meth:`_consume_pending_approval` once the approval actually waves the detected violations.
         """
         call_id = self._get_call_id(context)
         if not call_id:
@@ -1822,16 +1847,18 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         if not (
             isinstance(approval_response, Content)
             and approval_response.type == "function_approval_response"
-            and approval_response.approved
+            and approval_response.approved is True
         ):
             return False
         # The approval response must itself match the pending request (id + embedded function_call),
-        # and the invocation about to execute must match every recorded binding dimension.
+        # and the invocation about to execute must match every recorded binding dimension, including
+        # the exact set of violations that was disclosed for review.
         return (
             self._response_matches_pending(approval_response, call_id, pending.body_signature)
             and self._call_body_signature(context) == pending.body_signature
             and self._context_label_key(context) == pending.label_key
             and self._session_key(context) == pending.session_key
+            and self._violation_set_key(current_violations) == pending.disclosed_violations
         )
 
     def _consume_pending_approval(self, context: FunctionInvocationContext) -> None:
@@ -1873,7 +1900,7 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         )
         call_id = self._get_call_id(context)
         if call_id:
-            self._pending_policy_approvals[call_id] = self._pending_record(context)
+            self._pending_policy_approvals[call_id] = self._pending_record(context, violations)
         additional_properties: dict[str, Any] = {
             "policy_violation": True,
             "violation_type": primary["violation_type"],
@@ -1968,7 +1995,6 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         # disclose all of them together. Evaluating both the integrity and confidentiality checks
         # before acting prevents an approval that was requested (and granted) for one violation
         # from silently waving a second, undisclosed violation when the call is replayed.
-        approved = self._matches_pending_approval(context)
         violations: list[dict[str, Any]] = []
 
         # Integrity policy: an UNTRUSTED (tainted) context may not drive a tool that has not
@@ -2027,6 +2053,12 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
 
         for violation in violations:
             self._log_violation(violation["audit"])
+
+        # Resolve the approval decision against the exact violation set now detected. A pending
+        # approval only counts if it was granted for this same set; a replay that trips a
+        # different set (e.g. after the tool's policy metadata changed) falls through and
+        # re-requests approval for the new set.
+        approved = self._matches_pending_approval(context, violations)
 
         disclosed = ", ".join(v["violation_type"] for v in violations)
 
