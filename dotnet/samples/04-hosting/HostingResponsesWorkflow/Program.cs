@@ -30,6 +30,10 @@ AIAgent reviewer = projectClient.AsAIAgent(model: model, instructions: "Improve 
 
 Workflow workflow = AgentWorkflowBuilder.BuildSequential(workflowName: "WriteAndReview", agents: [writer, reviewer]);
 
+// The last agent in the sequential pipeline produces the workflow's final answer. The streaming path filters
+// updates to this agent so the streamed response matches the non-streaming final-message response.
+string finalAgentName = reviewer.Name ?? "Reviewer";
+
 // Optional shared execution state: pairs the workflow with an in-memory CheckpointManager and a per-session
 // sessionId -> CheckpointInfo head cursor so a session can resume from its last checkpoint.
 var state = new HostedWorkflowState(workflow);
@@ -59,7 +63,7 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
         // turn's input thereafter, recording the new head checkpoint once the stream completes.
         http.Response.ContentType = "text/event-stream";
         string streamResponseId = OpenAIResponses.CreateResponseId();
-        IAsyncEnumerable<AgentResponseUpdate> updates = ExtractUpdates(state.RunOrResumeStreamingAsync(sessionId, messages, cancellationToken), cancellationToken);
+        IAsyncEnumerable<AgentResponseUpdate> updates = ExtractUpdates(state.RunOrResumeStreamingAsync(sessionId, messages, cancellationToken), finalAgentName, cancellationToken);
 
         await foreach (string frame in OpenAIResponses.WriteResponseStreamAsync(updates, streamResponseId, sessionId, cancellationToken).ConfigureAwait(false))
         {
@@ -82,15 +86,17 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
 
 app.Run();
 
-// Projects the workflow's per-agent streaming updates from the emitted workflow events, so the app can
-// render them over the Responses SSE wire.
+// Projects the final agent's streaming updates from the emitted workflow events, so the streamed response
+// matches the non-streaming final-message response rather than also streaming intermediate agents' drafts.
 static async IAsyncEnumerable<AgentResponseUpdate> ExtractUpdates(
     IAsyncEnumerable<WorkflowEvent> events,
+    string finalAgentName,
     [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
 {
     await foreach (WorkflowEvent evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
     {
-        if (evt is AgentResponseUpdateEvent updateEvent)
+        if (evt is AgentResponseUpdateEvent updateEvent &&
+            string.Equals(updateEvent.Update.AuthorName, finalAgentName, StringComparison.Ordinal))
         {
             yield return updateEvent.Update;
         }
