@@ -109,6 +109,30 @@ public class HostedWorkflowStateTests
         Assert.Same(second.Checkpoint, head);
     }
 
+    [Fact]
+    public async Task RunOrResumeAsync_ResumeWithPendingRequest_DoesNotBlockAsync()
+    {
+        // Arrange: a human-in-the-loop workflow whose start executor forwards its input to a request port,
+        // so the workflow emits a RequestInfoEvent and halts awaiting an external response.
+        var state = new HostedWorkflowState(ApprovalGateWorkflow.Build());
+
+        // First turn halts at the pending request (the non-blocking baseline).
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "approve deploy")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Contains(first.Events, e => e is RequestInfoEvent);
+        Assert.NotNull(first.Checkpoint);
+
+        // Act: resuming a workflow that halts at a pending request must also return instead of blocking
+        // forever. A regression (blocking drain) hangs here, so guard with a timeout.
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "approve deploy again")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the resumed turn surfaced the pending request and returned.
+        Assert.Contains(second.Events, e => e is RequestInfoEvent);
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>

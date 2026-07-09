@@ -113,6 +113,15 @@ public sealed class HostedWorkflowState
             await foreach (WorkflowEvent evt in resumed.WatchStreamAsync(cancellationToken).ConfigureAwait(false))
             {
                 events.Add(evt);
+
+                // Stop draining when the resumed workflow halts awaiting an external response. The public
+                // stream blocks indefinitely on an unserviced pending request, whereas the first-turn
+                // RunAsync path returns at this same halt (Run.RunToNextHaltAsync uses non-blocking drain).
+                // SuperStepCompletedEvent marks the end of the pausing superstep and carries the flag.
+                if (evt is SuperStepCompletedEvent { CompletionInfo.HasPendingRequests: true })
+                {
+                    break;
+                }
             }
 
             return this.Record(sessionId, events, resumed.LastCheckpoint);
