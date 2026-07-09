@@ -253,6 +253,44 @@ public class HostedWorkflowStateTests
         Assert.Same(r3.Checkpoint, head);
     }
 
+    [Fact]
+    public async Task RunOrResumeStreamingAsync_StreamsEventsAndResumesAsync()
+    {
+        // Arrange
+        var state = new HostedWorkflowState(CreateEchoWorkflow());
+
+        // Act: first turn streamed.
+        List<WorkflowEvent> firstEvents = [];
+        await foreach (WorkflowEvent evt in state.RunOrResumeStreamingAsync("s1", InputMessages("hello")))
+        {
+            firstEvents.Add(evt);
+        }
+
+        // Assert: events streamed and the checkpoint was recorded after the stream completed.
+        Assert.NotEmpty(firstEvents);
+        Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? firstCheckpoint));
+        Assert.NotNull(firstCheckpoint);
+
+        // Act: second turn streamed via the resume path with new input.
+        List<WorkflowEvent> secondEvents = [];
+        await foreach (WorkflowEvent evt in state.RunOrResumeStreamingAsync("s1", InputMessages("world")))
+        {
+            secondEvents.Add(evt);
+        }
+
+        // Assert: the resumed stream processed the new input and advanced the checkpoint.
+        string output = string.Concat(
+            secondEvents
+                .OfType<WorkflowOutputEvent>()
+                .Select(e => e.Data)
+                .OfType<IEnumerable<ChatMessage>>()
+                .SelectMany(messages => messages)
+                .Select(m => m.Text));
+        Assert.Contains("world", output);
+        Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? secondCheckpoint));
+        Assert.NotSame(firstCheckpoint, secondCheckpoint);
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>

@@ -40,6 +40,14 @@ The second turn restores the first turn's checkpoint and applies the new instruc
 builds on the earlier draft. Use a **stable** key: `conversation` stays constant across turns, whereas
 `previous_response_id` changes every turn and is not a valid checkpoint key.
 
+Streaming (SSE) — add `"stream": true` to stream the workflow's agent updates back over the Responses
+Server-Sent-Events wire (works for both the first turn and resumed turns):
+
+```bash
+curl -N http://localhost:5000/responses -H "content-type: application/json" \
+  -d '{ "input": "Draft a short slogan for a coffee mug.", "conversation": "conv-1", "stream": true }'
+```
+
 ## Notes
 
 - The sample renders the workflow's final assistant message from the emitted `WorkflowEvent`s; real

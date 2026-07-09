@@ -145,7 +145,10 @@ correctly across restarts (the default in-memory manager does not persist, so a 
 resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input),
 mirroring the Python host's zero-event restore warning. Because a single workflow instance backs the
 holder and workflow instances do not support concurrent runs, `RunOrResumeAsync` serializes turns through
-one lock (mirroring the Python host's workflow lock); `HostedWorkflowState` is therefore `IDisposable`.
+one lock (mirroring the Python host's workflow lock); `HostedWorkflowState` is therefore `IDisposable`. A
+streaming counterpart, `RunOrResumeStreamingAsync`, yields the turn's `WorkflowEvent`s as they occur (for
+example to render agent updates over the Responses SSE wire) and records the head checkpoint once the
+stream is fully enumerated, keeping the blocking and streaming workflow paths in lockstep as Python does.
 
 ## Non-goals for v1
 

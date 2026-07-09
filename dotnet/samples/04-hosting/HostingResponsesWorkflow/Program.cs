@@ -48,10 +48,31 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
     string sessionId = GetConversationId(body) ?? OpenAIResponses.CreateResponseId();
 
     OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
+    var messages = run.Messages.ToList();
+
+    bool stream = body.TryGetProperty("stream", out JsonElement streamProp) && streamProp.ValueKind == JsonValueKind.True;
+
+    if (stream)
+    {
+        // Stream the workflow's agent updates back over the Responses SSE wire. Runs forward on the first
+        // call for this session, or restores the session's latest checkpoint and runs forward with this
+        // turn's input thereafter, recording the new head checkpoint once the stream completes.
+        http.Response.ContentType = "text/event-stream";
+        string streamResponseId = OpenAIResponses.CreateResponseId();
+        IAsyncEnumerable<AgentResponseUpdate> updates = ExtractUpdates(state.RunOrResumeStreamingAsync(sessionId, messages, cancellationToken), cancellationToken);
+
+        await foreach (string frame in OpenAIResponses.WriteResponseStreamAsync(updates, streamResponseId, sessionId, cancellationToken).ConfigureAwait(false))
+        {
+            await http.Response.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
+            await http.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return Results.Empty;
+    }
 
     // Runs the workflow forward on the first call for this session, or restores the session's latest
     // checkpoint and runs forward with this turn's input thereafter, then records the new head checkpoint.
-    HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionId, run.Messages.ToList(), cancellationToken).ConfigureAwait(false);
+    HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionId, messages, cancellationToken).ConfigureAwait(false);
 
     // Render the workflow's output. Applications extract output from the emitted events per their
     // workflow's design; here we surface the final assistant message the pipeline produced this turn.
@@ -60,6 +81,21 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
 });
 
 app.Run();
+
+// Projects the workflow's per-agent streaming updates from the emitted workflow events, so the app can
+// render them over the Responses SSE wire.
+static async IAsyncEnumerable<AgentResponseUpdate> ExtractUpdates(
+    IAsyncEnumerable<WorkflowEvent> events,
+    [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+{
+    await foreach (WorkflowEvent evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+    {
+        if (evt is AgentResponseUpdateEvent updateEvent)
+        {
+            yield return updateEvent.Update;
+        }
+    }
+}
 
 // Extracts the final assistant message produced by the workflow this turn from its output events,
 // falling back to a short run summary when the workflow emitted no message output.

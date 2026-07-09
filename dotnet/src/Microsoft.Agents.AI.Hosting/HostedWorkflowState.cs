@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
@@ -163,27 +164,113 @@ public sealed class HostedWorkflowState : IDisposable
 
             if (events.Count == 0)
             {
-                // The resumed turn drove no work. This mirrors the Python host's zero-event restore warning:
-                // the checkpoint may be stale or the input may not match the workflow's expected type, so the
-                // session's state may not have progressed.
-                this._logger.LogWarning(
-                    "Resuming workflow session '{SessionId}' produced no events; the checkpoint may be stale or the input may not match the workflow's expected input type. Session state may not have progressed.",
-                    sessionId);
+                this.WarnOnNoProgress(sessionId);
             }
 
             return this.Record(sessionId, events, resumed.LastCheckpoint);
         }
     }
 
+    /// <summary>
+    /// Streams the events of a run-or-resume turn as they occur, applying the same restore-then-run semantics as
+    /// <see cref="RunOrResumeAsync{TInput}(string, TInput, CancellationToken)"/>: the first turn runs the workflow
+    /// forward from its start executor, and subsequent turns restore the session's latest checkpoint and run
+    /// forward with <paramref name="input"/>. The session's head checkpoint is recorded once the stream is fully
+    /// enumerated.
+    /// </summary>
+    /// <remarks>
+    /// Turns are serialized through the holder's workflow lock, which is held for the lifetime of the returned
+    /// enumerator. The caller must enumerate the stream to completion (or dispose it) to release the lock. Because
+    /// the head checkpoint is recorded only after the stream completes, abandoning the enumeration early does not
+    /// advance the session cursor.
+    /// </remarks>
+    /// <typeparam name="TInput">The workflow input type.</typeparam>
+    /// <param name="sessionId">The application-selected session id.</param>
+    /// <param name="input">The input to run on this turn.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
+    /// <returns>An asynchronous stream of the <see cref="WorkflowEvent"/>s emitted during this turn.</returns>
+    public async IAsyncEnumerable<WorkflowEvent> RunOrResumeStreamingAsync<TInput>(string sessionId, TInput input, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        where TInput : notnull
+    {
+        _ = Throw.IfNullOrEmpty(sessionId);
+        _ = Throw.IfNull(input);
+
+        await this._workflowLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
+            {
+                head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            }
+
+            ProtocolDescriptor descriptor = await this.Workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+
+            // The fresh streaming run enqueues the input itself; the streaming resume restores state and needs the
+            // input delivered explicitly. Neither streaming entry point seeds a TurnToken, so drive chat-protocol
+            // workflows with one on both paths.
+            StreamingRun run = head is null
+                ? await InProcessExecution.RunStreamingAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false)
+                : await InProcessExecution.ResumeStreamingAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false);
+
+            await using (run.ConfigureAwait(false))
+            {
+                if (head is not null)
+                {
+                    await run.TrySendMessageAsync(input).ConfigureAwait(false);
+                }
+
+                if (descriptor.IsChatProtocol() && input is not TurnToken)
+                {
+                    await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
+                }
+
+                int eventCount = 0;
+                await foreach (WorkflowEvent evt in run.WatchStreamAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    eventCount++;
+                    yield return evt;
+
+                    if (evt is SuperStepCompletedEvent { CompletionInfo.HasPendingRequests: true })
+                    {
+                        break;
+                    }
+                }
+
+                if (eventCount == 0 && head is not null)
+                {
+                    this.WarnOnNoProgress(sessionId);
+                }
+
+                this.UpdateCursor(sessionId, run.LastCheckpoint);
+            }
+        }
+        finally
+        {
+            this._workflowLock.Release();
+        }
+    }
+
     private HostedWorkflowRunResult Record(string sessionId, List<WorkflowEvent> events, CheckpointInfo? checkpoint)
+    {
+        this.UpdateCursor(sessionId, checkpoint);
+        return new HostedWorkflowRunResult(sessionId, events, checkpoint);
+    }
+
+    private void UpdateCursor(string sessionId, CheckpointInfo? checkpoint)
     {
         if (checkpoint is not null)
         {
             this._cursor[sessionId] = checkpoint;
         }
-
-        return new HostedWorkflowRunResult(sessionId, events, checkpoint);
     }
+
+    private void WarnOnNoProgress(string sessionId)
+        // The resumed turn drove no work. This mirrors the Python host's zero-event restore warning: the
+        // checkpoint may be stale or the input may not match the workflow's expected type, so the session's
+        // state may not have progressed.
+        => this._logger.LogWarning(
+            "Resuming workflow session '{SessionId}' produced no events; the checkpoint may be stale or the input may not match the workflow's expected input type. Session state may not have progressed.",
+            sessionId);
 
     /// <summary>
     /// Gets the recorded head checkpoint for <paramref name="sessionId"/>, if any.
