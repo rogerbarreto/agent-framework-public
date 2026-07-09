@@ -208,6 +208,51 @@ public class HostedWorkflowStateTests
         Assert.Contains("count:2", combined);
     }
 
+    [Fact]
+    public async Task RunOrResumeAsync_NonChatWorkflow_ResumesWithNewInputAsync()
+    {
+        // Arrange: a non-chat-protocol workflow (string start executor), so the resume path sends the input
+        // without a TurnToken.
+        var state = new HostedWorkflowState(CountingWorkflow.Build());
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "go");
+        Assert.Contains("count:1", StringOutput(first));
+
+        // Act
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "go")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the non-chat resume carried state and advanced the checkpoint.
+        Assert.Contains("count:2", StringOutput(second));
+        Assert.NotNull(second.Checkpoint);
+        Assert.NotSame(first.Checkpoint, second.Checkpoint);
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_ThirdTurn_KeepsAdvancingCheckpointAsync()
+    {
+        // Arrange
+        var state = new HostedWorkflowState(CreateEchoWorkflow());
+
+        // Act: three turns on the same session.
+        HostedWorkflowRunResult r1 = await state.RunOrResumeAsync("s1", InputMessages("a"));
+        HostedWorkflowRunResult r2 = await state.RunOrResumeAsync("s1", InputMessages("b"))
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+        HostedWorkflowRunResult r3 = await state.RunOrResumeAsync("s1", InputMessages("c"))
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the cursor keeps advancing past the second turn, and the head reflects the latest turn.
+        Assert.Contains("c", OutputText(r3));
+        Assert.NotNull(r1.Checkpoint);
+        Assert.NotNull(r3.Checkpoint);
+        Assert.NotSame(r1.Checkpoint, r2.Checkpoint);
+        Assert.NotSame(r2.Checkpoint, r3.Checkpoint);
+        Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? head));
+        Assert.Same(r3.Checkpoint, head);
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>
