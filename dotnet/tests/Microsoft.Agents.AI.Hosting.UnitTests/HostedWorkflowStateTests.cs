@@ -194,16 +194,20 @@ public class HostedWorkflowStateTests
         // Start a second same-session turn while the first is still inside the workflow.
         Task<HostedWorkflowRunResult> second = state.RunOrResumeAsync("s1", "go").AsTask();
 
-        // Assert: the second turn must NOT enter the workflow while the first holds it (a shared workflow
-        // instance does not support concurrent runs). Without serialization it would enter concurrently.
-        bool secondEntered = await entered.WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.False(secondEntered, "the second same-session turn must wait for the first to complete");
+        // Assert: the second turn must WAIT on the holder lock, not fault. Without the lock it would reach the
+        // engine's concurrent-run ownership guard and fault (completing the task); the lock instead leaves it
+        // pending until the first turn releases. Checking the task is not completed isolates the holder lock
+        // from the engine guard, and the entered gate confirms it did not run concurrently.
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        Assert.False(second.IsCompleted, "the second turn must wait on the holder lock rather than fault or run concurrently");
+        Assert.False(await entered.WaitAsync(TimeSpan.FromMilliseconds(200)), "the second turn must not enter the workflow while the first holds it");
 
         // Release both turns and let them run to completion.
         release.SetResult();
         HostedWorkflowRunResult[] results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
 
-        // The serialized turns advanced the count from 1 to 2.
+        // Both turns completed successfully (proving the lock serialized rather than faulted them), advancing
+        // the count from 1 to 2.
         string combined = string.Concat(results.Select(StringOutput));
         Assert.Contains("count:1", combined);
         Assert.Contains("count:2", combined);
