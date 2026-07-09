@@ -1211,6 +1211,67 @@ class TestPolicyEnforcementMiddleware:
         await middleware.process(second_replay, execute)
         assert executed is True
 
+    async def test_multiple_violations_disclosed_in_single_approval(self, mock_function):
+        """A call with two violations must disclose both before it can be approved.
+
+        Regression: when both an untrusted-context violation and a confidentiality
+        (data-exfiltration) violation apply, the approval request must surface both. A single
+        approval computed once must not disclose only the integrity violation and then silently
+        wave the undisclosed confidentiality violation on replay.
+        """
+        # max_allowed_confidentiality="public" makes a PRIVATE context a confidentiality violation.
+        mock_function.additional_properties = {"max_allowed_confidentiality": "public"}
+        middleware = PolicyEnforcementFunctionMiddleware(approval_on_violation=True)
+
+        # Arrange: UNTRUSTED + PRIVATE context triggers BOTH integrity and confidentiality checks.
+        both_label = ContentLabel(
+            integrity=IntegrityLabel.UNTRUSTED,
+            confidentiality=ConfidentialityLabel.PRIVATE,
+        )
+        request_context = FunctionInvocationContext(
+            function=mock_function,
+            arguments=mock_function.args_schema(arg="test"),
+        )
+        request_context.metadata["context_label"] = both_label
+        request_context.metadata["call_id"] = "call-both"
+
+        async def stop_before_execute() -> None:
+            pytest.fail("Tool execution should not continue before approval")
+
+        # Act: the single approval request must disclose every detected violation.
+        with pytest.raises(MiddlewareTermination):
+            await middleware.process(request_context, stop_before_execute)
+
+        approval_request = request_context.result
+        assert isinstance(approval_request, Content)
+        assert approval_request.type == "function_approval_request"
+        props = approval_request.additional_properties
+        disclosed = {entry["violation_type"] for entry in props.get("violations", [])}
+        disclosed.add(props["violation_type"])
+
+        # Assert: both the untrusted-context and the confidentiality violation are disclosed.
+        assert "untrusted_context" in disclosed
+        assert "max_allowed_confidentiality" in disclosed
+
+        # Act: approving the fully disclosed request executes exactly once and consumes it.
+        exec_context = FunctionInvocationContext(
+            function=mock_function,
+            arguments=mock_function.args_schema(arg="test"),
+        )
+        exec_context.metadata["context_label"] = both_label
+        exec_context.metadata["call_id"] = "call-both"
+        exec_context.metadata["approval_response"] = approval_request.to_function_approval_response(True)
+
+        executed = False
+
+        async def execute() -> None:
+            nonlocal executed
+            executed = True
+
+        await middleware.process(exec_context, execute)
+        assert executed is True
+        assert "call-both" not in middleware._pending_policy_approvals
+
 
 class TestAutomaticHiding:
     """Tests for automatic variable hiding functionality."""

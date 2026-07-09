@@ -1857,24 +1857,42 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         context: FunctionInvocationContext,
         *,
         context_label: ContentLabel,
-        violation_type: str,
-        reason: str,
-        log_message: str,
+        violations: list[dict[str, Any]],
     ) -> None:
-        """Create a policy-violation approval request and stop execution."""
-        logger.info(log_message)
+        """Create a single policy-violation approval request disclosing every detected violation.
+
+        Bundling all detected violations into one request (rather than surfacing them one at a
+        time) ensures the user reviews the complete risk before approving, so a granted approval
+        cannot silently wave a second, undisclosed violation when the call is replayed.
+        """
+        primary = violations[0]
+        disclosed = ", ".join(v["violation_type"] for v in violations)
+        logger.info(
+            f"APPROVAL REQUESTED: Tool '{context.function.name}' requires user approval "
+            f"due to policy violation(s): {disclosed}."
+        )
         call_id = self._get_call_id(context)
         if call_id:
             self._pending_policy_approvals[call_id] = self._pending_record(context)
+        additional_properties: dict[str, Any] = {
+            "policy_violation": True,
+            "violation_type": primary["violation_type"],
+            "reason": (
+                primary["approval_reason"]
+                if len(violations) == 1
+                else " ".join(v["approval_reason"] for v in violations)
+            ),
+            "context_label": context_label.to_dict(),
+        }
+        if len(violations) > 1:
+            # Expose the full set so callers/UI can render every risk, not just the primary one.
+            additional_properties["violations"] = [
+                {"violation_type": v["violation_type"], "reason": v["approval_reason"]} for v in violations
+            ]
         context.result = Content.from_function_approval_request(
             id=call_id,
             function_call=self._build_function_call_content(context),
-            additional_properties={
-                "policy_violation": True,
-                "violation_type": violation_type,
-                "reason": reason,
-                "context_label": context_label.to_dict(),
-            },
+            additional_properties=additional_properties,
         )
         raise MiddlewareTermination("Policy approval required")
 
@@ -1882,18 +1900,20 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         self,
         context: FunctionInvocationContext,
         *,
-        error_message: str,
         context_label: ContentLabel,
-        violation_type: str | None = None,
+        violations: list[dict[str, Any]],
     ) -> None:
-        """Block the tool call and surface a policy violation error."""
+        """Block the tool call and surface the detected policy violation(s)."""
+        primary = violations[0]
         result: dict[str, Any] = {
-            "error": error_message,
+            "error": primary["block_error"],
             "function": context.function.name,
             "context_label": context_label.to_dict(),
         }
-        if violation_type is not None:
-            result["violation_type"] = violation_type
+        if primary["block_violation_type"] is not None:
+            result["violation_type"] = primary["block_violation_type"]
+        if len(violations) > 1:
+            result["violations"] = [v["violation_type"] for v in violations]
         context.result = result
         raise MiddlewareTermination("Policy violation blocked tool execution")
 
@@ -1944,124 +1964,102 @@ class PolicyEnforcementFunctionMiddleware(FunctionMiddleware):
         )
         function_props = _get_additional_properties(context.function)
 
-        # Peek (without consuming) whether a valid, call-bound approval matches this exact
-        # invocation, so the same decision is shared across the integrity and confidentiality
-        # checks below. The approval is consumed only when it actually waves a detected violation
-        # (see the approved branches), ensuring a granted approval authorizes exactly one bound
-        # invocation and cannot be replayed for a repeated call, a different function, or the same
-        # function with different arguments.
+        # Detect every applicable policy violation up front so a single approval decision can
+        # disclose all of them together. Evaluating both the integrity and confidentiality checks
+        # before acting prevents an approval that was requested (and granted) for one violation
+        # from silently waving a second, undisclosed violation when the call is replayed.
         approved = self._matches_pending_approval(context)
+        violations: list[dict[str, Any]] = []
 
-        # Check integrity policy based on context label
-        # If context is UNTRUSTED (tainted), check if tool allows untrusted context
-        if context_label.integrity == IntegrityLabel.UNTRUSTED and function_name not in self.allow_untrusted_tools:
-            # Also check if tool explicitly accepts untrusted via additional_properties
-            accepts_untrusted = function_props.get("accepts_untrusted", False)
-
-            if not accepts_untrusted:
-                violation = {
+        # Integrity policy: an UNTRUSTED (tainted) context may not drive a tool that has not
+        # opted in to untrusted input.
+        if (
+            context_label.integrity == IntegrityLabel.UNTRUSTED
+            and function_name not in self.allow_untrusted_tools
+            and not function_props.get("accepts_untrusted", False)
+        ):
+            violations.append({
+                "violation_type": "untrusted_context",
+                "approval_reason": (
+                    f"Tool '{function_name}' is being called in an UNTRUSTED context. "
+                    "The conversation contains data from untrusted sources which could "
+                    "influence this operation. Approve to proceed anyway (the agent will "
+                    "continue with a warning about untrusted context)."
+                ),
+                "block_error": "Policy violation: Tool cannot be called in untrusted context",
+                "block_violation_type": None,
+                "audit": {
                     "type": "untrusted_context",
                     "function": function_name,
                     "context_label": context_label.to_dict(),
                     "turn": context.metadata.get("turn_number", -1),
                     "reason": "Context is UNTRUSTED and tool is not allowed to execute in an untrusted context",
-                }
+                },
+            })
 
-                self._log_violation(violation)
-
-                if approved:
-                    self._consume_pending_approval(context)
-                    self._mark_policy_violation_approved(
-                        context,
-                        warning_message=(
-                            f"APPROVED BY USER: Tool '{function_name}' executing in UNTRUSTED context. "
-                            "User acknowledged the security risk and approved execution."
-                        ),
-                    )
-                elif self.approval_on_violation:
-                    self._request_policy_violation_approval(
-                        context,
-                        context_label=context_label,
-                        violation_type="untrusted_context",
-                        reason=(
-                            f"Tool '{function_name}' is being called in an UNTRUSTED context. "
-                            "The conversation contains data from untrusted sources which could "
-                            "influence this operation. Approve to proceed anyway (the agent will "
-                            "continue with a warning about untrusted context)."
-                        ),
-                        log_message=(
-                            f"APPROVAL REQUESTED: Tool '{function_name}' requires user approval "
-                            "due to UNTRUSTED context."
-                        ),
-                    )
-                    return
-                elif self.block_on_violation:
-                    logger.warning(
-                        f"BLOCKED: Tool '{function_name}' called in UNTRUSTED context. "
-                        f"Context became untrusted due to previous tool results. "
-                        f"Add to allow_untrusted_tools or set accepts_untrusted=True to permit."
-                    )
-                    self._block_policy_violation(
-                        context,
-                        error_message="Policy violation: Tool cannot be called in untrusted context",
-                        context_label=context_label,
-                    )
-                    return
-                else:
-                    logger.warning(f"WARNING: Tool '{function_name}' called in UNTRUSTED context (allowed)")
-
-        # Check confidentiality policy based on context label
+        # Confidentiality policy: block writing higher-confidentiality data to a lower
+        # confidentiality destination (data exfiltration).
         conf_result = self._check_confidentiality_policy_detailed(context, context_label)
         if not conf_result["passed"]:
-            violation = {
-                "type": "confidentiality_violation",
-                "subtype": conf_result["failure_type"],
-                "function": function_name,
-                "context_label": context_label.to_dict(),
-                "reason": conf_result["reason"],
-                "turn": context.metadata.get("turn_number", -1),
-            }
+            violations.append({
+                "violation_type": conf_result["failure_type"],
+                "approval_reason": (
+                    f"Tool '{function_name}' violates confidentiality policy: "
+                    f"{conf_result['reason']}. Approve to proceed anyway."
+                ),
+                "block_error": f"Policy violation: {conf_result['reason']}",
+                "block_violation_type": conf_result["failure_type"],
+                "audit": {
+                    "type": "confidentiality_violation",
+                    "subtype": conf_result["failure_type"],
+                    "function": function_name,
+                    "context_label": context_label.to_dict(),
+                    "reason": conf_result["reason"],
+                    "turn": context.metadata.get("turn_number", -1),
+                },
+            })
 
-            self._log_violation(violation)
+        if not violations:
+            # Policy check passed, continue execution
+            logger.debug(f"Policy check passed for tool '{function_name}'")
+            await call_next()
+            return
 
-            if approved:
-                self._consume_pending_approval(context)
-                self._mark_policy_violation_approved(
-                    context,
-                    warning_message=(
-                        f"APPROVED BY USER: Tool '{function_name}' executing despite confidentiality "
-                        "violation. User acknowledged the security risk and approved execution."
-                    ),
-                )
-            elif self.approval_on_violation:
-                self._request_policy_violation_approval(
-                    context,
-                    context_label=context_label,
-                    violation_type=conf_result["failure_type"],
-                    reason=(
-                        f"Tool '{function_name}' violates confidentiality policy: "
-                        f"{conf_result['reason']}. Approve to proceed anyway."
-                    ),
-                    log_message=(
-                        f"APPROVAL REQUESTED: Tool '{function_name}' requires user approval "
-                        "due to confidentiality policy violation."
-                    ),
-                )
-                return
-            elif self.block_on_violation:
-                logger.warning(
-                    f"BLOCKED: Tool '{function_name}' violates confidentiality policy: {conf_result['reason']}"
-                )
-                self._block_policy_violation(
-                    context,
-                    error_message=f"Policy violation: {conf_result['reason']}",
-                    context_label=context_label,
-                    violation_type=conf_result["failure_type"],
-                )
-                return
+        for violation in violations:
+            self._log_violation(violation["audit"])
 
-        # Policy check passed, continue execution
-        logger.debug(f"Policy check passed for tool '{function_name}'")
+        disclosed = ", ".join(v["violation_type"] for v in violations)
+
+        if approved:
+            # A single approval waves every violation it disclosed for this exact invocation;
+            # consume it once so it cannot authorize a repeated or different call.
+            self._consume_pending_approval(context)
+            self._mark_policy_violation_approved(
+                context,
+                warning_message=(
+                    f"APPROVED BY USER: Tool '{function_name}' executing despite policy "
+                    f"violation(s) [{disclosed}]. User acknowledged the security risk and "
+                    "approved execution."
+                ),
+            )
+        elif self.approval_on_violation:
+            self._request_policy_violation_approval(
+                context,
+                context_label=context_label,
+                violations=violations,
+            )
+            return
+        elif self.block_on_violation:
+            logger.warning(f"BLOCKED: Tool '{function_name}' policy violation(s): {disclosed}")
+            self._block_policy_violation(
+                context,
+                context_label=context_label,
+                violations=violations,
+            )
+            return
+        else:
+            logger.warning(f"WARNING: Tool '{function_name}' policy violation(s) [{disclosed}] (allowed)")
+
         await call_next()
 
     def _check_confidentiality_policy(
