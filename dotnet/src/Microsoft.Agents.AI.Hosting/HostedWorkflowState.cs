@@ -7,6 +7,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting;
@@ -36,6 +38,7 @@ namespace Microsoft.Agents.AI.Hosting;
 public sealed class HostedWorkflowState
 {
     private readonly CheckpointManager _checkpointManager;
+    private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CheckpointInfo> _cursor = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -45,13 +48,18 @@ public sealed class HostedWorkflowState
     /// <param name="checkpointManager">
     /// The checkpoint manager to use. Defaults to <see cref="CheckpointManager.CreateInMemory"/> when not provided.
     /// </param>
+    /// <param name="loggerFactory">
+    /// The logger factory used to report resume diagnostics (for example, a resume turn that made no progress).
+    /// Defaults to <see cref="NullLoggerFactory"/> when not provided.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="workflow"/> is <see langword="null"/>.</exception>
-    public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null)
+    public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null, ILoggerFactory? loggerFactory = null)
     {
         _ = Throw.IfNull(workflow);
 
         this.Workflow = workflow;
         this._checkpointManager = checkpointManager ?? CheckpointManager.CreateInMemory();
+        this._logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger(typeof(HostedWorkflowState));
     }
 
     /// <summary>
@@ -122,6 +130,16 @@ public sealed class HostedWorkflowState
                 {
                     break;
                 }
+            }
+
+            if (events.Count == 0)
+            {
+                // The resumed turn drove no work. This mirrors the Python host's zero-event restore warning:
+                // the checkpoint may be stale or the input may not match the workflow's expected type, so the
+                // session's state may not have progressed.
+                this._logger.LogWarning(
+                    "Resuming workflow session '{SessionId}' produced no events; the checkpoint may be stale or the input may not match the workflow's expected input type. Session state may not have progressed.",
+                    sessionId);
             }
 
             return this.Record(sessionId, events, resumed.LastCheckpoint);

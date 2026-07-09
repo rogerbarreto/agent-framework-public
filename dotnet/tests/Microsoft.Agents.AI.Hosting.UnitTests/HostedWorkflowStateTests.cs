@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace Microsoft.Agents.AI.Hosting.UnitTests;
@@ -131,6 +132,25 @@ public class HostedWorkflowStateTests
 
         // Assert: the resumed turn surfaced the pending request and returned.
         Assert.Contains(second.Events, e => e is RequestInfoEvent);
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_ResumeMakesNoProgress_LogsWarningAsync()
+    {
+        // Arrange: a non-chat-protocol workflow that completes on the first turn.
+        var loggerFactory = new CapturingLoggerFactory();
+        var state = new HostedWorkflowState(StringEchoWorkflow.Build(), loggerFactory: loggerFactory);
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "hello");
+        Assert.NotEmpty(first.Events);
+        Assert.NotNull(first.Checkpoint);
+
+        // Act: resume with an input the start executor cannot handle, so the turn drives no work.
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", 42);
+
+        // Assert: a resume that produced no events is surfaced as a warning (possible stale checkpoint /
+        // mismatched input), mirroring the Python host's zero-event restore warning.
+        Assert.Empty(second.Events);
+        Assert.Contains(loggerFactory.Entries, e => e.Level == LogLevel.Warning);
     }
 
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
