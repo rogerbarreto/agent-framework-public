@@ -119,8 +119,8 @@ public sealed class HostedWorkflowState
 {
     public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null);
 
-    // Runs forward, or resumes from the session's last checkpoint if one is recorded,
-    // then records the new head checkpoint for the session.
+    // First turn runs forward from the start; subsequent turns restore the session's latest
+    // checkpoint and run forward with the new turn's input, then record the new head checkpoint.
     public ValueTask<HostedWorkflowRunResult> RunOrResumeAsync(
         string sessionId, object input, CancellationToken ct = default);
 }
@@ -134,8 +134,13 @@ serializes concurrent first-touch of the same id. `DeleteSessionAsync` uses the 
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory
 `sessionId -> CheckpointInfo` cursor. Because the checkpoint store is already `sessionId`-keyed but
 `CheckpointInfo` carries no ordering, the holder remembers the head checkpoint per session so
-`RunOrResumeAsync` can resume the correct one. Durable/multi-replica hosts supply their own
-`CheckpointManager` and (later) cursor persistence.
+`RunOrResumeAsync` can resume the correct one. On subsequent turns it restores that checkpoint to
+rehydrate accumulated workflow state and then runs the workflow forward with the new turn's input —
+mirroring the Python hosting host's restore-then-run semantics (`agent_framework_hosting`'s
+`_invoke_workflow`), rather than continuing a halted run with no input (which would wait for input
+indefinitely). For agent (chat-protocol) workflows the new input is accompanied by a `TurnToken` so the
+turn is driven. Durable/multi-replica hosts supply their own `CheckpointManager` and (later) cursor
+persistence.
 
 ## Non-goals for v1
 

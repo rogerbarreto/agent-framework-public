@@ -17,8 +17,8 @@ Session continuity uses `HostedAgentState` over an in-memory `AgentSessionStore`
 ## Run
 
 ```bash
-export AZURE_OPENAI_ENDPOINT="https://<your-resource>.openai.azure.com"
-export AZURE_OPENAI_DEPLOYMENT="gpt-4o-mini"   # optional, defaults to gpt-4o-mini
+export FOUNDRY_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"
+export FOUNDRY_MODEL="gpt-5.4-mini"   # optional, defaults to gpt-5.4-mini
 dotnet run
 ```
 

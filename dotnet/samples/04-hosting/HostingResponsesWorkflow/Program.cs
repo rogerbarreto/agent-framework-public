@@ -5,26 +5,28 @@
 // HostedWorkflowState for per-session checkpoint resume. The application keeps control of routing, auth,
 // and checkpoint storage.
 
-using System.Text;
 using System.Text.Json;
-using Azure.AI.OpenAI;
+using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Hosting.OpenAI;
 using Microsoft.Agents.AI.Workflows;
-using OpenAI.Chat;
+using Microsoft.Extensions.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuration via environment variables (never hardcode secrets).
-string endpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT")
-    ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-string deployment = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT") ?? "gpt-4o-mini";
+string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+    ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
+string model = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-5.4-mini";
 
-var chatClient = new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential()).GetChatClient(deployment);
-AIAgent writer = chatClient.AsAIAgent(instructions: "Write a concise first draft for the user's request.", name: "Writer");
-AIAgent reviewer = chatClient.AsAIAgent(instructions: "Improve the draft and produce the final answer.", name: "Reviewer");
+// WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
+// In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
+// latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
+var projectClient = new AIProjectClient(new Uri(endpoint), new DefaultAzureCredential());
+AIAgent writer = projectClient.AsAIAgent(model: model, instructions: "Write a concise first draft for the user's request.", name: "Writer");
+AIAgent reviewer = projectClient.AsAIAgent(model: model, instructions: "Improve the draft and produce the final answer.", name: "Reviewer");
 
 Workflow workflow = AgentWorkflowBuilder.BuildSequential(workflowName: "WriteAndReview", agents: [writer, reviewer]);
 
@@ -47,25 +49,41 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
 
     OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
 
-    // Runs the workflow forward on the first call for this session, or resumes from the session's last
-    // checkpoint thereafter, then records the new head checkpoint for the session.
+    // Runs the workflow forward on the first call for this session, or restores the session's latest
+    // checkpoint and runs forward with this turn's input thereafter, then records the new head checkpoint.
     HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionId, run.Messages.ToList(), cancellationToken).ConfigureAwait(false);
 
-    // Real applications extract the workflow's output from the emitted events per their workflow's design.
-    // For illustration this sample summarizes the run and echoes the recorded checkpoint id.
-    var summary = new StringBuilder()
-        .Append(result.Events.Count)
-        .Append(" workflow event(s) processed.");
-    if (result.Checkpoint is not null)
-    {
-        summary.Append(" Checkpoint: ").Append(result.Checkpoint.CheckpointId).Append('.');
-    }
-
-    var response = new AgentResponse(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Assistant, summary.ToString()));
+    // Render the workflow's output. Applications extract output from the emitted events per their
+    // workflow's design; here we surface the final assistant message the pipeline produced this turn.
+    AgentResponse response = BuildWorkflowResponse(result);
     return Results.Json(OpenAIResponses.WriteResponse(response, OpenAIResponses.CreateResponseId(), sessionId));
 });
 
 app.Run();
+
+// Extracts the final assistant message produced by the workflow this turn from its output events,
+// falling back to a short run summary when the workflow emitted no message output.
+static AgentResponse BuildWorkflowResponse(HostedWorkflowRunResult result)
+{
+    ChatMessage? finalMessage = null;
+    foreach (WorkflowEvent evt in result.Events)
+    {
+        if (evt is WorkflowOutputEvent output && output.Data is IEnumerable<ChatMessage> messages)
+        {
+            foreach (ChatMessage message in messages)
+            {
+                if (message.Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(message.Text))
+                {
+                    finalMessage = message;
+                }
+            }
+        }
+    }
+
+    return finalMessage is not null
+        ? new AgentResponse(finalMessage)
+        : new AgentResponse(new ChatMessage(ChatRole.Assistant, $"{result.Events.Count} workflow event(s) processed."));
+}
 
 // Reads the stable conversation id (string or object form) from the request body. Unlike previous_response_id,
 // the conversation id is constant across turns, so it is a valid workflow checkpoint session key.

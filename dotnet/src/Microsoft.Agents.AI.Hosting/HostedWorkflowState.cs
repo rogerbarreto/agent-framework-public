@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,35 +60,73 @@ public sealed class HostedWorkflowState
     public Workflow Workflow { get; }
 
     /// <summary>
-    /// Runs the workflow for <paramref name="sessionId"/> with checkpointing, or resumes from the session's
-    /// recorded head checkpoint when one exists, then records the new head checkpoint for the session.
+    /// Runs the workflow forward for <paramref name="sessionId"/> with checkpointing on the first turn, or, on
+    /// subsequent turns, restores the session's recorded head checkpoint and then runs the workflow forward with
+    /// the new turn's <paramref name="input"/>. The new head checkpoint is recorded for the session afterwards.
     /// </summary>
+    /// <remarks>
+    /// The resume semantics mirror the Python hosting host (<c>agent_framework_hosting</c>'s <c>_invoke_workflow</c>):
+    /// each turn restores the latest checkpoint to rehydrate accumulated workflow state and then applies the new
+    /// input, rather than continuing a halted run with no input (which would leave the run waiting for input
+    /// indefinitely). For agent (chat-protocol) workflows the new input is accompanied by a
+    /// <see cref="TurnToken"/> so the turn is driven, matching the fresh-run path.
+    /// </remarks>
     /// <typeparam name="TInput">The workflow input type.</typeparam>
     /// <param name="sessionId">The application-selected session id.</param>
-    /// <param name="input">The input used when starting a new run (ignored when resuming).</param>
+    /// <param name="input">The input to run on this turn (used both when starting a new run and when resuming).</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
-    /// <returns>The run result, including the emitted events and the recorded head checkpoint.</returns>
+    /// <returns>The run result, including the events emitted on this turn and the recorded head checkpoint.</returns>
     public async ValueTask<HostedWorkflowRunResult> RunOrResumeAsync<TInput>(string sessionId, TInput input, CancellationToken cancellationToken = default)
         where TInput : notnull
     {
         _ = Throw.IfNullOrEmpty(sessionId);
         _ = Throw.IfNull(input);
 
-        Run run = this._cursor.TryGetValue(sessionId, out CheckpointInfo? head)
-            ? await InProcessExecution.ResumeAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false)
-            : await InProcessExecution.RunAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false);
-
-        await using (run.ConfigureAwait(false))
+        if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
         {
-            var events = run.OutgoingEvents.ToList();
-            CheckpointInfo? checkpoint = run.LastCheckpoint;
-            if (checkpoint is not null)
+            // First turn for this session: run the workflow forward from its start executor with the input.
+            Run freshRun = await InProcessExecution.RunAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false);
+            await using (freshRun.ConfigureAwait(false))
             {
-                this._cursor[sessionId] = checkpoint;
+                return this.Record(sessionId, freshRun.OutgoingEvents.ToList(), freshRun.LastCheckpoint);
+            }
+        }
+
+        // Subsequent turn: restore the session's latest checkpoint to rehydrate accumulated workflow state, then
+        // run the workflow forward with the new turn's input. Agent workflows use the chat protocol, which requires
+        // a TurnToken to drive the turn (mirroring how the fresh-run path seeds one).
+        //
+        // The streaming resume restores state without draining to a halt first; the non-streaming resume would
+        // block waiting for input immediately after restore (before we can deliver the new input).
+        ProtocolDescriptor descriptor = await this.Workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+
+        StreamingRun resumed = await InProcessExecution.ResumeStreamingAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false);
+        await using (resumed.ConfigureAwait(false))
+        {
+            await resumed.TrySendMessageAsync(input).ConfigureAwait(false);
+            if (descriptor.IsChatProtocol() && input is not TurnToken)
+            {
+                await resumed.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
             }
 
-            return new HostedWorkflowRunResult(sessionId, events, checkpoint);
+            List<WorkflowEvent> events = [];
+            await foreach (WorkflowEvent evt in resumed.WatchStreamAsync(cancellationToken).ConfigureAwait(false))
+            {
+                events.Add(evt);
+            }
+
+            return this.Record(sessionId, events, resumed.LastCheckpoint);
         }
+    }
+
+    private HostedWorkflowRunResult Record(string sessionId, List<WorkflowEvent> events, CheckpointInfo? checkpoint)
+    {
+        if (checkpoint is not null)
+        {
+            this._cursor[sessionId] = checkpoint;
+        }
+
+        return new HostedWorkflowRunResult(sessionId, events, checkpoint);
     }
 
     /// <summary>

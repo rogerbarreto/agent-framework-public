@@ -110,7 +110,9 @@ request object).
 - `HostedWorkflowState`: a thin holder bundling a workflow target with a `CheckpointManager` and an
   internal `sessionId -> CheckpointInfo` head cursor, exposing `RunOrResumeAsync`. .NET's checkpoint
   store is already `sessionId`-keyed (unlike Python's workflow-name keying), but `CheckpointInfo` has
-  no ordering, so the holder remembers the head checkpoint per session to resume.
+  no ordering, so the holder remembers the head checkpoint per session to resume. On subsequent turns it
+  restores that checkpoint and runs the workflow forward with the new turn's input (mirroring the Python
+  host's restore-then-run semantics), rather than continuing a halted run with no input.
 
 ### Scope
 
