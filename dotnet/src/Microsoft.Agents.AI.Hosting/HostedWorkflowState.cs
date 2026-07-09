@@ -169,14 +169,14 @@ public sealed class HostedWorkflowState : IDisposable
     /// Streams the events of a run-or-resume turn as they occur, applying the same restore-then-run semantics as
     /// <see cref="RunOrResumeAsync{TInput}(string, TInput, CancellationToken)"/>: the first turn runs the workflow
     /// forward from its start executor, and subsequent turns restore the session's latest checkpoint and run
-    /// forward with <paramref name="input"/>. The session's head checkpoint is recorded once the stream is fully
-    /// enumerated.
+    /// forward with <paramref name="input"/>. The session's head checkpoint is recorded when the stream ends,
+    /// including when the consumer abandons enumeration early.
     /// </summary>
     /// <remarks>
     /// Turns are serialized through the holder's workflow lock, which is held for the lifetime of the returned
-    /// enumerator. The caller must enumerate the stream to completion (or dispose it) to release the lock. Because
-    /// the head checkpoint is recorded only after the stream completes, abandoning the enumeration early does not
-    /// advance the session cursor.
+    /// enumerator. The caller must enumerate the stream to completion (or dispose it) to release the lock. The head
+    /// checkpoint is recorded from the run's last committed checkpoint when the stream ends — whether it completes
+    /// normally or the consumer disposes it early — so an interrupted turn still advances the session cursor.
     /// </remarks>
     /// <typeparam name="TInput">The workflow input type.</typeparam>
     /// <param name="sessionId">The application-selected session id.</param>
@@ -219,20 +219,28 @@ public sealed class HostedWorkflowState : IDisposable
                 }
 
                 int eventCount = 0;
-                // Drain non-blocking on pending requests (see RunOrResumeCoreAsync) so a workflow that halts
-                // awaiting an external response ends the stream instead of blocking indefinitely.
-                await foreach (WorkflowEvent evt in run.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
+                try
                 {
-                    eventCount++;
-                    yield return evt;
-                }
+                    // Drain non-blocking on pending requests (see RunOrResumeCoreAsync) so a workflow that halts
+                    // awaiting an external response ends the stream instead of blocking indefinitely.
+                    await foreach (WorkflowEvent evt in run.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
+                    {
+                        eventCount++;
+                        yield return evt;
+                    }
 
-                if (eventCount == 0 && head is not null)
+                    if (eventCount == 0 && head is not null)
+                    {
+                        this.WarnOnNoProgress(sessionId);
+                    }
+                }
+                finally
                 {
-                    this.WarnOnNoProgress(sessionId);
+                    // Record the head checkpoint even when the consumer abandons the stream (for example an SSE
+                    // client disconnect), so an interrupted turn still advances the session cursor to the last
+                    // committed checkpoint and a later turn resumes from there rather than re-running prior work.
+                    this.UpdateCursor(sessionId, run.LastCheckpoint);
                 }
-
-                this.UpdateCursor(sessionId, run.LastCheckpoint);
             }
         }
         finally

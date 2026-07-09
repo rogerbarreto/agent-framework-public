@@ -356,6 +356,32 @@ public class HostedWorkflowStateTests
         Assert.Contains(FanOutRequestWorkflow.DownstreamPrefix, StringOutput(second));
     }
 
+    [Fact]
+    public async Task RunOrResumeStreamingAsync_AbandonedAfterCheckpoint_AdvancesCursorAsync()
+    {
+        // Arrange
+        var state = new HostedWorkflowState(CreateEchoWorkflow());
+        await foreach (WorkflowEvent _ in state.RunOrResumeStreamingAsync("s1", InputMessages("a")))
+        {
+            // Enumerate the first turn to completion so the cursor holds its head checkpoint.
+        }
+        Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? cp1));
+
+        // Act: abandon the second turn after a superstep has committed a checkpoint.
+        await foreach (WorkflowEvent evt in state.RunOrResumeStreamingAsync("s1", InputMessages("b")))
+        {
+            if (evt is SuperStepCompletedEvent { CompletionInfo.Checkpoint: not null })
+            {
+                break;
+            }
+        }
+
+        // Assert: the abandoned turn still advanced the cursor to the last committed checkpoint, so a later
+        // turn resumes from there rather than re-running from the previous head.
+        Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? cp2));
+        Assert.NotEqual(cp1, cp2);
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>
