@@ -149,6 +149,10 @@ one lock (mirroring the Python host's workflow lock); `HostedWorkflowState` is t
 streaming counterpart, `RunOrResumeStreamingAsync`, yields the turn's `WorkflowEvent`s as they occur (for
 example to render agent updates over the Responses SSE wire) and records the head checkpoint once the
 stream is fully enumerated, keeping the blocking and streaming workflow paths in lockstep as Python does.
+Because `RunOrResumeAsync`/`RunOrResumeStreamingAsync` are generic over the input type, the application
+adapts the Responses input into the workflow's start-executor input type at the call site (for example
+parsing a structured payload into a typed record) — the .NET counterpart of Python's `ResponsesChannel`
+run hook, without coupling the holder to a specific wire type.
 
 ## Non-goals for v1
 

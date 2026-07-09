@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
@@ -289,6 +290,28 @@ public class HostedWorkflowStateTests
         Assert.Contains("world", output);
         Assert.True(state.TryGetCheckpoint("s1", out CheckpointInfo? secondCheckpoint));
         Assert.NotSame(firstCheckpoint, secondCheckpoint);
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_AdaptsResponsesInputToTypedStartExecutorAsync()
+    {
+        // Arrange: a workflow whose start executor takes a typed WriterBrief rather than List<ChatMessage>.
+        // The application adapts the Responses input into that type before calling RunOrResumeAsync — the
+        // generic TInput is the .NET counterpart of Python's ResponsesChannel run hook.
+        var state = new HostedWorkflowState(BriefWorkflow.Build());
+
+        // Simulate parsing a structured Responses text payload into the start executor's input type.
+        const string responsesText = "{\"topic\":\"electric SUV\",\"style\":\"playful\"}";
+        using JsonDocument doc = JsonDocument.Parse(responsesText);
+        var brief = new BriefWorkflow.WriterBrief(
+            doc.RootElement.GetProperty("topic").GetString()!,
+            doc.RootElement.GetProperty("style").GetString()!);
+
+        // Act
+        HostedWorkflowRunResult result = await state.RunOrResumeAsync("s1", brief);
+
+        // Assert: the adapted input drove the typed start executor.
+        Assert.Contains("[playful] electric SUV", StringOutput(result));
     }
 
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
