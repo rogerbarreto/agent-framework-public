@@ -139,8 +139,11 @@ rehydrate accumulated workflow state and then runs the workflow forward with the
 mirroring the Python hosting host's restore-then-run semantics (`agent_framework_hosting`'s
 `_invoke_workflow`), rather than continuing a halted run with no input (which would wait for input
 indefinitely). For agent (chat-protocol) workflows the new input is accompanied by a `TurnToken` so the
-turn is driven. Durable/multi-replica hosts supply their own `CheckpointManager` and (later) cursor
-persistence.
+turn is driven. When the in-memory cursor misses (a new holder or a process restart), the holder falls
+back to `CheckpointManager.GetLatestCheckpointAsync(sessionId)`, so a durable `CheckpointManager` resumes
+correctly across restarts (the default in-memory manager does not persist, so a restart starts fresh). A
+resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input),
+mirroring the Python host's zero-event restore warning.
 
 ## Non-goals for v1
 

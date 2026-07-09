@@ -25,9 +25,10 @@ namespace Microsoft.Agents.AI.Hosting;
 /// own routing, authentication, or storage policy.
 /// </para>
 /// <para>
-/// The default cursor is in-memory and does not survive process restarts; durable or multi-replica hosts should
-/// supply a durable <see cref="CheckpointManager"/> and record the returned <see cref="HostedWorkflowRunResult.Checkpoint"/>
-/// in their own durable cursor.
+/// The in-memory head cursor accelerates the common case, but when it misses (for example a new holder or a
+/// process restart) the holder falls back to <see cref="CheckpointManager.GetLatestCheckpointAsync"/>. A durable
+/// <see cref="CheckpointManager"/> therefore resumes correctly across restarts; the default in-memory manager does
+/// not persist, so with it a restart starts the session fresh.
 /// </para>
 /// <para>
 /// <strong>Trust boundary.</strong> <c>sessionId</c> is an application-selected partition key. When it originates
@@ -91,6 +92,14 @@ public sealed class HostedWorkflowState
         _ = Throw.IfNull(input);
 
         if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
+        {
+            // The in-memory cursor is empty for this session. Fall back to the checkpoint manager so a durable
+            // manager still resumes after the cursor is lost (for example a process restart or a new holder over
+            // the same store), mirroring the Python host's per-turn get_latest read-through.
+            head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (head is null)
         {
             // First turn for this session: run the workflow forward from its start executor with the input.
             Run freshRun = await InProcessExecution.RunAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false);

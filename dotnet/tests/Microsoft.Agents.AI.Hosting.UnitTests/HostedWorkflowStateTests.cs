@@ -153,6 +153,29 @@ public class HostedWorkflowStateTests
         Assert.Contains(loggerFactory.Entries, e => e.Level == LogLevel.Warning);
     }
 
+    [Fact]
+    public async Task RunOrResumeAsync_CursorMiss_ResumesFromManagerLatestCheckpointAsync()
+    {
+        // Arrange: a shared checkpoint manager stands in for durable storage that outlives the in-memory
+        // cursor. The first holder runs one turn; a counting workflow records count:1 in the checkpoint.
+        var manager = CheckpointManager.CreateInMemory();
+        var first = new HostedWorkflowState(CountingWorkflow.Build(), manager);
+        HostedWorkflowRunResult firstResult = await first.RunOrResumeAsync("s1", "go");
+        Assert.Contains("count:1", StringOutput(firstResult));
+
+        // Act: a NEW holder over the SAME manager (fresh cursor, e.g. after a process restart) runs the
+        // session again. With durable read-through it resumes from the manager's latest checkpoint.
+        var second = new HostedWorkflowState(CountingWorkflow.Build(), manager);
+        HostedWorkflowRunResult resumed = await second.RunOrResumeAsync("s1", "go")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the count advanced to 2, proving it resumed from the prior checkpoint rather than
+        // restarting from scratch (which would yield count:1 again).
+        Assert.Contains("count:2", StringOutput(resumed));
+        Assert.True(second.TryGetCheckpoint("s1", out _));
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>
@@ -163,6 +186,13 @@ public class HostedWorkflowStateTests
                 .OfType<IEnumerable<ChatMessage>>()
                 .SelectMany(messages => messages)
                 .Select(m => m.Text));
+
+    private static string StringOutput(HostedWorkflowRunResult result) =>
+        string.Concat(
+            result.Events
+                .OfType<WorkflowOutputEvent>()
+                .Select(e => e.Data)
+                .OfType<string>());
 
     private static Workflow CreateEchoWorkflow() =>
         AgentWorkflowBuilder.BuildSequential(workflowName: "echo", agents: [new TestEchoAgent(name: "echo")]);

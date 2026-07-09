@@ -112,7 +112,9 @@ request object).
   store is already `sessionId`-keyed (unlike Python's workflow-name keying), but `CheckpointInfo` has
   no ordering, so the holder remembers the head checkpoint per session to resume. On subsequent turns it
   restores that checkpoint and runs the workflow forward with the new turn's input (mirroring the Python
-  host's restore-then-run semantics), rather than continuing a halted run with no input.
+  host's restore-then-run semantics), rather than continuing a halted run with no input. When the
+  in-memory cursor misses (new holder / process restart) it reads the session's latest checkpoint from the
+  `CheckpointManager`, so a durable manager resumes across restarts.
 
 ### Scope
 
