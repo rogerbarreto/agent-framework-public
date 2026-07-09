@@ -143,7 +143,9 @@ turn is driven. When the in-memory cursor misses (a new holder or a process rest
 back to `CheckpointManager.GetLatestCheckpointAsync(sessionId)`, so a durable `CheckpointManager` resumes
 correctly across restarts (the default in-memory manager does not persist, so a restart starts fresh). A
 resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input),
-mirroring the Python host's zero-event restore warning.
+mirroring the Python host's zero-event restore warning. Because a single workflow instance backs the
+holder and workflow instances do not support concurrent runs, `RunOrResumeAsync` serializes turns through
+one lock (mirroring the Python host's workflow lock); `HostedWorkflowState` is therefore `IDisposable`.
 
 ## Non-goals for v1
 

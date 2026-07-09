@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
@@ -174,6 +175,37 @@ public class HostedWorkflowStateTests
         // restarting from scratch (which would yield count:1 again).
         Assert.Contains("count:2", StringOutput(resumed));
         Assert.True(second.TryGetCheckpoint("s1", out _));
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_ConcurrentSameSessionTurns_AreSerializedAsync()
+    {
+        // Arrange: a workflow that signals when a turn enters and then blocks on a gate, so the test can
+        // hold the first turn "inside" the workflow while it starts a second turn for the same session.
+        using var entered = new SemaphoreSlim(0, 2);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = new HostedWorkflowState(GatedCountingWorkflow.Build(entered, release.Task), CheckpointManager.CreateInMemory());
+
+        // Act: start the first turn and wait until it is running inside the workflow.
+        Task<HostedWorkflowRunResult> first = state.RunOrResumeAsync("s1", "go").AsTask();
+        Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(10)), "the first turn should enter the workflow");
+
+        // Start a second same-session turn while the first is still inside the workflow.
+        Task<HostedWorkflowRunResult> second = state.RunOrResumeAsync("s1", "go").AsTask();
+
+        // Assert: the second turn must NOT enter the workflow while the first holds it (a shared workflow
+        // instance does not support concurrent runs). Without serialization it would enter concurrently.
+        bool secondEntered = await entered.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(secondEntered, "the second same-session turn must wait for the first to complete");
+
+        // Release both turns and let them run to completion.
+        release.SetResult();
+        HostedWorkflowRunResult[] results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The serialized turns advanced the count from 1 to 2.
+        string combined = string.Concat(results.Select(StringOutput));
+        Assert.Contains("count:1", combined);
+        Assert.Contains("count:2", combined);
     }
 
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];

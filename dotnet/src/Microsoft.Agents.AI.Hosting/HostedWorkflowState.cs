@@ -36,11 +36,15 @@ namespace Microsoft.Agents.AI.Hosting;
 /// checkpoint boundary must be at least as specific as the authorized session boundary.
 /// </para>
 /// </remarks>
-public sealed class HostedWorkflowState
+public sealed class HostedWorkflowState : IDisposable
 {
     private readonly CheckpointManager _checkpointManager;
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CheckpointInfo> _cursor = new(StringComparer.Ordinal);
+
+    // A single workflow instance backs every session on this holder, and workflow instances do not support
+    // concurrent runs, so all turns are serialized through one lock (mirroring the Python host's workflow lock).
+    private readonly SemaphoreSlim _workflowLock = new(1, 1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HostedWorkflowState"/> class.
@@ -91,6 +95,22 @@ public sealed class HostedWorkflowState
         _ = Throw.IfNullOrEmpty(sessionId);
         _ = Throw.IfNull(input);
 
+        // Serialize turns: the shared workflow instance cannot be run by two runners at once, and concurrent
+        // same-session turns would otherwise race the head cursor.
+        await this._workflowLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await this.RunOrResumeCoreAsync(sessionId, input, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            this._workflowLock.Release();
+        }
+    }
+
+    private async ValueTask<HostedWorkflowRunResult> RunOrResumeCoreAsync<TInput>(string sessionId, TInput input, CancellationToken cancellationToken)
+        where TInput : notnull
+    {
         if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
         {
             // The in-memory cursor is empty for this session. Fall back to the checkpoint manager so a durable
@@ -176,4 +196,9 @@ public sealed class HostedWorkflowState
         _ = Throw.IfNullOrEmpty(sessionId);
         return this._cursor.TryGetValue(sessionId, out checkpoint);
     }
+
+    /// <summary>
+    /// Releases the resources used by this instance, including the workflow serialization lock.
+    /// </summary>
+    public void Dispose() => this._workflowLock.Dispose();
 }
