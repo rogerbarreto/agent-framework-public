@@ -314,6 +314,48 @@ public class HostedWorkflowStateTests
         Assert.Contains("[playful] electric SUV", StringOutput(result));
     }
 
+    [Fact]
+    public async Task RunOrResumeAsync_ResumeWithRejectedInput_DoesNotHangAsync()
+    {
+        // Arrange: a non-chat human-in-the-loop workflow whose first turn emits a request and halts.
+        var state = new HostedWorkflowState(ApprovalGateWorkflow.Build());
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "approve")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Contains(first.Events, e => e is RequestInfoEvent);
+
+        // Act: resume with an input the start executor cannot handle (wrong type), so no superstep runs.
+        // A drain that blocks on the restored pending request would hang here; guard with a timeout.
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", 42)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: it returned (surfacing the restored pending request) rather than blocking indefinitely.
+        Assert.Contains(second.Events, e => e is RequestInfoEvent);
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_ResumeSuperstepWithRequestAndDownstream_DoesNotTruncateAsync()
+    {
+        // Arrange: a workflow whose start executor, in one superstep, emits a request AND queues a message to
+        // a downstream executor that yields output. The first turn establishes a checkpoint.
+        var state = new HostedWorkflowState(FanOutRequestWorkflow.Build());
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "one")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Contains(first.Events, e => e is RequestInfoEvent);
+
+        // Act: resume with new input, which again fans out to the request port and the downstream executor.
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "two")
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the resumed turn drained past the request-bearing superstep so the downstream output is
+        // present (a drain that broke at the request would truncate it).
+        Assert.Contains(second.Events, e => e is RequestInfoEvent);
+        Assert.Contains(FanOutRequestWorkflow.DownstreamPrefix, StringOutput(second));
+    }
+
     private static List<ChatMessage> InputMessages(string text) => [new(ChatRole.User, text)];
 
     private static string OutputText(HostedWorkflowRunResult result) =>

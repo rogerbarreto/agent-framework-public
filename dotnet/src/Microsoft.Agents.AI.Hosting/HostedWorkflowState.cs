@@ -148,18 +148,12 @@ public sealed class HostedWorkflowState : IDisposable
             }
 
             List<WorkflowEvent> events = [];
-            await foreach (WorkflowEvent evt in resumed.WatchStreamAsync(cancellationToken).ConfigureAwait(false))
+            // Drain non-blocking on pending requests, matching the first-turn RunAsync path
+            // (Run.RunToNextHaltAsync also uses blockOnPendingRequest: false): the workflow may halt awaiting an
+            // external response, and blocking there would wait indefinitely.
+            await foreach (WorkflowEvent evt in resumed.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
             {
                 events.Add(evt);
-
-                // Stop draining when the resumed workflow halts awaiting an external response. The public
-                // stream blocks indefinitely on an unserviced pending request, whereas the first-turn
-                // RunAsync path returns at this same halt (Run.RunToNextHaltAsync uses non-blocking drain).
-                // SuperStepCompletedEvent marks the end of the pausing superstep and carries the flag.
-                if (evt is SuperStepCompletedEvent { CompletionInfo.HasPendingRequests: true })
-                {
-                    break;
-                }
             }
 
             if (events.Count == 0)
@@ -225,15 +219,12 @@ public sealed class HostedWorkflowState : IDisposable
                 }
 
                 int eventCount = 0;
-                await foreach (WorkflowEvent evt in run.WatchStreamAsync(cancellationToken).ConfigureAwait(false))
+                // Drain non-blocking on pending requests (see RunOrResumeCoreAsync) so a workflow that halts
+                // awaiting an external response ends the stream instead of blocking indefinitely.
+                await foreach (WorkflowEvent evt in run.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
                 {
                     eventCount++;
                     yield return evt;
-
-                    if (evt is SuperStepCompletedEvent { CompletionInfo.HasPendingRequests: true })
-                    {
-                        break;
-                    }
                 }
 
                 if (eventCount == 0 && head is not null)
