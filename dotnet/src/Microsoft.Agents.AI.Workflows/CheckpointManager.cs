@@ -72,6 +72,8 @@ public sealed class CheckpointManager : ICheckpointManager
     /// </returns>
     public async ValueTask<CheckpointInfo?> GetLatestCheckpointAsync(string sessionId, CancellationToken cancellationToken = default)
     {
+        // ICheckpointStore.RetrieveIndexAsync is contractually required to return checkpoints in commit order
+        // (oldest first, most recently committed last), so the last enumerated entry is the latest checkpoint.
         IEnumerable<CheckpointInfo> index = await this._impl.RetrieveIndexAsync(sessionId, withParent: null).ConfigureAwait(false);
 
         CheckpointInfo? latest = null;
