@@ -5,12 +5,14 @@
 // using the batteries-included MapOpenAIResponses server. The application keeps control of routing, auth,
 // and session storage; the helpers provide only the protocol <-> agent conversion.
 
+using System.ComponentModel;
 using System.Text.Json;
 using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Hosting.OpenAI;
+using Microsoft.Extensions.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,11 +21,30 @@ string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
 string model = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-5.4-mini";
 
+// A deterministic weather tool (mirrors the Python sample's lookup_weather @tool).
+[Description("Return a deterministic weather report for a city.")]
+static string LookupWeather([Description("The city to look up weather for.")] string location)
+{
+    int highTemp = 5 + (System.Text.Encoding.UTF8.GetBytes(location).Sum(b => b) % 21);
+    return location switch
+    {
+        "Seattle" => $"Seattle is rainy with a high of {highTemp}°C.",
+        "Amsterdam" => $"Amsterdam is cloudy with a high of {highTemp}°C.",
+        "Tokyo" => $"Tokyo is clear with a high of {highTemp}°C.",
+        _ => $"{location} is sunny with a high of {highTemp}°C.",
+    };
+}
+
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
 // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 AIAgent agent = new AIProjectClient(new Uri(endpoint), new DefaultAzureCredential())
-    .AsAIAgent(model: model, instructions: "You are a helpful assistant.", name: "Assistant");
+    .AsAIAgent(
+        model: model,
+        instructions: "You are a friendly weather assistant. Use the lookup_weather tool for any weather " +
+            "question and answer in one short sentence.",
+        name: "WeatherAgent",
+        tools: [AIFunctionFactory.Create(LookupWeather, name: "lookup_weather")]);
 
 // Optional shared execution state: pairs the agent with a session store (in-memory by default).
 var state = new HostedAgentState(agent);
@@ -69,7 +90,9 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
 });
 
-app.Run();
+// Bind to a fixed local URL so the paired client sample has a deterministic default.
+// Override with the ASPNETCORE_URLS environment variable when needed.
+app.Run("http://localhost:5000");
 
 // Application-owned trust decision. Replace with real authentication + authorization: verify the caller,
 // then authorize/bind the candidate id to the authenticated principal before returning it.

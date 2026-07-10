@@ -313,9 +313,19 @@
     <Project Path="samples/03-workflows/Evaluation/Evaluation_WorkflowEval/Evaluation_WorkflowEval.csproj" />
     <Project Path="samples/03-workflows/Evaluation/Evaluation_WorkflowExpectedOutputs/Evaluation_WorkflowExpectedOutputs.csproj" />
   </Folder>
-  <Folder Name="/Samples/04-hosting/">
-    <Project Path="samples/04-hosting/HostingResponsesAgent/HostingResponsesAgent.csproj" />
-    <Project Path="samples/04-hosting/HostingResponsesWorkflow/HostingResponsesWorkflow.csproj" />
+  <Folder Name="/Samples/04-hosting/" />
+  <Folder Name="/Samples/04-hosting/af-hosting/">
+    <File Path="samples/04-hosting/af-hosting/README.md" />
+  </Folder>
+  <Folder Name="/Samples/04-hosting/af-hosting/local_responses/">
+    <File Path="samples/04-hosting/af-hosting/local_responses/README.md" />
+    <Project Path="samples/04-hosting/af-hosting/local_responses/Server/Server.csproj" />
+    <Project Path="samples/04-hosting/af-hosting/local_responses/Client/Client.csproj" />
+  </Folder>
+  <Folder Name="/Samples/04-hosting/af-hosting/local_responses_workflow/">
+    <File Path="samples/04-hosting/af-hosting/local_responses_workflow/README.md" />
+    <Project Path="samples/04-hosting/af-hosting/local_responses_workflow/Server/Server.csproj" />
+    <Project Path="samples/04-hosting/af-hosting/local_responses_workflow/Client/Client.csproj" />
   </Folder>
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/" />
   <Folder Name="/Samples/04-hosting/FoundryHostedAgents/invocations/" />
