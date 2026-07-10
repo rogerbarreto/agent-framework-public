@@ -31,12 +31,10 @@ var state = new HostedAgentState(agent);
 var app = builder.Build();
 
 // The application owns this route. It parses the OpenAI Responses body with the helpers, runs the agent
-// itself, and renders the response with the helpers.
-app.MapPost("/responses", async (HttpContext http, CancellationToken cancellationToken) =>
+// itself, and renders the response with the helpers. Binding the body as JsonElement lets ASP.NET Core
+// deserialize the JSON request body directly, so there is no JsonDocument to own or dispose.
+app.MapPost("/responses", async (JsonElement body, HttpContext http, CancellationToken cancellationToken) =>
 {
-    using JsonDocument doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: cancellationToken).ConfigureAwait(false);
-    JsonElement body = doc.RootElement;
-
     // The candidate continuation id is untrusted. A real app authenticates the caller and authorizes/binds
     // this key to the principal before using it. This sample simply falls back to a fresh id.
     string? candidateSessionId = OpenAIResponses.GetSessionId(body);
@@ -60,6 +58,9 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken cancellatio
 
         // Persist the post-run session under the new response id so the next turn can continue from it.
         await state.SaveSessionAsync(responseId, session, cancellationToken).ConfigureAwait(false);
+
+        // The SSE body was already written straight to http.Response above, so return an empty result:
+        // this returns from the handler (the non-streaming code below does not run) without writing a body.
         return Results.Empty;
     }
 

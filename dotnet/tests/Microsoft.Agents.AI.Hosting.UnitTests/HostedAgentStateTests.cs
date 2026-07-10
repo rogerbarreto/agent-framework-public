@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
+using Moq.Protected;
 
 namespace Microsoft.Agents.AI.Hosting.UnitTests;
 
@@ -22,13 +23,20 @@ public class HostedAgentStateTests
         Assert.Throws<ArgumentNullException>("agent", () => new HostedAgentState(null!));
 
     [Fact]
-    public void Constructor_NullStore_UsesInMemoryStore()
+    public async Task Constructor_NullStore_UsesInMemoryStoreAsync()
     {
-        // Act
+        // Arrange: a null store must fall back to an in-memory store, whose create-on-miss path calls the agent.
+        this._agentMock
+            .Protected()
+            .Setup<ValueTask<AgentSession>>("CreateSessionCoreAsync", ItExpr.IsAny<CancellationToken>())
+            .Returns(new ValueTask<AgentSession>(this._session));
         var state = new HostedAgentState(this._agentMock.Object);
 
+        // Act
+        var session = await state.GetOrCreateSessionAsync("session-1");
+
         // Assert
-        Assert.Same(this._agentMock.Object, state.Agent);
+        Assert.Same(this._session, session);
     }
 
     [Fact]

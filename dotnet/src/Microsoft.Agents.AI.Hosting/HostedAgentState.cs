@@ -30,6 +30,7 @@ namespace Microsoft.Agents.AI.Hosting;
 /// </remarks>
 public sealed class HostedAgentState
 {
+    private readonly AIAgent _agent;
     private readonly AgentSessionStore _sessionStore;
     private readonly ConcurrentDictionary<string, SemaphoreSlim>? _sessionLocks;
 
@@ -49,15 +50,10 @@ public sealed class HostedAgentState
     {
         _ = Throw.IfNull(agent);
 
-        this.Agent = agent;
+        this._agent = agent;
         this._sessionStore = sessionStore ?? new InMemoryAgentSessionStore();
         this._sessionLocks = enableSessionLocking ? new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal) : null;
     }
-
-    /// <summary>
-    /// Gets the agent target.
-    /// </summary>
-    public AIAgent Agent { get; }
 
     /// <summary>
     /// Returns the stored session for <paramref name="sessionId"/>, creating a new session on first use.
@@ -68,7 +64,7 @@ public sealed class HostedAgentState
     public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNullOrEmpty(sessionId);
-        return this._sessionStore.GetSessionAsync(this.Agent, sessionId, cancellationToken);
+        return this._sessionStore.GetSessionAsync(this._agent, sessionId, cancellationToken);
     }
 
     /// <summary>
@@ -83,7 +79,7 @@ public sealed class HostedAgentState
     {
         _ = Throw.IfNullOrEmpty(sessionId);
         _ = Throw.IfNull(session);
-        return this._sessionStore.SaveSessionAsync(this.Agent, sessionId, session, cancellationToken);
+        return this._sessionStore.SaveSessionAsync(this._agent, sessionId, session, cancellationToken);
     }
 
     /// <summary>
@@ -96,7 +92,7 @@ public sealed class HostedAgentState
     public ValueTask DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNullOrEmpty(sessionId);
-        return this._sessionStore.DeleteSessionAsync(this.Agent, sessionId, cancellationToken);
+        return this._sessionStore.DeleteSessionAsync(this._agent, sessionId, cancellationToken);
     }
 
     /// <summary>

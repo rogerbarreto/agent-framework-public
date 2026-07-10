@@ -34,6 +34,11 @@ public sealed class FileSystemJsonCheckpointStore : JsonCheckpointStore, IDispos
     private FileStream? _indexFile;
 
     internal DirectoryInfo Directory { get; }
+
+    // O(1) membership set used to allocate unique checkpoint ids (GetUnusedCheckpointInfo) and to guard
+    // RetrieveCheckpointAsync. It intentionally coexists with OrderedCheckpointIndex below: this set answers
+    // "does this checkpoint exist?" in O(1), while the list preserves commit order. A single HashSet cannot do
+    // both because HashSet enumeration order is not a contract.
     internal HashSet<CheckpointInfo> CheckpointIndex { get; }
 
     // Insertion-ordered mirror of CheckpointIndex. HashSet enumeration order is not a contract (it can diverge

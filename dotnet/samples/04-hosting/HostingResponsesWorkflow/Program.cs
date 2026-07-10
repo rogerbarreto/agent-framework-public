@@ -40,12 +40,10 @@ var state = new HostedWorkflowState(workflow);
 
 var app = builder.Build();
 
-// The application owns this route.
-app.MapPost("/responses", async (HttpContext http, CancellationToken cancellationToken) =>
+// The application owns this route. Binding the body as JsonElement lets ASP.NET Core deserialize the JSON
+// request body directly, so there is no JsonDocument to own or dispose.
+app.MapPost("/responses", async (JsonElement body, HttpContext http, CancellationToken cancellationToken) =>
 {
-    using JsonDocument doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: cancellationToken).ConfigureAwait(false);
-    JsonElement body = doc.RootElement;
-
     // Workflow checkpoint resume needs a STABLE key across turns. previous_response_id changes every turn,
     // so key on the conversation id (constant for the conversation). The candidate is untrusted: a real app
     // authenticates the caller and authorizes/binds this key before using it. This sample falls back to a fresh id.

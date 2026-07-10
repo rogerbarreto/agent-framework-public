@@ -24,19 +24,6 @@ public class HostedWorkflowStateTests
         Assert.Throws<ArgumentNullException>("workflow", () => new HostedWorkflowState(null!));
 
     [Fact]
-    public void Workflow_ReturnsProvidedWorkflow()
-    {
-        // Arrange
-        var workflow = CreateTestWorkflow();
-
-        // Act
-        var state = new HostedWorkflowState(workflow);
-
-        // Assert
-        Assert.Same(workflow, state.Workflow);
-    }
-
-    [Fact]
     public void TryGetCheckpoint_UnknownSession_ReturnsFalse()
     {
         // Arrange
@@ -305,8 +292,8 @@ public class HostedWorkflowStateTests
         var state = new HostedWorkflowState(BriefWorkflow.Build());
 
         // Simulate parsing a structured Responses text payload into the start executor's input type.
-        const string responsesText = "{\"topic\":\"electric SUV\",\"style\":\"playful\"}";
-        using JsonDocument doc = JsonDocument.Parse(responsesText);
+        const string ResponsesText = "{\"topic\":\"electric SUV\",\"style\":\"playful\"}";
+        using JsonDocument doc = JsonDocument.Parse(ResponsesText);
         var brief = new BriefWorkflow.WriterBrief(
             doc.RootElement.GetProperty("topic").GetString()!,
             doc.RootElement.GetProperty("style").GetString()!);

@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Agents.AI.Workflows.InProc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Shared.Diagnostics;
@@ -40,6 +41,8 @@ namespace Microsoft.Agents.AI.Hosting;
 public sealed class HostedWorkflowState : IDisposable
 {
     private readonly CheckpointManager _checkpointManager;
+    private readonly IWorkflowExecutionEnvironment _executionEnvironment;
+    private readonly Workflow _workflow;
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CheckpointInfo> _cursor = new(StringComparer.Ordinal);
 
@@ -54,24 +57,31 @@ public sealed class HostedWorkflowState : IDisposable
     /// <param name="checkpointManager">
     /// The checkpoint manager to use. Defaults to <see cref="CheckpointManager.CreateInMemory"/> when not provided.
     /// </param>
+    /// <param name="executionEnvironment">
+    /// The workflow execution environment used to run and resume the workflow. Defaults to an in-process environment
+    /// (<see cref="InProcessExecutionEnvironment"/>) configured with <paramref name="checkpointManager"/>. Supplying a
+    /// custom environment (for example a future durable/out-of-process environment) is supported; the supplied
+    /// environment must be configured to checkpoint into the same store as <paramref name="checkpointManager"/>, since
+    /// the holder reads that manager directly to recover the head checkpoint when its in-memory cursor misses.
+    /// </param>
     /// <param name="loggerFactory">
     /// The logger factory used to report resume diagnostics (for example, a resume turn that made no progress).
     /// Defaults to <see cref="NullLoggerFactory"/> when not provided.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="workflow"/> is <see langword="null"/>.</exception>
-    public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null, ILoggerFactory? loggerFactory = null)
+    public HostedWorkflowState(
+        Workflow workflow,
+        CheckpointManager? checkpointManager = null,
+        IWorkflowExecutionEnvironment? executionEnvironment = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _ = Throw.IfNull(workflow);
 
-        this.Workflow = workflow;
+        this._workflow = workflow;
         this._checkpointManager = checkpointManager ?? CheckpointManager.CreateInMemory();
+        this._executionEnvironment = executionEnvironment ?? InProcessExecution.Default.WithCheckpointing(this._checkpointManager);
         this._logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger(typeof(HostedWorkflowState));
     }
-
-    /// <summary>
-    /// Gets the workflow target.
-    /// </summary>
-    public Workflow Workflow { get; }
 
     /// <summary>
     /// Runs the workflow forward for <paramref name="sessionId"/> with checkpointing on the first turn, or, on
@@ -123,7 +133,7 @@ public sealed class HostedWorkflowState : IDisposable
         if (head is null)
         {
             // First turn for this session: run the workflow forward from its start executor with the input.
-            Run freshRun = await InProcessExecution.RunAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false);
+            Run freshRun = await this._executionEnvironment.RunAsync(this._workflow, input, sessionId, cancellationToken).ConfigureAwait(false);
             await using (freshRun.ConfigureAwait(false))
             {
                 return this.Record(sessionId, freshRun.OutgoingEvents.ToList(), freshRun.LastCheckpoint);
@@ -136,9 +146,9 @@ public sealed class HostedWorkflowState : IDisposable
         //
         // The streaming resume restores state without draining to a halt first; the non-streaming resume would
         // block waiting for input immediately after restore (before we can deliver the new input).
-        ProtocolDescriptor descriptor = await this.Workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+        ProtocolDescriptor descriptor = await this._workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
 
-        StreamingRun resumed = await InProcessExecution.ResumeStreamingAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false);
+        StreamingRun resumed = await this._executionEnvironment.ResumeStreamingAsync(this._workflow, head, cancellationToken).ConfigureAwait(false);
         await using (resumed.ConfigureAwait(false))
         {
             await resumed.TrySendMessageAsync(input).ConfigureAwait(false);
@@ -197,14 +207,14 @@ public sealed class HostedWorkflowState : IDisposable
                 head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
             }
 
-            ProtocolDescriptor descriptor = await this.Workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+            ProtocolDescriptor descriptor = await this._workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
 
             // The fresh streaming run enqueues the input itself; the streaming resume restores state and needs the
             // input delivered explicitly. Neither streaming entry point seeds a TurnToken, so drive chat-protocol
             // workflows with one on both paths.
             StreamingRun run = head is null
-                ? await InProcessExecution.RunStreamingAsync(this.Workflow, input, this._checkpointManager, sessionId, cancellationToken).ConfigureAwait(false)
-                : await InProcessExecution.ResumeStreamingAsync(this.Workflow, head, this._checkpointManager, cancellationToken).ConfigureAwait(false);
+                ? await this._executionEnvironment.RunStreamingAsync(this._workflow, input, sessionId, cancellationToken).ConfigureAwait(false)
+                : await this._executionEnvironment.ResumeStreamingAsync(this._workflow, head, cancellationToken).ConfigureAwait(false);
 
             await using (run.ConfigureAwait(false))
             {
@@ -277,7 +287,10 @@ public sealed class HostedWorkflowState : IDisposable
     /// <param name="sessionId">The application-selected session id.</param>
     /// <param name="checkpoint">When this method returns, the recorded head checkpoint, or <see langword="null"/>.</param>
     /// <returns><see langword="true"/> when a checkpoint is recorded for the session; otherwise <see langword="false"/>.</returns>
-    public bool TryGetCheckpoint(string sessionId, out CheckpointInfo? checkpoint)
+    /// <remarks>
+    /// Internal cursor-inspection helper used by tests; not part of the public surface.
+    /// </remarks>
+    internal bool TryGetCheckpoint(string sessionId, out CheckpointInfo? checkpoint)
     {
         _ = Throw.IfNullOrEmpty(sessionId);
         return this._cursor.TryGetValue(sessionId, out checkpoint);
