@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Linq;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
 
@@ -70,5 +71,75 @@ public class MessageMergerTests
 
         // Assert - FinishReason from the update should propagate through
         response.FinishReason.Should().Be(ChatFinishReason.ContentFilter);
+    }
+
+    [Fact]
+    public void Test_MessageMerger_NullMessageId_CoalescesWithAdjacentUpdates()
+    {
+        // Simulates the MEAI OpenAIResponsesChatClient behavior where reasoning
+        // content streams with MessageId = null while text gets a proper MessageId.
+        // The merger should preserve insertion order so that ToChatResponse()
+        // coalesces null-MessageId updates with the surrounding message.
+        DateTimeOffset creationTime = DateTimeOffset.UtcNow;
+        string responseId = Guid.NewGuid().ToString("N");
+        string textMessageId = Guid.NewGuid().ToString("N");
+
+        MessageMerger merger = new();
+
+        // Reasoning updates with null MessageId (the MEAI bug)
+        merger.AddUpdate(new AgentResponseUpdate
+        {
+            Role = ChatRole.Assistant,
+            AuthorName = TestAuthorName1,
+            Contents = [new TextReasoningContent("Let me think...")],
+            ResponseId = responseId,
+            AgentId = TestAgentId1,
+            CreatedAt = creationTime,
+            MessageId = null,
+        });
+
+        merger.AddUpdate(new AgentResponseUpdate
+        {
+            Contents = [new TextReasoningContent(" 2 + 2 = 4.")],
+            ResponseId = responseId,
+            AgentId = TestAgentId1,
+            CreatedAt = creationTime,
+            MessageId = null,
+        });
+
+        // Text updates with a proper MessageId
+        merger.AddUpdate(new AgentResponseUpdate
+        {
+            Role = ChatRole.Assistant,
+            AuthorName = TestAuthorName1,
+            Contents = [new TextContent("The answer is ")],
+            ResponseId = responseId,
+            AgentId = TestAgentId1,
+            CreatedAt = creationTime,
+            MessageId = textMessageId,
+        });
+
+        merger.AddUpdate(new AgentResponseUpdate
+        {
+            Contents = [new TextContent("4.")],
+            ResponseId = responseId,
+            AgentId = TestAgentId1,
+            CreatedAt = creationTime,
+            MessageId = textMessageId,
+        });
+
+        AgentResponse response = merger.ComputeMerged(responseId);
+
+        // Reasoning and text should be coalesced into the same message
+        // because null MessageId is treated as "same message" by ToChatResponse().
+        response.Messages.Should().HaveCount(1);
+        response.Messages[0].Role.Should().Be(ChatRole.Assistant);
+        response.Messages[0].AuthorName.Should().Be(TestAuthorName1);
+
+        var reasoningContents = response.Messages[0].Contents.OfType<TextReasoningContent>().ToList();
+        var textContents = response.Messages[0].Contents.OfType<TextContent>().ToList();
+
+        reasoningContents.Should().NotBeEmpty("reasoning content should be in the message");
+        textContents.Should().NotBeEmpty("text content should be in the message");
     }
 }
