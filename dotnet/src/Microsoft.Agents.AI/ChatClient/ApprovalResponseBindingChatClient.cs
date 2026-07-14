@@ -301,7 +301,9 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         {
             if (known.Add(request.RequestId))
             {
-                pendingRequests.Add(request);
+                // Store a snapshot so a later mutation of the caller-visible instance cannot change
+                // the recorded tool call used to bind the response.
+                pendingRequests.Add(SnapshotRequest(request));
                 changed = true;
             }
         }
@@ -310,6 +312,25 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         {
             SavePendingApprovalRequests(pendingRequests, session);
         }
+    }
+
+    /// <summary>
+    /// Creates a snapshot of an approval request so a later mutation of the caller-visible instance
+    /// (for example changing the tool call arguments) cannot alter the recorded request used for binding.
+    /// </summary>
+    private static ToolApprovalRequestContent SnapshotRequest(ToolApprovalRequestContent request)
+    {
+        if (request.ToolCall is FunctionCallContent functionCall)
+        {
+            var clonedCall = new FunctionCallContent(
+                functionCall.CallId,
+                functionCall.Name,
+                functionCall.Arguments is null ? null : new Dictionary<string, object?>(functionCall.Arguments));
+
+            return new ToolApprovalRequestContent(request.RequestId, clonedCall);
+        }
+
+        return request;
     }
 
     private static List<ToolApprovalRequestContent> LoadPendingApprovalRequests(AgentSession session)

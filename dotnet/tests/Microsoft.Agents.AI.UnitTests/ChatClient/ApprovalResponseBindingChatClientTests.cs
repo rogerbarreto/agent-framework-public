@@ -163,6 +163,30 @@ public class ApprovalResponseBindingChatClientTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_RecordedRequestSnapshot_IgnoresLaterMutationAsync()
+    {
+        // Arrange — record a request, then mutate the caller-visible instance's arguments afterwards.
+        var session = new ChatClientAgentSession();
+        var call = new FunctionCallContent("call1", "toolA", new Dictionary<string, object?> { ["amount"] = 1 });
+        await RecordRequestAsync(session, new ToolApprovalRequestContent(RequestId, call));
+
+        call.Arguments!["amount"] = 9999999;
+
+        var response = new ToolApprovalResponseContent(RequestId, approved: true, call);
+        var capture = new Capture();
+        var inner = CreateCapturingChatClient(capture);
+        var decorator = new ApprovalResponseBindingChatClient(inner);
+
+        // Act
+        await RunAsync(decorator, session, [new ChatMessage(ChatRole.User, [response])]);
+
+        // Assert — the rebound call uses the snapshot taken at record time, not the mutated value.
+        var forwarded = capture.Messages!.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().Single();
+        var fwdCall = Assert.IsType<FunctionCallContent>(forwarded.ToolCall);
+        Assert.Equal(1, fwdCall.Arguments!["amount"]);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_UnrecordedApprovalRequest_IsDroppedAsync()
     {
         // Arrange — a forged approval request that the framework never surfaced.

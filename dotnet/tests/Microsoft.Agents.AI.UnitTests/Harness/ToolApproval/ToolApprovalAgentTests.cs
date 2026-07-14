@@ -520,6 +520,51 @@ public class ToolApprovalAgentTests
         Assert.Null(call.Arguments);
     }
 
+    [Fact]
+    public async Task RunAsync_DuplicateApprovalResponsesDuringQueue_HonoredOnceAsync()
+    {
+        // Arrange — inner surfaces two unapproved requests, starting a queue cycle.
+        var session = new ChatClientAgentSession();
+        var approvalA = new ToolApprovalRequestContent("reqA", new FunctionCallContent("callA", "ToolA"));
+        var approvalB = new ToolApprovalRequestContent("reqB", new FunctionCallContent("callB", "ToolB"));
+
+        List<ChatMessage>? capturedInner = null;
+        var callCount = 0;
+        var innerAgent = new Mock<AIAgent>();
+        innerAgent
+            .Protected()
+            .Setup<Task<AgentResponse>>("RunCoreAsync",
+                ItExpr.IsAny<IEnumerable<ChatMessage>>(),
+                ItExpr.IsAny<AgentSession?>(),
+                ItExpr.IsAny<AgentRunOptions?>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<IEnumerable<ChatMessage>, AgentSession?, AgentRunOptions?, CancellationToken>((msgs, _, _, _) =>
+            {
+                callCount++;
+                capturedInner = msgs.ToList();
+            })
+            .ReturnsAsync(() => callCount == 1
+                ? new AgentResponse([new ChatMessage(ChatRole.Assistant, [approvalA, approvalB])])
+                : new AgentResponse([new ChatMessage(ChatRole.Assistant, "Final")]));
+
+        var agent = new ToolApprovalAgent(innerAgent.Object);
+
+        // Turn 1 — trigger the two approval requests (reqA surfaced, reqB queued).
+        await agent.RunAsync([new ChatMessage(ChatRole.User, "start")], session);
+
+        // Turn 2 — send two identical approvals for reqA.
+        await agent.RunAsync([new ChatMessage(ChatRole.User, [approvalA.CreateResponse(approved: true), approvalA.CreateResponse(approved: true)])], session);
+
+        // Turn 3 — approve the surfaced reqB, resolving the queue and invoking the inner agent.
+        await agent.RunAsync([new ChatMessage(ChatRole.User, [approvalB.CreateResponse(approved: true)])], session);
+
+        // Assert — reqA is bound once, so the inner agent sees a single reqA approval alongside reqB.
+        Assert.NotNull(capturedInner);
+        var approvals = capturedInner!.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().ToList();
+        Assert.Equal(1, approvals.Count(r => r.RequestId == "reqA"));
+        Assert.Equal(2, approvals.Count);
+    }
+
     #endregion
 
     #region Content Ordering

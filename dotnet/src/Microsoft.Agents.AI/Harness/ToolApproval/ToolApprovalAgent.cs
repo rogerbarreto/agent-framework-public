@@ -317,8 +317,12 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
             {
                 if (content is ToolApprovalResponseContent response)
                 {
+                    // Remove on match so a duplicate response for the same request in this pass is
+                    // honored only once.
                     if (surfacedByRequestId.TryGetValue(response.RequestId, out var surfacedRequest))
                     {
+                        surfacedByRequestId.Remove(response.RequestId);
+
                         // Rebind to the surfaced request's tool call and record for injection.
                         state.CollectedApprovalResponses.Add(
                             new ToolApprovalResponseContent(response.RequestId, response.Approved, surfacedRequest.ToolCall)
@@ -359,6 +363,8 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
 
     /// <summary>
     /// Records the given approval requests as surfaced to the caller, de-duplicating by request id.
+    /// A snapshot of each request is stored so later mutation of the caller-visible instance cannot change
+    /// the recorded tool call used to bind the response.
     /// </summary>
     private static void RecordSurfacedApprovalRequests(ToolApprovalState state, IReadOnlyList<ToolApprovalRequestContent> requests)
     {
@@ -372,9 +378,28 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
         {
             if (known.Add(request.RequestId))
             {
-                state.SurfacedApprovalRequests.Add(request);
+                state.SurfacedApprovalRequests.Add(SnapshotRequest(request));
             }
         }
+    }
+
+    /// <summary>
+    /// Creates a snapshot of an approval request so a later mutation of the caller-visible instance
+    /// (for example changing the tool call arguments) cannot alter the recorded request used for binding.
+    /// </summary>
+    private static ToolApprovalRequestContent SnapshotRequest(ToolApprovalRequestContent request)
+    {
+        if (request.ToolCall is FunctionCallContent functionCall)
+        {
+            var clonedCall = new FunctionCallContent(
+                functionCall.CallId,
+                functionCall.Name,
+                functionCall.Arguments is null ? null : new Dictionary<string, object?>(functionCall.Arguments));
+
+            return new ToolApprovalRequestContent(request.RequestId, clonedCall);
+        }
+
+        return request;
     }
 
     /// <summary>
