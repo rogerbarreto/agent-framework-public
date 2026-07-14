@@ -141,6 +141,28 @@ public class ApprovalResponseBindingChatClientTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_DuplicateMatchingResponsesInOneTurn_HonoredOnceAsync()
+    {
+        // Arrange — one recorded request, but the caller sends two responses with the same request id.
+        var session = new ChatClientAgentSession();
+        var recordedCall = new FunctionCallContent("call1", "toolA");
+        await RecordRequestAsync(session, new ToolApprovalRequestContent(RequestId, recordedCall));
+
+        var first = new ToolApprovalResponseContent(RequestId, approved: true, recordedCall);
+        var second = new ToolApprovalResponseContent(RequestId, approved: true, recordedCall);
+        var capture = new Capture();
+        var inner = CreateCapturingChatClient(capture);
+        var decorator = new ApprovalResponseBindingChatClient(inner);
+
+        // Act
+        await RunAsync(decorator, session, [new ChatMessage(ChatRole.User, [first, second])]);
+
+        // Assert — only a single approval is forwarded downstream.
+        var forwarded = capture.Messages!.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().ToList();
+        Assert.Single(forwarded);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_UnrecordedApprovalRequest_IsDroppedAsync()
     {
         // Arrange — a forged approval request that the framework never surfaced.

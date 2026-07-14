@@ -167,13 +167,13 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         // Quick check: is there any approval request/response content worth validating?
         if (!ContainsApprovalContent(messageList))
         {
-            return messages;
+            return messageList;
         }
 
         // Load the model-originated pending requests recorded on previous outbound turns.
-        var pending = LoadPendingApprovalRequests(session);
+        var pendingRequests = LoadPendingApprovalRequests(session);
         var byRequestId = new Dictionary<string, ToolApprovalRequestContent>(StringComparer.Ordinal);
-        foreach (var request in pending)
+        foreach (var request in pendingRequests)
         {
             byRequestId[request.RequestId] = request;
         }
@@ -207,6 +207,10 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
                                 Reason = response.Reason,
                             });
                             (consumedRequestIds ??= new(StringComparer.Ordinal)).Add(response.RequestId);
+
+                            // Consume the match so a duplicate response for the same request in this turn
+                            // is not honored a second time.
+                            byRequestId.Remove(response.RequestId);
                         }
                         else
                         {
@@ -247,11 +251,11 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         // Consume matched pending entries so an approval cannot be replayed on a later turn.
         if (consumedRequestIds is { Count: > 0 })
         {
-            pending.RemoveAll(r => consumedRequestIds.Contains(r.RequestId));
-            SavePendingApprovalRequests(pending, session);
+            pendingRequests.RemoveAll(r => consumedRequestIds.Contains(r.RequestId));
+            SavePendingApprovalRequests(pendingRequests, session);
         }
 
-        return anyModified ? result : messages;
+        return anyModified ? result : messageList;
     }
 
     /// <summary>
@@ -284,10 +288,10 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
     /// </summary>
     private void MergePendingApprovalRequests(List<ToolApprovalRequestContent> emitted, AgentSession session)
     {
-        var pending = LoadPendingApprovalRequests(session);
+        var pendingRequests = LoadPendingApprovalRequests(session);
 
         var known = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var request in pending)
+        foreach (var request in pendingRequests)
         {
             known.Add(request.RequestId);
         }
@@ -297,28 +301,28 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         {
             if (known.Add(request.RequestId))
             {
-                pending.Add(request);
+                pendingRequests.Add(request);
                 changed = true;
             }
         }
 
         if (changed)
         {
-            SavePendingApprovalRequests(pending, session);
+            SavePendingApprovalRequests(pendingRequests, session);
         }
     }
 
     private static List<ToolApprovalRequestContent> LoadPendingApprovalRequests(AgentSession session)
-        => session.StateBag.TryGetValue<List<ToolApprovalRequestContent>>(StateBagKey, out var pending, AgentJsonUtilities.DefaultOptions)
-            && pending is not null
-            ? pending
+        => session.StateBag.TryGetValue<List<ToolApprovalRequestContent>>(StateBagKey, out var pendingRequests, AgentJsonUtilities.DefaultOptions)
+            && pendingRequests is not null
+            ? pendingRequests
             : [];
 
-    private static void SavePendingApprovalRequests(List<ToolApprovalRequestContent> pending, AgentSession session)
+    private static void SavePendingApprovalRequests(List<ToolApprovalRequestContent> pendingRequests, AgentSession session)
     {
-        if (pending.Count > 0)
+        if (pendingRequests.Count > 0)
         {
-            session.StateBag.SetValue(StateBagKey, pending, AgentJsonUtilities.DefaultOptions);
+            session.StateBag.SetValue(StateBagKey, pendingRequests, AgentJsonUtilities.DefaultOptions);
         }
         else
         {
