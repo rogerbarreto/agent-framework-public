@@ -2,16 +2,16 @@
 
 Server half of the [Hosting Responses Workflow](../README.md) sample.
 
-Exposes a workflow over the OpenAI Responses protocol on an app-owned `POST /responses` route. The workflow
+Exposes a workflow over the OpenAI Responses protocol on a `POST /responses` route you write. The workflow
 is a brief adapter, a slogan-writer agent, and a formatter that renders one slogan line. It uses the
 `OpenAIResponses` conversion helpers for the wire protocol and `HostedWorkflowState` for per-session
 checkpoint resume.
 
-Like the Python sample, this server supports **`previous_response_id` continuation only** and **rejects
-`conversation` continuity with HTTP 400**. Because `previous_response_id` rotates every turn, the app owns a
-cursor that maps each response id to the stable workflow session id, so the whole rotating chain resumes the
-same checkpointed run. The first turn runs the workflow forward; later turns restore the latest checkpoint
-and run forward with the new brief. Binds to `http://localhost:5001` (override with `ASPNETCORE_URLS`).
+This server supports **`previous_response_id` continuation only** and **rejects `conversation` continuity
+with HTTP 400**. Because `previous_response_id` rotates every turn, the app owns a cursor that maps each
+response id to the stable workflow session id, so the whole rotating chain resumes the same checkpointed
+run. The first turn runs the workflow forward; later turns restore the latest checkpoint and run forward
+with the new brief. Binds to `http://localhost:5001` (override with `ASPNETCORE_URLS`).
 
 ```bash
 export FOUNDRY_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"

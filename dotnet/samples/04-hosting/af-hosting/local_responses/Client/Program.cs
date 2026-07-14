@@ -1,7 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Client for the HostingResponsesAgent server sample. It shows the two idiomatic ways to consume an
-// OpenAI Responses endpoint from .NET, both pointed at the same app-owned server route:
+// OpenAI Responses endpoint from .NET, both pointed at the same server route (written in the paired Server):
 //
 //   1. CC  - a plain Microsoft.Extensions.AI IChatClient (the lower-level chat-client path).
 //   2. MAF - a Microsoft Agent Framework AIAgent + AgentSession (the higher-level agent path).

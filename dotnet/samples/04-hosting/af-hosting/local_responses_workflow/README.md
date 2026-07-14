@@ -1,8 +1,8 @@
 ﻿# Hosting Responses Workflow (client / server)
 
 A client/server pair showing how to expose a **workflow** over the OpenAI Responses protocol from an
-app-owned ASP.NET Core route with per-session checkpoint resume, and how to consume it from .NET two
-different ways. This mirrors the Python `local_responses_workflow` sample.
+ASP.NET Core route you write, with per-session checkpoint resume, and how to consume it from .NET two
+different ways.
 
 ```
 local_responses_workflow/
@@ -18,10 +18,10 @@ brief adapter, a slogan-writer agent, and a formatter that renders one slogan li
 workflow forward; later turns restore the latest checkpoint and run forward with the new brief. It binds to
 `http://localhost:5001`.
 
-Like the Python sample, the server supports **`previous_response_id` continuation only** and **rejects
-`conversation` continuity with HTTP 400**. Because `previous_response_id` rotates every turn, the app owns a
-cursor that maps each response id to the stable workflow session id (the .NET equivalent of the Python
-sample's `CheckpointCursorStore`).
+The server supports **`previous_response_id` continuation only** and **rejects `conversation` continuity
+with HTTP 400**. Because `previous_response_id` rotates every turn, the app owns a cursor that maps each
+response id to the stable workflow session id, so the whole rotating chain resumes the same checkpointed
+run.
 
 See [Server/README.md](Server/README.md).
 

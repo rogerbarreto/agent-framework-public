@@ -1,7 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 // Client for the local_responses_workflow server sample. Like the agent client, it shows the two idiomatic
-// ways to consume an OpenAI Responses endpoint from .NET, both pointed at the same app-owned workflow route:
+// ways to consume an OpenAI Responses endpoint from .NET, both pointed at the same workflow route (written in the paired Server):
 //
 //   1. CC  - a plain Microsoft.Extensions.AI IChatClient (the lower-level chat-client path).
 //   2. MAF - a Microsoft Agent Framework AIAgent + AgentSession (the higher-level agent path).

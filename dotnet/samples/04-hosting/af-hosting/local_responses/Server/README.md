@@ -2,7 +2,7 @@
 
 Server half of the [Hosting Responses Agent](../README.md) sample.
 
-Exposes an `AIAgent` over the OpenAI Responses protocol on an app-owned `POST /responses` route:
+Exposes an `AIAgent` over the OpenAI Responses protocol on a `POST /responses` route you write:
 
 - `OpenAIResponses.GetSessionId(body)` extracts the untrusted continuation-id candidate.
 - `OpenAIResponses.ToAgentRunRequest(body)` parses the request into messages + run options.
@@ -10,8 +10,7 @@ Exposes an `AIAgent` over the OpenAI Responses protocol on an app-owned `POST /r
   Responses wire shape (non-streaming JSON and SSE).
 
 Session continuity uses `HostedAgentState` over an in-memory `AgentSessionStore`. The agent has a
-deterministic `lookup_weather` tool (mirroring the Python sample). Binds to `http://localhost:5000` (override
-with `ASPNETCORE_URLS`).
+deterministic `lookup_weather` tool. Binds to `http://localhost:5000` (override with `ASPNETCORE_URLS`).
 
 ```bash
 export FOUNDRY_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"

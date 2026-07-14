@@ -21,7 +21,7 @@ string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
 string model = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-5.4-mini";
 
-// A deterministic weather tool (mirrors the Python sample's lookup_weather @tool).
+// A deterministic weather tool.
 [Description("Return a deterministic weather report for a city.")]
 static string LookupWeather([Description("The city to look up weather for.")] string location)
 {

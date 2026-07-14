@@ -5,11 +5,10 @@
 // HostedWorkflowState for per-session checkpoint resume. The application keeps control of routing, auth,
 // and checkpoint storage.
 //
-// Mirroring the Python local_responses_workflow sample, this server demonstrates previous_response_id
-// continuation ONLY. It rejects conversation-id continuity with HTTP 400. Because previous_response_id
-// rotates every turn, the app owns a cursor store that maps each response id to the stable workflow
-// session id, so the whole rotating chain resumes the same checkpointed run (the .NET equivalent of the
-// Python sample's file-backed CheckpointCursorStore).
+// This server demonstrates previous_response_id continuation ONLY. It rejects conversation-id continuity
+// with HTTP 400. Because previous_response_id rotates every turn, the app owns a cursor store that maps each
+// response id to the stable workflow session id, so the whole rotating chain resumes the same checkpointed
+// run.
 
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -37,7 +36,7 @@ AIAgent writer = projectClient.AsAIAgent(
     instructions: "You are an excellent slogan writer. Create one short slogan from the given brief.",
     name: "writer");
 
-// Workflow shape (mirrors the Python sample): a brief adapter turns the Responses input into the writer's
+// Workflow shape: a brief adapter turns the Responses input into the writer's
 // prompt and drives the agent turn, then a formatter renders the writer's output as a single slogan line.
 var briefExecutor = new BriefExecutor();
 var formatterExecutor = new SloganFormatterExecutor();
@@ -52,7 +51,7 @@ Workflow workflow = new WorkflowBuilder(briefExecutor)
 // sessionId -> CheckpointInfo head cursor so a session can resume from its last checkpoint.
 var state = new HostedWorkflowState(workflow);
 
-// App-owned response-id -> workflow-session-id cursor. previous_response_id rotates each turn, so every id in
+// The app keeps a response-id -> workflow-session-id cursor. previous_response_id rotates each turn, so every id in
 // a conversation's chain maps to the same workflow session, and resuming any of them restores that session's
 // latest checkpoint. In-memory for this local sample; a real app persists this per tenant/user.
 var responseToSession = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -136,7 +135,7 @@ static AgentResponse BuildWorkflowResponse(HostedWorkflowRunResult result)
 /// Adapts the Responses brief into the writer agent's turn. It builds the writer prompt from the brief (a plain
 /// topic string or a JSON object with topic/style/audience), sends it as a user message, and emits the
 /// <see cref="TurnToken"/> that drives the downstream agent. This keeps the workflow non-chat-protocol (its
-/// output is a plain string) while still driving the agent, mirroring the Python sample's prompt builder.
+/// output is a plain string) while still driving the agent.
 /// </summary>
 [SendsMessage(typeof(ChatMessage))]
 [SendsMessage(typeof(TurnToken))]

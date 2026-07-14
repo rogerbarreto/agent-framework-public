@@ -1,7 +1,7 @@
 # Hosting Responses Agent (client / server)
 
 A client/server pair showing how to expose an `AIAgent` over the OpenAI Responses protocol from an
-app-owned ASP.NET Core route, and how to consume it from .NET two different ways.
+ASP.NET Core route you write, and how to consume it from .NET two different ways.
 
 ```
 local_responses/
@@ -13,9 +13,9 @@ local_responses/
 
 The server owns routing, authentication, and session storage. The framework provides only the protocol
 conversion via `OpenAIResponses` (`GetSessionId`, `ToAgentRunRequest`, `WriteResponse` /
-`WriteResponseStreamAsync`), instead of the batteries-included `MapOpenAIResponses` server. The agent has a
-deterministic `lookup_weather` tool (mirroring the Python sample). Session continuity uses `HostedAgentState`
-over an in-memory `AgentSessionStore`. It binds to `http://localhost:5000`.
+`WriteResponseStreamAsync`), instead of the batteries-included `MapOpenAIResponses` endpoint. The agent has a
+deterministic `lookup_weather` tool. Session continuity uses `HostedAgentState` over an in-memory
+`AgentSessionStore`. It binds to `http://localhost:5000`.
 
 See [Server/README.md](Server/README.md).
 
