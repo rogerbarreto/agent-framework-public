@@ -33,10 +33,10 @@ public sealed class HostedAgentState
     private readonly AIAgent _agent;
     private readonly AgentSessionStore _sessionStore;
 
-    // Per-session-store-id mutexes for LockSessionAsync. Guarded by _sessionLocksSync for all reads and
-    // mutations (including the reference count), so entries can be reclaimed when their last holder releases
-    // without racing a concurrent acquirer. Null when session locking is disabled.
-    private readonly Dictionary<string, SessionLock>? _sessionLocks;
+    // Per-session-store-id mutexes that serialize create-on-miss inside GetOrCreateSessionAsync. Guarded by
+    // _sessionLocksSync for all reads and mutations (including the reference count), so entries are reclaimed
+    // once their last user finishes without racing a concurrent one.
+    private readonly Dictionary<string, SessionLock> _sessionLocks = new(StringComparer.Ordinal);
     private readonly object _sessionLocksSync = new();
 
     /// <summary>
@@ -46,18 +46,13 @@ public sealed class HostedAgentState
     /// <param name="sessionStore">
     /// The session store to use. Defaults to a fresh <see cref="InMemoryAgentSessionStore"/> when not provided.
     /// </param>
-    /// <param name="enableSessionLocking">
-    /// When <see langword="true"/>, <see cref="LockSessionAsync"/> serializes access per session id. Defaults
-    /// to <see langword="false"/>.
-    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="agent"/> is <see langword="null"/>.</exception>
-    public HostedAgentState(AIAgent agent, AgentSessionStore? sessionStore = null, bool enableSessionLocking = false)
+    public HostedAgentState(AIAgent agent, AgentSessionStore? sessionStore = null)
     {
         _ = Throw.IfNull(agent);
 
         this._agent = agent;
         this._sessionStore = sessionStore ?? new InMemoryAgentSessionStore();
-        this._sessionLocks = enableSessionLocking ? new Dictionary<string, SessionLock>(StringComparer.Ordinal) : null;
     }
 
     /// <summary>
@@ -66,10 +61,26 @@ public sealed class HostedAgentState
     /// <param name="sessionStoreId">The application-selected id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>The resolved or newly created <see cref="AgentSession"/>.</returns>
-    public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Concurrent calls for the same <paramref name="sessionStoreId"/> are serialized internally so create-on-miss
+    /// stays consistent. The locking is automatic and internal; callers never manage it.
+    /// </remarks>
+    public async ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNullOrEmpty(sessionStoreId);
-        return this._sessionStore.GetSessionAsync(this._agent, sessionStoreId, cancellationToken);
+
+        SessionLock entry = this.RentSessionLock(sessionStoreId);
+        bool acquired = false;
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
+            return await this._sessionStore.GetSessionAsync(this._agent, sessionStoreId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.ReleaseSessionLock(sessionStoreId, entry, acquired);
+        }
     }
 
     /// <summary>
@@ -100,53 +111,21 @@ public sealed class HostedAgentState
         return this._sessionStore.DeleteSessionAsync(this._agent, sessionStoreId, cancellationToken);
     }
 
-    /// <summary>
-    /// Acquires an exclusive lock for <paramref name="sessionStoreId"/> so concurrent requests for the same
-    /// session serialize their get-run-save cycle. Dispose the returned value to release the lock.
-    /// </summary>
-    /// <param name="sessionStoreId">The application-selected id under which the session is stored.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
-    /// <returns>An <see cref="IAsyncDisposable"/> that releases the lock when disposed.</returns>
-    /// <remarks>
-    /// When session locking is not enabled, this returns immediately with a no-op releaser. Otherwise each
-    /// distinct <paramref name="sessionStoreId"/> gets a reference-counted mutex that is removed once its last
-    /// holder releases, so the lock table does not grow unbounded as new session ids arrive.
-    /// </remarks>
-    public async ValueTask<IAsyncDisposable> LockSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
+    // Reserves a reference to the per-session lock, creating it on first use. Callers must pair this with
+    // ReleaseSessionLock. Reference counting lets the entry be reclaimed once no caller holds or waits on it.
+    private SessionLock RentSessionLock(string sessionStoreId)
     {
-        _ = Throw.IfNullOrEmpty(sessionStoreId);
-
-        if (this._sessionLocks is null)
-        {
-            return NoopReleaser.Instance;
-        }
-
-        // Reserve a reference before waiting so a concurrent releaser cannot reclaim the entry from under us.
-        SessionLock entry;
         lock (this._sessionLocksSync)
         {
-            if (!this._sessionLocks.TryGetValue(sessionStoreId, out entry!))
+            if (!this._sessionLocks.TryGetValue(sessionStoreId, out SessionLock? entry))
             {
                 entry = new SessionLock();
                 this._sessionLocks[sessionStoreId] = entry;
             }
 
             entry.RefCount++;
+            return entry;
         }
-
-        try
-        {
-            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            // The wait was cancelled (or faulted) before we held the lock. Drop our reservation and reclaim
-            // the entry if we were the last referent.
-            this.ReleaseSessionLock(sessionStoreId, entry, acquired: false);
-            throw;
-        }
-
-        return new SessionLockReleaser(this, sessionStoreId, entry);
     }
 
     private void ReleaseSessionLock(string sessionStoreId, SessionLock entry, bool acquired)
@@ -160,27 +139,23 @@ public sealed class HostedAgentState
 
             if (--entry.RefCount == 0)
             {
-                // No holders or waiters remain (every acquirer bumps RefCount before waiting), so it is safe to
-                // remove and dispose. A later acquire for the same id simply creates a fresh entry.
-                this._sessionLocks!.Remove(sessionStoreId);
+                // No user holds or waits on this lock (every user bumps RefCount before waiting), so it is safe
+                // to remove and dispose. A later call for the same id simply creates a fresh entry. This keeps
+                // the lock table from growing unbounded as new session ids arrive.
+                this._sessionLocks.Remove(sessionStoreId);
                 entry.Semaphore.Dispose();
             }
         }
     }
 
     /// <summary>
-    /// Gets the number of active per-session locks currently tracked. Zero when session locking is disabled.
+    /// Gets the number of active per-session locks currently tracked.
     /// </summary>
-    /// <remarks>Internal test hook used to verify that released locks are reclaimed.</remarks>
+    /// <remarks>Internal test hook used to verify that per-session locks are reclaimed.</remarks>
     internal int ActiveSessionLockCount
     {
         get
         {
-            if (this._sessionLocks is null)
-            {
-                return 0;
-            }
-
             lock (this._sessionLocksSync)
             {
                 return this._sessionLocks.Count;
@@ -195,24 +170,5 @@ public sealed class HostedAgentState
         // Number of callers that currently hold or are waiting on this lock. Mutated only under
         // HostedAgentState._sessionLocksSync.
         public int RefCount;
-    }
-
-    private sealed class SessionLockReleaser(HostedAgentState owner, string sessionStoreId, SessionLock entry) : IAsyncDisposable
-    {
-        private HostedAgentState? _owner = owner;
-
-        public ValueTask DisposeAsync()
-        {
-            // Release at most once even if the caller disposes more than once.
-            Interlocked.Exchange(ref this._owner, null)?.ReleaseSessionLock(sessionStoreId, entry, acquired: true);
-            return default;
-        }
-    }
-
-    private sealed class NoopReleaser : IAsyncDisposable
-    {
-        public static readonly NoopReleaser Instance = new();
-
-        public ValueTask DisposeAsync() => default;
     }
 }

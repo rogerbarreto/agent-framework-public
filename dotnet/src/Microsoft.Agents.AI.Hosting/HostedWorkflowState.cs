@@ -47,7 +47,7 @@ public sealed class HostedWorkflowState : IDisposable
     private readonly ConcurrentDictionary<string, CheckpointInfo> _cursor = new(StringComparer.Ordinal);
 
     // A single workflow instance backs every session on this holder, and workflow instances do not support
-    // concurrent runs, so all turns are serialized through one lock (mirroring the Python host's workflow lock).
+    // concurrent runs, so all turns are serialized through one lock.
     private readonly SemaphoreSlim _workflowLock = new(1, 1);
 
     /// <summary>
@@ -89,10 +89,10 @@ public sealed class HostedWorkflowState : IDisposable
     /// the new turn's <paramref name="input"/>. The new head checkpoint is recorded for the session afterwards.
     /// </summary>
     /// <remarks>
-    /// The resume semantics mirror the Python hosting host (<c>agent_framework_hosting</c>'s <c>_invoke_workflow</c>):
-    /// each turn restores the latest checkpoint to rehydrate accumulated workflow state and then applies the new
-    /// input, rather than continuing a halted run with no input (which would leave the run waiting for input
-    /// indefinitely). For agent (chat-protocol) workflows the new input is accompanied by a
+    /// The resume semantics restore then run: each turn restores the latest checkpoint to rehydrate accumulated
+    /// workflow state and then applies the new input, rather than continuing a halted run with no input (which
+    /// would leave the run waiting for input indefinitely). For agent (chat-protocol) workflows the new input is
+    /// accompanied by a
     /// <see cref="TurnToken"/> so the turn is driven, matching the fresh-run path.
     /// </remarks>
     /// <typeparam name="TInput">The workflow input type.</typeparam>
@@ -126,7 +126,7 @@ public sealed class HostedWorkflowState : IDisposable
         {
             // The in-memory cursor is empty for this session. Fall back to the checkpoint manager so a durable
             // manager still resumes after the cursor is lost (for example a process restart or a new holder over
-            // the same store), mirroring the Python host's per-turn get_latest read-through.
+            // the same store).
             head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
         }
 
@@ -274,9 +274,8 @@ public sealed class HostedWorkflowState : IDisposable
     }
 
     private void WarnOnNoProgress(string sessionId)
-        // The resumed turn drove no work. This mirrors the Python host's zero-event restore warning: the
-        // checkpoint may be stale or the input may not match the workflow's expected type, so the session's
-        // state may not have progressed.
+        // The resumed turn drove no work: the checkpoint may be stale or the input may not match the workflow's
+        // expected type, so the session's state may not have progressed.
         => this._logger.LogWarning(
             "Resuming workflow session '{SessionId}' produced no events; the checkpoint may be stale or the input may not match the workflow's expected input type. Session state may not have progressed.",
             sessionId);

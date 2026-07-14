@@ -10,7 +10,7 @@ namespace Microsoft.Agents.AI.Hosting.UnitTests;
 /// Builds a workflow whose start executor accepts a typed <see cref="WriterBrief"/> (not
 /// <c>List&lt;ChatMessage&gt;</c>) and yields a formatted string. Used to demonstrate that an application can
 /// adapt Responses input into a workflow's native start-executor input via the generic
-/// <c>RunOrResumeAsync&lt;TInput&gt;</c> (the .NET counterpart of Python's <c>ResponsesChannel</c> run hook).
+/// <c>RunOrResumeAsync&lt;TInput&gt;</c>.
 /// </summary>
 internal static class BriefWorkflow
 {

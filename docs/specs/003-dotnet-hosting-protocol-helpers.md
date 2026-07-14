@@ -127,32 +127,31 @@ public sealed class HostedWorkflowState
 ```
 
 `HostedAgentState.GetOrCreateSessionAsync` delegates to `AgentSessionStore.GetSessionAsync(agent, id)`
-(which already creates on miss). `SaveSessionAsync(id, session)` persists post-run, including under a
-newly minted `resp_*` id when the protocol mints a new continuation id. Optional per-session locking
-serializes concurrent first-touch of the same id. `DeleteSessionAsync` uses the new store method.
+(which already creates on miss), serializing concurrent first-touch of the same id through an internal
+per-session lock (automatic and on by default; callers never manage it).
+`SaveSessionAsync(id, session)` persists post-run, including under a newly minted `resp_*` id when the
+protocol mints a new continuation id. `DeleteSessionAsync` uses the new store method.
 
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory
 `sessionId -> CheckpointInfo` cursor. Because the checkpoint store is already `sessionId`-keyed but
 `CheckpointInfo` carries no ordering, the holder remembers the head checkpoint per session so
 `RunOrResumeAsync` can resume the correct one. On subsequent turns it restores that checkpoint to
-rehydrate accumulated workflow state and then runs the workflow forward with the new turn's input —
-mirroring the Python hosting host's restore-then-run semantics (`agent_framework_hosting`'s
-`_invoke_workflow`), rather than continuing a halted run with no input (which would wait for input
+rehydrate accumulated workflow state and then runs the workflow forward with the new turn's input,
+rather than continuing a halted run with no input (which would wait for input
 indefinitely). For agent (chat-protocol) workflows the new input is accompanied by a `TurnToken` so the
 turn is driven. When the in-memory cursor misses (a new holder or a process restart), the holder falls
 back to `CheckpointManager.GetLatestCheckpointAsync(sessionId)`, so a durable `CheckpointManager` resumes
 correctly across restarts (the default in-memory manager does not persist, so a restart starts fresh). A
-resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input),
-mirroring the Python host's zero-event restore warning. Because a single workflow instance backs the
+resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input).
+Because a single workflow instance backs the
 holder and workflow instances do not support concurrent runs, `RunOrResumeAsync` serializes turns through
-one lock (mirroring the Python host's workflow lock); `HostedWorkflowState` is therefore `IDisposable`. A
+one lock; `HostedWorkflowState` is therefore `IDisposable`. A
 streaming counterpart, `RunOrResumeStreamingAsync`, yields the turn's `WorkflowEvent`s as they occur (for
 example to render agent updates over the Responses SSE wire) and records the head checkpoint once the
-stream is fully enumerated, keeping the blocking and streaming workflow paths in lockstep as Python does.
+stream is fully enumerated, keeping the blocking and streaming workflow paths in lockstep.
 Because `RunOrResumeAsync`/`RunOrResumeStreamingAsync` are generic over the input type, the application
 adapts the Responses input into the workflow's start-executor input type at the call site (for example
-parsing a structured payload into a typed record) — the .NET counterpart of Python's `ResponsesChannel`
-run hook, without coupling the holder to a specific wire type.
+parsing a structured payload into a typed record), without coupling the holder to a specific wire type.
 
 ## Non-goals for v1
 

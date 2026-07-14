@@ -137,7 +137,7 @@ public class HostedWorkflowStateTests
         HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", 42);
 
         // Assert: a resume that produced no events is surfaced as a warning (possible stale checkpoint /
-        // mismatched input), mirroring the Python host's zero-event restore warning.
+        // mismatched input).
         Assert.Empty(second.Events);
         Assert.Contains(loggerFactory.Entries, e => e.Level == LogLevel.Warning);
     }
@@ -287,8 +287,8 @@ public class HostedWorkflowStateTests
     public async Task RunOrResumeAsync_AdaptsResponsesInputToTypedStartExecutorAsync()
     {
         // Arrange: a workflow whose start executor takes a typed WriterBrief rather than List<ChatMessage>.
-        // The application adapts the Responses input into that type before calling RunOrResumeAsync — the
-        // generic TInput is the .NET counterpart of Python's ResponsesChannel run hook.
+        // The application adapts the Responses input into that type before calling RunOrResumeAsync via the
+        // generic TInput.
         var state = new HostedWorkflowState(BriefWorkflow.Build());
 
         // Simulate parsing a structured Responses text payload into the start executor's input type.

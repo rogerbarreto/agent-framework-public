@@ -52,8 +52,8 @@ A capability comparison of the ADR-0027 / PR #6891 helper surface against the ex
 | `responses_from_streaming_run` | `AgentResponseUpdateExtensions.ToStreamingResponseAsync` + `SseJsonResult` (also renders workflow events) | exists, internal, richer |
 | `responses_session_id` | continuity resolved inside `InMemoryResponsesService` | exists, internal, not standalone |
 | `create_response_id` | `IdGenerator` | exists, internal |
-| `AgentState` (target + store, get-or-create) | `AgentSessionStore` (get-or-create + save + serialize + isolation) | richer; missing `Delete` + per-session lock |
-| `SessionStore` (get/set/delete) | `AgentSessionStore` + `InMemoryAgentSessionStore` | richer; no `Delete` |
+| `AgentState` (target + store, get-or-create) | `AgentSessionStore` (get-or-create + save + serialize + isolation) | richer; internal per-session lock on create-on-miss (matches Python) |
+| `SessionStore` (get/set/delete) | `AgentSessionStore` + `InMemoryAgentSessionStore` | richer; `Delete` added |
 | `WorkflowState` + checkpoint resume | `WorkflowCatalog`/`HostedWorkflowBuilder`; workflow events already render over Responses; `CheckpointManager` is session-keyed | partial; no per-session checkpoint cursor |
 | App owns routing/auth/middleware/storage | `MapOpenAIResponses`/`IResponsesService` own routing + storage | **the one real gap** |
 
@@ -104,9 +104,10 @@ request object).
   isolation-decorator passthrough): the one missing store operation.
 - `HostedAgentState`: a thin holder bundling an `AIAgent` with an `AgentSessionStore`, exposing
   `GetOrCreateSessionAsync`, `SaveSessionAsync` (including under a newly minted id), and
-  `DeleteSessionAsync`, with optional per-session locking. It exists because only the holder has both
-  the target and the store; it does not replace `AgentSessionStore`, which already provides
-  serialization and isolation that Python's `AgentState`/`SessionStore` lack.
+  `DeleteSessionAsync`. `GetOrCreateSessionAsync` serializes concurrent first-touch of the same id through
+  an internal per-session lock (automatic and on by default; callers never manage locking). It exists
+  because only the holder has both the target and the store; it does not replace `AgentSessionStore`, which
+  already provides serialization and isolation that Python's `AgentState`/`SessionStore` lack.
 - `HostedWorkflowState`: a thin holder bundling a workflow target with a `CheckpointManager` and an
   internal `sessionId -> CheckpointInfo` head cursor, exposing `RunOrResumeAsync`. .NET's checkpoint
   store is already `sessionId`-keyed (unlike Python's workflow-name keying), but `CheckpointInfo` has

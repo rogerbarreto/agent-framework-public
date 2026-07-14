@@ -23,10 +23,10 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Tests;
 /// In-process, in-memory hosting tests for <see cref="OpenAIResponses"/>: a request travels through an
 /// app-owned ASP.NET Core route (hosted in-memory via <see cref="TestServer"/>) that wires
 /// <see cref="OpenAIResponses"/> plus <see cref="HostedAgentState"/> / <see cref="HostedWorkflowState"/>,
-/// exactly like the <c>HostingResponsesAgent</c> / <c>HostingResponsesWorkflow</c> samples. These run fully
+/// exactly like the <c>local_responses</c> / <c>local_responses_workflow</c> samples. These run fully
 /// in-process against a deterministic mock chat client — there is no external server process and no live
 /// model. Live-model coverage lives in the separate <c>Microsoft.Agents.AI.Hosting.OpenAI.IntegrationTests</c>
-/// project. This mirrors the Python <c>test_http_round_trip.py</c> coverage.
+/// project.
 /// </summary>
 public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
 {

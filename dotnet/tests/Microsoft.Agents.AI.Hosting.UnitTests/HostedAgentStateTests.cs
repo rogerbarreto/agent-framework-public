@@ -101,93 +101,90 @@ public class HostedAgentStateTests
     }
 
     [Fact]
-    public async Task LockSessionAsync_LockingDisabled_ReturnsNoopReleaserAsync()
+    public async Task GetOrCreateSessionAsync_SerializesConcurrentSameSessionAsync()
+    {
+        // Arrange: a store that signals when it is entered and blocks until released.
+        var store = new GatedStore();
+        var state = new HostedAgentState(this._agentMock.Object, store);
+
+        // Act: start a first get-or-create and wait until it is inside the store.
+        var first = state.GetOrCreateSessionAsync("session-1").AsTask();
+        await store.EnteredSignal.WaitAsync();
+
+        // A second get-or-create for the SAME id must not enter the store while the first holds the lock.
+        var second = state.GetOrCreateSessionAsync("session-1").AsTask();
+
+        // Assert: the second call is blocked (no second entry within the wait window).
+        Assert.False(await store.EnteredSignal.WaitAsync(TimeSpan.FromMilliseconds(200)));
+        Assert.Equal(1, store.EnterCount);
+
+        // Release the first; the second then enters and both complete.
+        store.Release.SetResult(true);
+        await Task.WhenAll(first, second);
+        Assert.Equal(2, store.EnterCount);
+
+        // The per-session lock is reclaimed once no caller holds it.
+        Assert.Equal(0, state.ActiveSessionLockCount);
+    }
+
+    [Fact]
+    public async Task GetOrCreateSessionAsync_DifferentSessions_DoNotBlockEachOtherAsync()
     {
         // Arrange
+        var store = new GatedStore();
+        var state = new HostedAgentState(this._agentMock.Object, store);
+
+        // Act: a first call holds session-a inside the store.
+        var first = state.GetOrCreateSessionAsync("session-a").AsTask();
+        await store.EnteredSignal.WaitAsync();
+
+        // A call for a DIFFERENT id must not be blocked by the first (locking is per session id).
+        var second = state.GetOrCreateSessionAsync("session-b").AsTask();
+
+        // Assert: the second call enters the store even though the first is still blocked.
+        Assert.True(await store.EnteredSignal.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Equal(2, store.EnterCount);
+
+        store.Release.SetResult(true);
+        await Task.WhenAll(first, second);
+        Assert.Equal(0, state.ActiveSessionLockCount);
+    }
+
+    [Fact]
+    public async Task GetOrCreateSessionAsync_ReclaimsLockAfterUseAsync()
+    {
+        // Arrange
+        this._storeMock
+            .Setup(s => s.GetSessionAsync(It.IsAny<AIAgent>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(new ValueTask<AgentSession>(this._session));
         var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object);
 
         // Act
-        var releaser = await state.LockSessionAsync("session-1");
+        _ = await state.GetOrCreateSessionAsync("session-1");
 
-        // Assert (a second acquire does not block when locking is disabled)
-        var second = await state.LockSessionAsync("session-1");
-        await releaser.DisposeAsync();
-        await second.DisposeAsync();
-    }
-
-    [Fact]
-    public async Task LockSessionAsync_LockingEnabled_SerializesSameSessionAsync()
-    {
-        // Arrange
-        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
-        var first = await state.LockSessionAsync("session-1");
-
-        // Act: a second acquire for the same session must not complete until the first is released.
-        var secondTask = state.LockSessionAsync("session-1").AsTask();
-        var completedBeforeRelease = secondTask.IsCompleted;
-        await first.DisposeAsync();
-        var second = await secondTask;
-        await second.DisposeAsync();
-
-        // Assert
-        Assert.False(completedBeforeRelease);
-    }
-
-    [Fact]
-    public async Task LockSessionAsync_ReleasingLastHolder_ReclaimsLockEntryAsync()
-    {
-        // Arrange
-        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
-
-        // Act: acquire and release two different sessions, then acquire/release one again.
-        var a = await state.LockSessionAsync("session-a");
-        var b = await state.LockSessionAsync("session-b");
-        Assert.Equal(2, state.ActiveSessionLockCount);
-
-        await a.DisposeAsync();
-        await b.DisposeAsync();
-
-        // Assert: the lock table is emptied once every holder releases, so it does not grow unbounded.
+        // Assert: the lock table does not retain an entry once the call completes.
         Assert.Equal(0, state.ActiveSessionLockCount);
     }
 
-    [Fact]
-    public async Task LockSessionAsync_ConcurrentHolder_KeepsEntryUntilBothReleaseAsync()
+    private sealed class GatedStore : AgentSessionStore
     {
-        // Arrange
-        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
+        public SemaphoreSlim EnteredSignal { get; } = new(0);
+        public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int EnterCount;
 
-        // Act: first holder owns the lock; a second acquire for the same id is pending (still a live referent).
-        var first = await state.LockSessionAsync("session-1");
-        var secondTask = state.LockSessionAsync("session-1").AsTask();
+        public override async ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref this.EnterCount);
+            this.EnteredSignal.Release();
+            await this.Release.Task.ConfigureAwait(false);
+            return new TestAgentSession();
+        }
 
-        // Assert: the entry survives while a second referent is waiting.
-        Assert.Equal(1, state.ActiveSessionLockCount);
+        public override ValueTask SaveSessionAsync(AIAgent agent, string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
+            => default;
 
-        await first.DisposeAsync();
-        var second = await secondTask;
-        Assert.Equal(1, state.ActiveSessionLockCount);
-
-        await second.DisposeAsync();
-        Assert.Equal(0, state.ActiveSessionLockCount);
-    }
-
-    [Fact]
-    public async Task LockSessionAsync_CancelledAcquire_ReclaimsReservationAsync()
-    {
-        // Arrange: hold the lock so a second acquire blocks, then cancel that second acquire.
-        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
-        var holder = await state.LockSessionAsync("session-1");
-        using var cts = new CancellationTokenSource();
-
-        // Act
-        var pending = state.LockSessionAsync("session-1", cts.Token).AsTask();
-        cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
-
-        // Assert: the cancelled reservation is dropped; releasing the holder reclaims the entry.
-        await holder.DisposeAsync();
-        Assert.Equal(0, state.ActiveSessionLockCount);
+        public override ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
+            => default;
     }
 
     private sealed class TestAgentSession : AgentSession;
