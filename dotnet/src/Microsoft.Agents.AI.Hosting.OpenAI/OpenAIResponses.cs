@@ -23,9 +23,10 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI;
 /// and reuse only the protocol conversion. Both share the same internal conversion logic.
 /// </para>
 /// <para>
-/// <strong>Trust boundary.</strong> <see cref="GetSessionId(JsonElement)"/> returns an untrusted candidate
-/// continuation key. The application must authenticate the caller and authorize/bind the id to the
-/// authenticated principal before using it as a session or checkpoint key. The helpers never perform I/O.
+/// <strong>Trust boundary.</strong> <see cref="GetSessionStoreId(OpenAIResponsesRunRequest)"/> returns an
+/// untrusted candidate continuation key. The application must authenticate the caller and authorize/bind the
+/// id to the authenticated principal before using it as a session or checkpoint key. The helpers never
+/// perform I/O.
 /// </para>
 /// </remarks>
 public static class OpenAIResponses
@@ -67,7 +68,7 @@ public static class OpenAIResponses
             messages.Add(inputMessage.ToChatMessage());
         }
 
-        return new OpenAIResponsesRunRequest(messages, options);
+        return new OpenAIResponsesRunRequest(messages, options, request.PreviousResponseId, request.Conversation?.Id);
     }
 
     /// <summary>
@@ -75,16 +76,16 @@ public static class OpenAIResponses
     /// </summary>
     /// <param name="response">The agent response to render.</param>
     /// <param name="responseId">The id to assign to the rendered response (see <see cref="CreateResponseId"/>).</param>
-    /// <param name="sessionId">
-    /// The optional continuation/session id to surface as the response's conversation id.
+    /// <param name="conversationId">
+    /// The optional conversation id to surface on the rendered response.
     /// </param>
     /// <returns>An OpenAI Responses-shaped <see cref="JsonElement"/>.</returns>
-    public static JsonElement WriteResponse(AgentResponse response, string responseId, string? sessionId = null)
+    public static JsonElement WriteResponse(AgentResponse response, string responseId, string? conversationId = null)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentException.ThrowIfNullOrEmpty(responseId);
 
-        AgentInvocationContext context = CreateContext(responseId, sessionId);
+        AgentInvocationContext context = CreateContext(responseId, conversationId);
         Response wire = response.ToResponse(EmptyRequest(), context);
         return JsonSerializer.SerializeToElement(wire, OpenAIHostingJsonContext.Default.Response);
     }
@@ -94,19 +95,19 @@ public static class OpenAIResponses
     /// </summary>
     /// <param name="updates">The agent streaming updates.</param>
     /// <param name="responseId">The id to assign to the rendered response (see <see cref="CreateResponseId"/>).</param>
-    /// <param name="sessionId">The optional continuation/session id to surface as the response's conversation id.</param>
+    /// <param name="conversationId">The optional conversation id to surface on the rendered response.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>An async sequence of SSE frame strings, each terminated by a blank line.</returns>
     public static async IAsyncEnumerable<string> WriteResponseStreamAsync(
         IAsyncEnumerable<AgentResponseUpdate> updates,
         string responseId,
-        string? sessionId = null,
+        string? conversationId = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(updates);
         ArgumentException.ThrowIfNullOrEmpty(responseId);
 
-        AgentInvocationContext context = CreateContext(responseId, sessionId);
+        AgentInvocationContext context = CreateContext(responseId, conversationId);
         await foreach (StreamingResponseEvent streamingEvent in updates
             .ToStreamingResponseAsync(EmptyRequest(), context, cancellationToken)
             .ConfigureAwait(false))
@@ -117,37 +118,35 @@ public static class OpenAIResponses
     }
 
     /// <summary>
-    /// Extracts the continuation/session id candidate from an OpenAI Responses request body.
+    /// Extracts the id under which the session should be stored from an already-parsed
+    /// <see cref="OpenAIResponsesRunRequest"/>.
     /// </summary>
-    /// <param name="body">The OpenAI Responses-shaped request body.</param>
+    /// <param name="request">The parsed request produced by <see cref="ToAgentRunRequest(JsonElement, OpenAIResponsesMapOptions?)"/>.</param>
     /// <returns>
     /// The <c>previous_response_id</c> when present; otherwise the <c>conversation</c> id when present;
-    /// otherwise <see langword="null"/>. Returns <see langword="null"/> for a body that cannot be parsed.
+    /// otherwise <see langword="null"/> when the request carries neither.
     /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// This is kept separate from <see cref="ToAgentRunRequest(JsonElement, OpenAIResponsesMapOptions?)"/> so the
-    /// trust boundary stays visible: using a request-derived key is an explicit application decision. The returned
-    /// value is an <strong>untrusted candidate key</strong> until the application has authorized it for the caller.
+    /// This reads the ids off the already-parsed request rather than re-parsing the body, so an application
+    /// calls <see cref="ToAgentRunRequest(JsonElement, OpenAIResponsesMapOptions?)"/> once and then this. It is kept
+    /// separate so the trust boundary stays visible: using a request-derived key is an explicit application
+    /// decision, and the returned value is an <strong>untrusted candidate key</strong> until the application has
+    /// authorized it for the caller. A <see langword="null"/> result means only that the request carried no
+    /// continuation id (unparseable bodies are already rejected by <see cref="ToAgentRunRequest(JsonElement, OpenAIResponsesMapOptions?)"/>).
     /// <para>
     /// The Responses protocol treats <c>previous_response_id</c> and <c>conversation</c> as mutually exclusive; if a
-    /// payload sets both, this helper prefers <c>previous_response_id</c> (the response-chain pointer). Note that
-    /// <c>previous_response_id</c> changes each turn and is therefore not a stable partition key; prefer the
-    /// <c>conversation</c> id when a stable key is required (for example a workflow checkpoint cursor key).
+    /// request carries both, this helper prefers <c>previous_response_id</c> (the response-chain pointer). Note that
+    /// <c>previous_response_id</c> changes each turn and is therefore not a stable partition key; use
+    /// <see cref="OpenAIResponsesRunRequest.ConversationId"/> when a stable key is required (for example a workflow
+    /// checkpoint cursor key).
     /// </para>
     /// </remarks>
-    public static string? GetSessionId(JsonElement body)
+    public static string? GetSessionStoreId(OpenAIResponsesRunRequest request)
     {
-        CreateResponse? request;
-        try
-        {
-            request = body.Deserialize(OpenAIHostingJsonContext.Default.CreateResponse);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
+        ArgumentNullException.ThrowIfNull(request);
 
-        return request?.PreviousResponseId ?? request?.Conversation?.Id;
+        return request.PreviousResponseId ?? request.ConversationId;
     }
 
     /// <summary>
@@ -156,8 +155,8 @@ public static class OpenAIResponses
     /// <returns>A new response id.</returns>
     public static string CreateResponseId() => IdGenerator.NewId("resp");
 
-    private static AgentInvocationContext CreateContext(string responseId, string? sessionId)
-        => new(new IdGenerator(responseId, sessionId));
+    private static AgentInvocationContext CreateContext(string responseId, string? conversationId)
+        => new(new IdGenerator(responseId, conversationId));
 
     // The rendering converters never read the request input; a minimal request lets the facade render
     // a response without requiring the caller to supply the originating request object.

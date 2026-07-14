@@ -162,8 +162,8 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
                 return Results.BadRequest();
             }
 
-            string sessionId = OpenAIResponses.GetSessionId(body) ?? OpenAIResponses.CreateResponseId();
-            AgentSession session = await state.GetOrCreateSessionAsync(sessionId, ct);
+            string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
+            AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId, ct);
             string responseId = OpenAIResponses.CreateResponseId();
 
             if (body.TryGetProperty("stream", out JsonElement s) && s.ValueKind == JsonValueKind.True)
@@ -204,12 +204,12 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
         this._app.MapPost("/responses", async (JsonElement body, CancellationToken ct) =>
         {
             OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
-            string sessionId = GetConversationId(body) ?? OpenAIResponses.CreateResponseId();
+            string sessionStoreId = run.ConversationId ?? OpenAIResponses.CreateResponseId();
 
-            HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionId, run.Messages.ToList(), ct);
+            HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionStoreId, run.Messages.ToList(), ct);
 
             var response = new AgentResponse(new ChatMessage(ChatRole.Assistant, $"{result.Events.Count} event(s)"));
-            return Results.Json(OpenAIResponses.WriteResponse(response, OpenAIResponses.CreateResponseId(), sessionId));
+            return Results.Json(OpenAIResponses.WriteResponse(response, OpenAIResponses.CreateResponseId(), sessionStoreId));
         });
 
         await this._app.StartAsync();
@@ -225,21 +225,6 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
     }
 
     private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
-
-    private static string? GetConversationId(JsonElement body)
-    {
-        if (!body.TryGetProperty("conversation", out JsonElement conversation))
-        {
-            return null;
-        }
-
-        return conversation.ValueKind switch
-        {
-            JsonValueKind.String => conversation.GetString(),
-            JsonValueKind.Object when conversation.TryGetProperty("id", out JsonElement id) => id.GetString(),
-            _ => null,
-        };
-    }
 
     public async ValueTask DisposeAsync()
     {

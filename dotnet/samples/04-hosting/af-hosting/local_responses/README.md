@@ -12,7 +12,7 @@ local_responses/
 ## Server
 
 The server owns routing, authentication, and session storage. The framework provides only the protocol
-conversion via `OpenAIResponses` (`GetSessionId`, `ToAgentRunRequest`, `WriteResponse` /
+conversion via `OpenAIResponses` (`ToAgentRunRequest`, `GetSessionStoreId`, `WriteResponse` /
 `WriteResponseStreamAsync`), instead of the batteries-included `MapOpenAIResponses` endpoint. The agent has a
 deterministic `lookup_weather` tool. Session continuity uses `HostedAgentState` over an in-memory
 `AgentSessionStore`. It binds to `http://localhost:5000`.
@@ -51,7 +51,7 @@ The client defaults to `http://localhost:5000`; override with `RESPONSES_SERVER_
 
 ## Security note
 
-`OpenAIResponses.GetSessionId(...)` returns an untrusted candidate key. The server's `Authorize(...)` is a
+`OpenAIResponses.GetSessionStoreId(...)` returns an untrusted candidate key. The server's `Authorize(...)` is a
 placeholder; a real application must authenticate the caller and authorize/bind the id to the authenticated
 principal before using it as a session key. For multi-user hosts, scope the store with
 `IsolationKeyScopedAgentSessionStore`.

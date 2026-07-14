@@ -28,33 +28,47 @@ public class OpenAIResponsesTests
     }
 
     [Fact]
-    public void GetSessionId_PreviousResponseId_IsReturned()
+    public void GetSessionStoreId_PreviousResponseId_IsReturned()
     {
         // Arrange
         using var doc = JsonDocument.Parse("""{ "input": "hi", "previous_response_id": "resp_abc" }""");
+        var request = OpenAIResponses.ToAgentRunRequest(doc.RootElement);
 
         // Act & Assert
-        Assert.Equal("resp_abc", OpenAIResponses.GetSessionId(doc.RootElement));
+        Assert.Equal("resp_abc", OpenAIResponses.GetSessionStoreId(request));
     }
 
     [Fact]
-    public void GetSessionId_ConversationId_IsReturned()
+    public void GetSessionStoreId_ConversationId_IsReturned()
     {
         // Arrange
         using var doc = JsonDocument.Parse("""{ "input": "hi", "conversation": "conv_xyz" }""");
+        var request = OpenAIResponses.ToAgentRunRequest(doc.RootElement);
 
         // Act & Assert
-        Assert.Equal("conv_xyz", OpenAIResponses.GetSessionId(doc.RootElement));
+        Assert.Equal("conv_xyz", OpenAIResponses.GetSessionStoreId(request));
     }
 
     [Fact]
-    public void GetSessionId_NoContinuationKey_ReturnsNull()
+    public void GetSessionStoreId_BothPresent_PrefersPreviousResponseId()
+    {
+        // Arrange
+        using var doc = JsonDocument.Parse("""{ "input": "hi", "previous_response_id": "resp_abc", "conversation": "conv_xyz" }""");
+        var request = OpenAIResponses.ToAgentRunRequest(doc.RootElement);
+
+        // Act & Assert
+        Assert.Equal("resp_abc", OpenAIResponses.GetSessionStoreId(request));
+    }
+
+    [Fact]
+    public void GetSessionStoreId_NoContinuationKey_ReturnsNull()
     {
         // Arrange
         using var doc = JsonDocument.Parse("""{ "input": "hi" }""");
+        var request = OpenAIResponses.ToAgentRunRequest(doc.RootElement);
 
         // Act & Assert
-        Assert.Null(OpenAIResponses.GetSessionId(doc.RootElement));
+        Assert.Null(OpenAIResponses.GetSessionStoreId(request));
     }
 
     [Fact]
@@ -68,13 +82,13 @@ public class OpenAIResponsesTests
     }
 
     [Fact]
-    public void GetSessionId_MalformedBody_ReturnsNull()
+    public void ToAgentRunRequest_MalformedBody_ThrowsArgumentException()
     {
         // Arrange (an array is not a valid Responses body)
         using var doc = JsonDocument.Parse("""[ 1, 2, 3 ]""");
 
         // Act & Assert
-        Assert.Null(OpenAIResponses.GetSessionId(doc.RootElement));
+        Assert.Throws<ArgumentException>("body", () => OpenAIResponses.ToAgentRunRequest(doc.RootElement));
     }
 
     [Fact]
@@ -95,7 +109,7 @@ public class OpenAIResponsesTests
         const string ResponseId = "resp_test123";
 
         // Act
-        JsonElement payload = OpenAIResponses.WriteResponse(response, ResponseId, sessionId: "conv_1");
+        JsonElement payload = OpenAIResponses.WriteResponse(response, ResponseId, conversationId: "conv_1");
 
         // Assert
         Assert.Equal(ResponseId, payload.GetProperty("id").GetString());

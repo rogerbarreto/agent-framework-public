@@ -4,8 +4,10 @@ Server half of the [Hosting Responses Agent](../README.md) sample.
 
 Exposes an `AIAgent` over the OpenAI Responses protocol on a `POST /responses` route you write:
 
-- `OpenAIResponses.GetSessionId(body)` extracts the untrusted continuation-id candidate.
-- `OpenAIResponses.ToAgentRunRequest(body)` parses the request into messages + run options.
+- `OpenAIResponses.ToAgentRunRequest(body)` parses the request into messages, run options, and the
+  continuation ids.
+- `OpenAIResponses.GetSessionStoreId(run)` reads the untrusted continuation-id candidate off the parsed
+  request.
 - `OpenAIResponses.WriteResponse(...)` / `WriteResponseStreamAsync(...)` render the agent output back to the
   Responses wire shape (non-streaming JSON and SSE).
 

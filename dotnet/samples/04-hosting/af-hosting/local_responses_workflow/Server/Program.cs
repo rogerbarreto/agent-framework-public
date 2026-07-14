@@ -72,34 +72,32 @@ app.MapPost("/responses", async (JsonElement body, CancellationToken cancellatio
         return Results.BadRequest();
     }
 
-    // This sample supports previous_response_id continuation only. GetSessionId returns previous_response_id
-    // first, otherwise the conversation id; anything that is not a "resp_" id is a conversation id, which this
-    // server does not implement. The candidate is untrusted: a real app authenticates the caller and
-    // authorizes/binds it before use.
-    string? candidate = OpenAIResponses.GetSessionId(body);
-    if (candidate?.StartsWith("resp_", StringComparison.Ordinal) == false)
+    // This sample supports previous_response_id continuation only, read off the already-parsed request.
+    // A conversation id is not implemented here, so reject it. The candidate is untrusted: a real app
+    // authenticates the caller and authorizes/binds it before use.
+    if (run.ConversationId is not null)
     {
         return Results.Problem(
             detail: "This server supports previous_response_id continuation only; conversation is not implemented.",
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    string? previousResponseId = candidate;
+    string? previousResponseId = run.PreviousResponseId;
     string responseId = OpenAIResponses.CreateResponseId();
 
     // Resolve the workflow session: continue the chain's session when previous_response_id is known, otherwise
     // start a fresh workflow continuation.
-    string sessionId = previousResponseId is not null && responseToSession.TryGetValue(previousResponseId, out string? existing)
+    string sessionStoreId = previousResponseId is not null && responseToSession.TryGetValue(previousResponseId, out string? existing)
         ? existing
         : Guid.NewGuid().ToString("N");
 
     // Runs the workflow forward on the first call for this session, or restores the session's latest checkpoint
     // and runs forward with this turn's brief thereafter, then records the new head checkpoint.
     string brief = ExtractBrief(run.Messages);
-    HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionId, brief, cancellationToken).ConfigureAwait(false);
+    HostedWorkflowRunResult result = await state.RunOrResumeAsync(sessionStoreId, brief, cancellationToken).ConfigureAwait(false);
 
     // Map this response id onto the workflow session so the next previous_response_id continues the same run.
-    responseToSession[responseId] = sessionId;
+    responseToSession[responseId] = sessionStoreId;
 
     AgentResponse response = BuildWorkflowResponse(result);
     return Results.Json(OpenAIResponses.WriteResponse(response, responseId, previousResponseId));

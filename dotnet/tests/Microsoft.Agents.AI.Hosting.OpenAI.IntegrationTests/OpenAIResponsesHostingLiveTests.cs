@@ -36,9 +36,9 @@ public sealed class OpenAIResponsesHostingLiveTests
         JsonElement body = ParseBody("""{ "input": "Reply with exactly the word: apple" }""");
 
         // Act
-        string sessionId = OpenAIResponses.GetSessionId(body) ?? OpenAIResponses.CreateResponseId();
         OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
-        AgentSession session = await state.GetOrCreateSessionAsync(sessionId);
+        string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
+        AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId);
         string responseId = OpenAIResponses.CreateResponseId();
         AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options);
         JsonElement payload = OpenAIResponses.WriteResponse(result, responseId, responseId);
@@ -60,22 +60,22 @@ public sealed class OpenAIResponsesHostingLiveTests
         // Act: first turn establishes context, second turn continues from the first response id.
         string firstResponseId = await RunTurnAsync(agent, state, """{ "input": "Remember the number 7." }""");
         JsonElement secondBody = ParseBody($$"""{ "input": "What number did I ask you to remember?", "previous_response_id": "{{firstResponseId}}" }""");
-        string secondSessionId = OpenAIResponses.GetSessionId(secondBody)!;
         OpenAIResponsesRunRequest secondRun = OpenAIResponses.ToAgentRunRequest(secondBody);
-        AgentSession session = await state.GetOrCreateSessionAsync(secondSessionId);
+        string secondSessionStoreId = OpenAIResponses.GetSessionStoreId(secondRun)!;
+        AgentSession session = await state.GetOrCreateSessionAsync(secondSessionStoreId);
         AgentResponse secondResult = await agent.RunAsync(secondRun.Messages, session, secondRun.Options);
 
         // Assert: continuation succeeded and the model produced a textual answer.
-        Assert.Equal(secondSessionId, firstResponseId);
+        Assert.Equal(secondSessionStoreId, firstResponseId);
         Assert.False(string.IsNullOrWhiteSpace(secondResult.Text));
     }
 
     private static async Task<string> RunTurnAsync(AIAgent agent, HostedAgentState state, string bodyJson)
     {
         JsonElement body = ParseBody(bodyJson);
-        string sessionId = OpenAIResponses.GetSessionId(body) ?? OpenAIResponses.CreateResponseId();
         OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
-        AgentSession session = await state.GetOrCreateSessionAsync(sessionId);
+        string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
+        AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId);
         string responseId = OpenAIResponses.CreateResponseId();
         _ = await agent.RunAsync(run.Messages, session, run.Options);
         await state.SaveSessionAsync(responseId, session);

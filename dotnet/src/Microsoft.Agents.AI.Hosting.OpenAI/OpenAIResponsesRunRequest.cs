@@ -16,10 +16,12 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI;
 /// </remarks>
 public sealed class OpenAIResponsesRunRequest
 {
-    internal OpenAIResponsesRunRequest(IList<ChatMessage> messages, AgentRunOptions? options)
+    internal OpenAIResponsesRunRequest(IList<ChatMessage> messages, AgentRunOptions? options, string? previousResponseId = null, string? conversationId = null)
     {
         this.Messages = messages;
         this.Options = options;
+        this.PreviousResponseId = previousResponseId;
+        this.ConversationId = conversationId;
     }
 
     /// <summary>
@@ -33,4 +35,16 @@ public sealed class OpenAIResponsesRunRequest
     /// by default no request setting is mapped.
     /// </summary>
     public AgentRunOptions? Options { get; }
+
+    /// <summary>
+    /// Gets the request's <c>previous_response_id</c> continuation pointer, or <see langword="null"/> when absent.
+    /// This changes each turn (it follows the response chain), so it is not a stable partition key.
+    /// </summary>
+    public string? PreviousResponseId { get; }
+
+    /// <summary>
+    /// Gets the request's <c>conversation</c> id, or <see langword="null"/> when absent. Unlike
+    /// <see cref="PreviousResponseId"/>, this is stable across turns, so it is a valid stable partition key.
+    /// </summary>
+    public string? ConversationId { get; }
 }

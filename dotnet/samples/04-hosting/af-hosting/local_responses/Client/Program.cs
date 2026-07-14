@@ -43,7 +43,7 @@ await RunWithAgentAsync(responseClient, model, prompts).ConfigureAwait(false);
 // CC path: consume the endpoint through a Microsoft.Extensions.AI IChatClient. Continuity is threaded by
 // hand: each response carries the server's response id as ChatResponse.ConversationId, which we pass back
 // as the next turn's ChatOptions.ConversationId. Because it is a "resp_" id, the SDK sends it as
-// previous_response_id, exactly what the server's GetSessionId reads.
+// previous_response_id, exactly what the server's GetSessionStoreId reads.
 static async Task RunWithChatClientAsync(ResponsesClient responseClient, string model, string[] prompts)
 {
     Console.WriteLine("== CC: Microsoft.Extensions.AI IChatClient ==");

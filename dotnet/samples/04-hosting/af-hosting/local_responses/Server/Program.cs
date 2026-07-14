@@ -56,13 +56,15 @@ var app = builder.Build();
 // deserialize the JSON request body directly, so there is no JsonDocument to own or dispose.
 app.MapPost("/responses", async (JsonElement body, HttpContext http, CancellationToken cancellationToken) =>
 {
+    // Parse the request first, then read the continuation id off the parsed request (no second parse).
+    OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
+
     // The candidate continuation id is untrusted. A real app authenticates the caller and authorizes/binds
     // this key to the principal before using it. This sample simply falls back to a fresh id.
-    string? candidateSessionId = OpenAIResponses.GetSessionId(body);
-    string sessionId = Authorize(http, candidateSessionId) ?? OpenAIResponses.CreateResponseId();
+    string? candidateSessionStoreId = OpenAIResponses.GetSessionStoreId(run);
+    string sessionStoreId = Authorize(http, candidateSessionStoreId) ?? OpenAIResponses.CreateResponseId();
 
-    OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
-    AgentSession session = await state.GetOrCreateSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+    AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
     string responseId = OpenAIResponses.CreateResponseId();
 
     bool stream = body.TryGetProperty("stream", out JsonElement streamProp) && streamProp.ValueKind == JsonValueKind.True;
@@ -96,4 +98,4 @@ app.Run("http://localhost:5000");
 
 // Application-owned trust decision. Replace with real authentication + authorization: verify the caller,
 // then authorize/bind the candidate id to the authenticated principal before returning it.
-static string? Authorize(HttpContext http, string? candidateSessionId) => candidateSessionId;
+static string? Authorize(HttpContext http, string? candidateSessionStoreId) => candidateSessionStoreId;
