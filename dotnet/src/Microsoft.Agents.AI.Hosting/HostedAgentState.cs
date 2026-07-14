@@ -21,7 +21,7 @@ namespace Microsoft.Agents.AI.Hosting;
 /// which already provides serialization and per-principal isolation.
 /// </para>
 /// <para>
-/// <strong>Trust boundary.</strong> The <c>sessionId</c> values passed to these methods are
+/// <strong>Trust boundary.</strong> The <c>sessionStoreId</c> values passed to these methods are
 /// application-selected partition keys. When a key originates from the wire (for example via
 /// <c>OpenAIResponses.GetSessionId(...)</c>), the application must authenticate the caller and authorize
 /// the key before using it here. For multi-user hosts, scope the underlying store per principal with
@@ -56,65 +56,65 @@ public sealed class HostedAgentState
     }
 
     /// <summary>
-    /// Returns the stored session for <paramref name="sessionId"/>, creating a new session on first use.
+    /// Returns the stored session for <paramref name="sessionStoreId"/>, creating a new session on first use.
     /// </summary>
-    /// <param name="sessionId">The application-selected session id.</param>
+    /// <param name="sessionStoreId">The application-selected id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>The resolved or newly created <see cref="AgentSession"/>.</returns>
-    public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrEmpty(sessionId);
-        return this._sessionStore.GetSessionAsync(this._agent, sessionId, cancellationToken);
+        _ = Throw.IfNullOrEmpty(sessionStoreId);
+        return this._sessionStore.GetSessionAsync(this._agent, sessionStoreId, cancellationToken);
     }
 
     /// <summary>
-    /// Persists <paramref name="session"/> under <paramref name="sessionId"/>. Call this after the run
+    /// Persists <paramref name="session"/> under <paramref name="sessionStoreId"/>. Call this after the run
     /// completes, including under a newly minted continuation id when the protocol mints one.
     /// </summary>
-    /// <param name="sessionId">The application-selected session id (may be a newly minted id).</param>
+    /// <param name="sessionStoreId">The application-selected id under which the session is stored (may be a newly minted id).</param>
     /// <param name="session">The session to persist.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task representing the asynchronous save operation.</returns>
-    public ValueTask SaveSessionAsync(string sessionId, AgentSession session, CancellationToken cancellationToken = default)
+    public ValueTask SaveSessionAsync(string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionStoreId);
         _ = Throw.IfNull(session);
-        return this._sessionStore.SaveSessionAsync(this._agent, sessionId, session, cancellationToken);
+        return this._sessionStore.SaveSessionAsync(this._agent, sessionStoreId, session, cancellationToken);
     }
 
     /// <summary>
-    /// Deletes the stored session for <paramref name="sessionId"/>, if present.
+    /// Deletes the stored session for <paramref name="sessionStoreId"/>, if present.
     /// </summary>
-    /// <param name="sessionId">The application-selected session id.</param>
+    /// <param name="sessionStoreId">The application-selected id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task representing the asynchronous delete operation.</returns>
     /// <exception cref="NotSupportedException">The underlying store does not support deletion.</exception>
-    public ValueTask DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public ValueTask DeleteSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrEmpty(sessionId);
-        return this._sessionStore.DeleteSessionAsync(this._agent, sessionId, cancellationToken);
+        _ = Throw.IfNullOrEmpty(sessionStoreId);
+        return this._sessionStore.DeleteSessionAsync(this._agent, sessionStoreId, cancellationToken);
     }
 
     /// <summary>
-    /// Acquires an exclusive lock for <paramref name="sessionId"/> so concurrent requests for the same
+    /// Acquires an exclusive lock for <paramref name="sessionStoreId"/> so concurrent requests for the same
     /// session serialize their get-run-save cycle. Dispose the returned value to release the lock.
     /// </summary>
-    /// <param name="sessionId">The application-selected session id.</param>
+    /// <param name="sessionStoreId">The application-selected id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>An <see cref="IAsyncDisposable"/> that releases the lock when disposed.</returns>
     /// <remarks>
     /// When session locking is not enabled, this returns immediately with a no-op releaser.
     /// </remarks>
-    public async ValueTask<IAsyncDisposable> LockSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async ValueTask<IAsyncDisposable> LockSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrEmpty(sessionId);
+        _ = Throw.IfNullOrEmpty(sessionStoreId);
 
         if (this._sessionLocks is null)
         {
             return NoopReleaser.Instance;
         }
 
-        SemaphoreSlim gate = this._sessionLocks.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+        SemaphoreSlim gate = this._sessionLocks.GetOrAdd(sessionStoreId, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new SemaphoreReleaser(gate);
     }

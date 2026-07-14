@@ -12,19 +12,19 @@ namespace Microsoft.Agents.AI.Hosting;
 public sealed class NoopAgentSessionStore : AgentSessionStore
 {
     /// <inheritdoc/>
-    public override ValueTask SaveSessionAsync(AIAgent agent, string conversationId, AgentSession session, CancellationToken cancellationToken = default)
+    public override ValueTask SaveSessionAsync(AIAgent agent, string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
     {
         return default;
     }
 
     /// <inheritdoc/>
-    public override ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+    public override ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
     {
         return agent.CreateSessionAsync(cancellationToken);
     }
 
     /// <inheritdoc/>
-    public override ValueTask DeleteSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+    public override ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
     {
         return default;
     }

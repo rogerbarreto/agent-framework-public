@@ -17,17 +17,17 @@ namespace Microsoft.Agents.AI.Hosting;
 /// or different service instances in hosted scenarios.
 /// </para>
 /// <para>
-/// <strong>Trust model.</strong> The <c>conversationId</c> passed to
-/// <see cref="GetSessionAsync"/> and <see cref="SaveSessionAsync"/> typically originates
-/// from the wire (for example, an AG-UI <c>RunAgentInput.ThreadId</c> or an A2A
-/// <c>contextId</c>). It is a chain-resume identifier, <em>not</em> an authorization
-/// token, and the <c>(agent, conversationId)</c> tuple carries no principal/owner
+/// <strong>Trust model.</strong> The <c>sessionStoreId</c> passed to
+/// <see cref="GetSessionAsync"/> and <see cref="SaveSessionAsync"/> is the id under which the session is
+/// stored. It typically originates from the wire (for example, an AG-UI <c>RunAgentInput.ThreadId</c> or an
+/// A2A <c>contextId</c>). It is a chain-resume identifier, <em>not</em> an authorization
+/// token, and the <c>(agent, sessionStoreId)</c> tuple carries no principal/owner
 /// dimension. Hosts that serve more than one user from the same registered store must
 /// therefore compose a principal dimension into the lookup key, otherwise any caller
-/// who knows or guesses another caller's <c>conversationId</c> can resume
+/// who knows or guesses another caller's <c>sessionStoreId</c> can resume
 /// that other caller's persisted thread. The framework provides
 /// <see cref="IsolationKeyScopedAgentSessionStore"/> as a decorator that rewrites
-/// <c>conversationId</c> to include an isolation key resolved from a
+/// <c>sessionStoreId</c> to include an isolation key resolved from a
 /// <see cref="SessionIsolationKeyProvider"/> (for example, the ASP.NET Core
 /// <c>ClaimsIdentitySessionIsolationKeyProvider</c> wired up via
 /// <c>UseClaimsBasedSessionIsolation(...)</c>). When no provider is registered, the
@@ -36,12 +36,12 @@ namespace Microsoft.Agents.AI.Hosting;
 /// </para>
 /// <para>
 /// <strong>Implementer guidance.</strong> Implementations should treat
-/// <c>conversationId</c> as opaque: do not parse it, do not impose length
+/// <c>sessionStoreId</c> as opaque: do not parse it, do not impose length
 /// or character-set constraints on it, and do not assume it round-trips to the value
 /// the caller originally supplied (decorators such as
 /// <see cref="IsolationKeyScopedAgentSessionStore"/> may rewrite it before forwarding).
 /// Be aware that any logging, telemetry, or audit sink that surfaces
-/// <c>conversationId</c> will also surface the isolation prefix when a
+/// <c>sessionStoreId</c> will also surface the isolation prefix when a
 /// scoping decorator is in the chain.
 /// </para>
 /// </remarks>
@@ -51,13 +51,13 @@ public abstract class AgentSessionStore
     /// Saves a serialized agent session to persistent storage.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation/session.</param>
+    /// <param name="sessionStoreId">The id under which the session is stored.</param>
     /// <param name="session">The session to save.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous save operation.</returns>
     public abstract ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        string sessionStoreId,
         AgentSession session,
         CancellationToken cancellationToken = default);
 
@@ -65,7 +65,7 @@ public abstract class AgentSessionStore
     /// Retrieves a serialized agent session from persistent storage.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation/session to retrieve.</param>
+    /// <param name="sessionStoreId">The id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>
     /// A task that represents the asynchronous retrieval operation.
@@ -73,26 +73,25 @@ public abstract class AgentSessionStore
     /// </returns>
     public abstract ValueTask<AgentSession> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
+        string sessionStoreId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a stored agent session, if present.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation/session to delete.</param>
+    /// <param name="sessionStoreId">The id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous delete operation.</returns>
     /// <remarks>
-    /// The default implementation throws <see cref="NotSupportedException"/>. Stores that support removal
-    /// override this method. Deleting a missing session is a no-op for stores that override it.
+    /// Implementations that support removal delete the session and treat a missing session as a no-op.
+    /// Implementations that genuinely cannot support deletion should throw <see cref="NotSupportedException"/>.
     /// </remarks>
     /// <exception cref="NotSupportedException">The store does not support deletion.</exception>
-    public virtual ValueTask DeleteSessionAsync(
+    public abstract ValueTask DeleteSessionAsync(
         AIAgent agent,
-        string conversationId,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException($"{this.GetType().Name} does not support session deletion.");
+        string sessionStoreId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Asks the <see cref="AgentSessionStore"/> for an object of the specified type <paramref name="serviceType"/>.</summary>
     /// <param name="serviceType">The type of object being requested.</param>

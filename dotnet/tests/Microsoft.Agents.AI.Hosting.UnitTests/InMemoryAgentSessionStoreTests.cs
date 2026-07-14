@@ -63,9 +63,9 @@ public class InMemoryAgentSessionStoreTests
     }
 
     [Fact]
-    public async Task DeleteSessionAsync_BaseDefault_ThrowsNotSupportedAsync()
+    public async Task DeleteSessionAsync_StoreOptsOut_ThrowsNotSupportedAsync()
     {
-        // Arrange
+        // Arrange: a store that chooses not to support deletion throws NotSupportedException itself.
         AgentSessionStore store = new ConcreteAgentSessionStore();
 
         // Act & Assert
@@ -76,10 +76,13 @@ public class InMemoryAgentSessionStoreTests
 
     private sealed class ConcreteAgentSessionStore : AgentSessionStore
     {
-        public override ValueTask SaveSessionAsync(AIAgent agent, string conversationId, AgentSession session, CancellationToken cancellationToken = default)
+        public override ValueTask SaveSessionAsync(AIAgent agent, string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
             => default;
 
-        public override ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string conversationId, CancellationToken cancellationToken = default)
+        public override ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
             => new(new TestAgentSession());
+
+        public override ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }
