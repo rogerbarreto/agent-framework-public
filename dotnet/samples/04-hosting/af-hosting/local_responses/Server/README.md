@@ -11,8 +11,11 @@ Exposes an `AIAgent` over the OpenAI Responses protocol on a `POST /responses` r
 - `OpenAIResponses.WriteResponse(...)` / `WriteResponseStreamAsync(...)` render the agent output back to the
   Responses wire shape (non-streaming JSON and SSE).
 
-Session continuity uses `HostedAgentState` over an in-memory `AgentSessionStore`. The agent has a
-deterministic `lookup_weather` tool. Binds to `http://localhost:5000` (override with `ASPNETCORE_URLS`).
+Session continuity uses `HostedAgentState` over an in-memory `AgentSessionStore`. Session locking is enabled
+(`HostedAgentState(agent, enableSessionLocking: true)`), and the route wraps its get-run-save cycle in
+`LockSessionAsync(sessionStoreId)` so concurrent turns continuing the same session serialize instead of
+racing the stored state. The agent has a deterministic `lookup_weather` tool. Binds to
+`http://localhost:5000` (override with `ASPNETCORE_URLS`).
 
 ```bash
 export FOUNDRY_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"

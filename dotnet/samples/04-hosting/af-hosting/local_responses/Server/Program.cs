@@ -47,7 +47,9 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), new DefaultAzureCredentia
         tools: [AIFunctionFactory.Create(LookupWeather, name: "lookup_weather")]);
 
 // Optional shared execution state: pairs the agent with a session store (in-memory by default).
-var state = new HostedAgentState(agent);
+// enableSessionLocking makes LockSessionAsync serialize concurrent turns that continue the same session,
+// so their get-run-save cycles cannot clobber each other's stored state.
+var state = new HostedAgentState(agent, enableSessionLocking: true);
 
 var app = builder.Build();
 
@@ -63,6 +65,11 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     // this key to the principal before using it. This sample simply falls back to a fresh id.
     string? candidateSessionStoreId = OpenAIResponses.GetSessionStoreId(run);
     string sessionStoreId = Authorize(http, candidateSessionStoreId) ?? OpenAIResponses.CreateResponseId();
+
+    // Serialize the whole get-run-save cycle for this session so two concurrent turns continuing the same
+    // session cannot race the read-modify-write. The lock is released when the handler returns (for the
+    // streaming path, it is held for the duration of the SSE stream, which is intended).
+    await using IAsyncDisposable sessionLock = await state.LockSessionAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
 
     AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
     string responseId = OpenAIResponses.CreateResponseId();

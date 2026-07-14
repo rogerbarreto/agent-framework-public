@@ -133,5 +133,62 @@ public class HostedAgentStateTests
         Assert.False(completedBeforeRelease);
     }
 
+    [Fact]
+    public async Task LockSessionAsync_ReleasingLastHolder_ReclaimsLockEntryAsync()
+    {
+        // Arrange
+        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
+
+        // Act: acquire and release two different sessions, then acquire/release one again.
+        var a = await state.LockSessionAsync("session-a");
+        var b = await state.LockSessionAsync("session-b");
+        Assert.Equal(2, state.ActiveSessionLockCount);
+
+        await a.DisposeAsync();
+        await b.DisposeAsync();
+
+        // Assert: the lock table is emptied once every holder releases, so it does not grow unbounded.
+        Assert.Equal(0, state.ActiveSessionLockCount);
+    }
+
+    [Fact]
+    public async Task LockSessionAsync_ConcurrentHolder_KeepsEntryUntilBothReleaseAsync()
+    {
+        // Arrange
+        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
+
+        // Act: first holder owns the lock; a second acquire for the same id is pending (still a live referent).
+        var first = await state.LockSessionAsync("session-1");
+        var secondTask = state.LockSessionAsync("session-1").AsTask();
+
+        // Assert: the entry survives while a second referent is waiting.
+        Assert.Equal(1, state.ActiveSessionLockCount);
+
+        await first.DisposeAsync();
+        var second = await secondTask;
+        Assert.Equal(1, state.ActiveSessionLockCount);
+
+        await second.DisposeAsync();
+        Assert.Equal(0, state.ActiveSessionLockCount);
+    }
+
+    [Fact]
+    public async Task LockSessionAsync_CancelledAcquire_ReclaimsReservationAsync()
+    {
+        // Arrange: hold the lock so a second acquire blocks, then cancel that second acquire.
+        var state = new HostedAgentState(this._agentMock.Object, this._storeMock.Object, enableSessionLocking: true);
+        var holder = await state.LockSessionAsync("session-1");
+        using var cts = new CancellationTokenSource();
+
+        // Act
+        var pending = state.LockSessionAsync("session-1", cts.Token).AsTask();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+
+        // Assert: the cancelled reservation is dropped; releasing the holder reclaims the entry.
+        await holder.DisposeAsync();
+        Assert.Equal(0, state.ActiveSessionLockCount);
+    }
+
     private sealed class TestAgentSession : AgentSession;
 }

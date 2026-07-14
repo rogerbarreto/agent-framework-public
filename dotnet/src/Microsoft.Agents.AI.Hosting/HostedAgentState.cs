@@ -1,7 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Shared.Diagnostics;
@@ -32,7 +32,12 @@ public sealed class HostedAgentState
 {
     private readonly AIAgent _agent;
     private readonly AgentSessionStore _sessionStore;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim>? _sessionLocks;
+
+    // Per-session-store-id mutexes for LockSessionAsync. Guarded by _sessionLocksSync for all reads and
+    // mutations (including the reference count), so entries can be reclaimed when their last holder releases
+    // without racing a concurrent acquirer. Null when session locking is disabled.
+    private readonly Dictionary<string, SessionLock>? _sessionLocks;
+    private readonly object _sessionLocksSync = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HostedAgentState"/> class.
@@ -52,7 +57,7 @@ public sealed class HostedAgentState
 
         this._agent = agent;
         this._sessionStore = sessionStore ?? new InMemoryAgentSessionStore();
-        this._sessionLocks = enableSessionLocking ? new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal) : null;
+        this._sessionLocks = enableSessionLocking ? new Dictionary<string, SessionLock>(StringComparer.Ordinal) : null;
     }
 
     /// <summary>
@@ -103,7 +108,9 @@ public sealed class HostedAgentState
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>An <see cref="IAsyncDisposable"/> that releases the lock when disposed.</returns>
     /// <remarks>
-    /// When session locking is not enabled, this returns immediately with a no-op releaser.
+    /// When session locking is not enabled, this returns immediately with a no-op releaser. Otherwise each
+    /// distinct <paramref name="sessionStoreId"/> gets a reference-counted mutex that is removed once its last
+    /// holder releases, so the lock table does not grow unbounded as new session ids arrive.
     /// </remarks>
     public async ValueTask<IAsyncDisposable> LockSessionAsync(string sessionStoreId, CancellationToken cancellationToken = default)
     {
@@ -114,19 +121,90 @@ public sealed class HostedAgentState
             return NoopReleaser.Instance;
         }
 
-        SemaphoreSlim gate = this._sessionLocks.GetOrAdd(sessionStoreId, static _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new SemaphoreReleaser(gate);
+        // Reserve a reference before waiting so a concurrent releaser cannot reclaim the entry from under us.
+        SessionLock entry;
+        lock (this._sessionLocksSync)
+        {
+            if (!this._sessionLocks.TryGetValue(sessionStoreId, out entry!))
+            {
+                entry = new SessionLock();
+                this._sessionLocks[sessionStoreId] = entry;
+            }
+
+            entry.RefCount++;
+        }
+
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The wait was cancelled (or faulted) before we held the lock. Drop our reservation and reclaim
+            // the entry if we were the last referent.
+            this.ReleaseSessionLock(sessionStoreId, entry, acquired: false);
+            throw;
+        }
+
+        return new SessionLockReleaser(this, sessionStoreId, entry);
     }
 
-    private sealed class SemaphoreReleaser(SemaphoreSlim gate) : IAsyncDisposable
+    private void ReleaseSessionLock(string sessionStoreId, SessionLock entry, bool acquired)
     {
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "The semaphore is owned by the per-session dictionary and reused across callers; the releaser only releases it.")]
-        private SemaphoreSlim? _gate = gate;
+        lock (this._sessionLocksSync)
+        {
+            if (acquired)
+            {
+                entry.Semaphore.Release();
+            }
+
+            if (--entry.RefCount == 0)
+            {
+                // No holders or waiters remain (every acquirer bumps RefCount before waiting), so it is safe to
+                // remove and dispose. A later acquire for the same id simply creates a fresh entry.
+                this._sessionLocks!.Remove(sessionStoreId);
+                entry.Semaphore.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of active per-session locks currently tracked. Zero when session locking is disabled.
+    /// </summary>
+    /// <remarks>Internal test hook used to verify that released locks are reclaimed.</remarks>
+    internal int ActiveSessionLockCount
+    {
+        get
+        {
+            if (this._sessionLocks is null)
+            {
+                return 0;
+            }
+
+            lock (this._sessionLocksSync)
+            {
+                return this._sessionLocks.Count;
+            }
+        }
+    }
+
+    private sealed class SessionLock
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+        // Number of callers that currently hold or are waiting on this lock. Mutated only under
+        // HostedAgentState._sessionLocksSync.
+        public int RefCount;
+    }
+
+    private sealed class SessionLockReleaser(HostedAgentState owner, string sessionStoreId, SessionLock entry) : IAsyncDisposable
+    {
+        private HostedAgentState? _owner = owner;
 
         public ValueTask DisposeAsync()
         {
-            Interlocked.Exchange(ref this._gate, null)?.Release();
+            // Release at most once even if the caller disposes more than once.
+            Interlocked.Exchange(ref this._owner, null)?.ReleaseSessionLock(sessionStoreId, entry, acquired: true);
             return default;
         }
     }
