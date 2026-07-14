@@ -255,6 +255,10 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
             // 5. Queue excess unapproved requests and yield only the first to the caller.
             if (unapproved.Count > 1)
             {
+                // Record every unapproved request as surfaced so the caller's responses can be bound to a
+                // model-originated request during the queue cycle.
+                RecordSurfacedApprovalRequests(state, unapproved);
+
                 state.QueuedApprovalRequests.AddRange(unapproved.GetRange(1, unapproved.Count - 1));
             }
 
@@ -266,13 +270,25 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
 
     /// <summary>
     /// Extracts <see cref="ToolApprovalResponseContent"/> instances from the caller's messages
-    /// and collects them into <see cref="ToolApprovalState.CollectedApprovalResponses"/>.
-    /// Extracted responses are removed from the messages in-place.
+    /// and collects the ones bound to a request the harness surfaced into
+    /// <see cref="ToolApprovalState.CollectedApprovalResponses"/>.
+    /// Extracted responses are removed from the messages in-place. Only a response whose request id matches a
+    /// surfaced request is honored, and a matched response has its tool call rebound to the surfaced request's
+    /// tool call so an approved call matches exactly what was surfaced for approval.
     /// </summary>
     private static void CollectApprovalResponsesFromMessages(
         List<ChatMessage> messages,
         ToolApprovalState state)
     {
+        // Index the requests the harness surfaced so responses can be bound to a model-originated request.
+        var surfacedByRequestId = new Dictionary<string, ToolApprovalRequestContent>(StringComparer.Ordinal);
+        foreach (var surfaced in state.SurfacedApprovalRequests)
+        {
+            surfacedByRequestId[surfaced.RequestId] = surfaced;
+        }
+
+        HashSet<string>? consumedRequestIds = null;
+
         // Walk messages in reverse so we can safely remove by index.
         for (int i = messages.Count - 1; i >= 0; i--)
         {
@@ -294,13 +310,25 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
                 continue;
             }
 
-            // Separate approval responses (→ state) from other content (→ keep in message).
+            // Separate bound approval responses (→ state) from other content (→ keep in message).
+            // Responses not tied to a surfaced request are not collected, so only genuine approvals take effect.
             var remaining = new List<AIContent>(message.Contents.Count);
             foreach (var content in message.Contents)
             {
                 if (content is ToolApprovalResponseContent response)
                 {
-                    state.CollectedApprovalResponses.Add(response);
+                    if (surfacedByRequestId.TryGetValue(response.RequestId, out var surfacedRequest))
+                    {
+                        // Rebind to the surfaced request's tool call and record for injection.
+                        state.CollectedApprovalResponses.Add(
+                            new ToolApprovalResponseContent(response.RequestId, response.Approved, surfacedRequest.ToolCall)
+                            {
+                                Reason = response.Reason,
+                            });
+                        (consumedRequestIds ??= new(StringComparer.Ordinal)).Add(response.RequestId);
+                    }
+
+                    // Bound responses are collected above; either way the response is not kept in the message.
                 }
                 else
                 {
@@ -319,6 +347,32 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
                 var cloned = message.Clone();
                 cloned.Contents = remaining;
                 messages[i] = cloned;
+            }
+        }
+
+        // Consume surfaced requests whose response has now been collected, so they cannot be replayed.
+        if (consumedRequestIds is { Count: > 0 })
+        {
+            state.SurfacedApprovalRequests.RemoveAll(r => consumedRequestIds.Contains(r.RequestId));
+        }
+    }
+
+    /// <summary>
+    /// Records the given approval requests as surfaced to the caller, de-duplicating by request id.
+    /// </summary>
+    private static void RecordSurfacedApprovalRequests(ToolApprovalState state, IReadOnlyList<ToolApprovalRequestContent> requests)
+    {
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var surfaced in state.SurfacedApprovalRequests)
+        {
+            known.Add(surfaced.RequestId);
+        }
+
+        foreach (var request in requests)
+        {
+            if (known.Add(request.RequestId))
+            {
+                state.SurfacedApprovalRequests.Add(request);
             }
         }
     }
@@ -388,6 +442,8 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
             }
 
             // Queue fully resolved — caller should proceed to call the inner agent.
+            // Clear any surfaced requests left over from the completed queue cycle.
+            state.SurfacedApprovalRequests.Clear();
         }
 
         return (state, callerMessages, null);
@@ -485,10 +541,17 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
         // Pass 2: Keep only the first unapproved request in the response (for the caller to decide).
         //         Queue the remaining unapproved requests for subsequent one-at-a-time delivery.
         //         Remove all auto-approved and queued items from the response messages.
-        for (int i = 1; i < unapproved.Count; i++)
+        if (unapproved.Count > 1)
         {
-            toRemove.Add(unapproved[i]);
-            state.QueuedApprovalRequests.Add(unapproved[i]);
+            // Record every unapproved request as surfaced so the caller's responses can be bound to a
+            // model-originated request during the queue cycle.
+            RecordSurfacedApprovalRequests(state, unapproved);
+
+            for (int i = 1; i < unapproved.Count; i++)
+            {
+                toRemove.Add(unapproved[i]);
+                state.QueuedApprovalRequests.Add(unapproved[i]);
+            }
         }
 
         // Walk messages in reverse and strip marked items.
