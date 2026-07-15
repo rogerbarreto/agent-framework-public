@@ -18,6 +18,9 @@ namespace Microsoft.Agents.AI.UnitTests;
 /// </summary>
 public class ToolApprovalAgentTests
 {
+    private static ToolAutoApprovalRuleContext CreateRuleContext(FunctionCallContent functionCall) =>
+        new(functionCall, new Mock<AIAgent>().Object, session: null, requestMessages: [], agentRunOptions: null);
+
     #region Constructor
 
     /// <summary>
@@ -1838,7 +1841,7 @@ public class ToolApprovalAgentTests
         var functionCall = new FunctionCallContent("call1", toolName);
 
         // Act
-        bool approved = await ToolApprovalAgent.AllToolsAutoApprovalRule(functionCall);
+        bool approved = await ToolApprovalAgent.AllToolsAutoApprovalRule(CreateRuleContext(functionCall));
 
         // Assert
         Assert.True(approved);
@@ -1924,20 +1927,38 @@ public class ToolApprovalAgentTests
                 return new AgentResponse([new ChatMessage(ChatRole.Assistant, "Done")]);
             });
 
+        ToolAutoApprovalRuleContext? capturedContext = null;
+        var runOptions = new AgentRunOptions();
         var options = new ToolApprovalAgentOptions
         {
-            AutoApprovalRules = [fcc => new ValueTask<bool>(fcc.Name == "ReadTool")]
+            AutoApprovalRules =
+            [
+                context =>
+                {
+                    capturedContext = context;
+                    return new ValueTask<bool>(context.FunctionCallContent.Name == "ReadTool");
+                }
+            ]
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
 
         // Act
         var response = await agent.RunAsync(
             [new ChatMessage(ChatRole.User, "Hi")],
-            session);
+            session,
+            runOptions);
 
         // Assert — the approval request was auto-approved, inner agent called twice
         Assert.Equal(2, callCount);
         Assert.Equal("Done", response.Text);
+
+        // Assert — the auto-approval rule received a fully populated context (non-streaming path).
+        Assert.NotNull(capturedContext);
+        Assert.Same(agent, capturedContext!.Agent);
+        Assert.Same(session, capturedContext.Session);
+        Assert.Same(runOptions, capturedContext.RunOptions);
+        Assert.Equal("ReadTool", capturedContext.FunctionCallContent.Name);
+        Assert.Contains(capturedContext.RequestMessages, m => m.Text == "Hi");
     }
 
     /// <summary>
@@ -1954,7 +1975,7 @@ public class ToolApprovalAgentTests
 
         var options = new ToolApprovalAgentOptions
         {
-            AutoApprovalRules = [fcc => new ValueTask<bool>(fcc.Name == "ReadTool")]  // Only approves ReadTool
+            AutoApprovalRules = [context => new ValueTask<bool>(context.FunctionCallContent.Name == "ReadTool")]  // Only approves ReadTool
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
 
@@ -2005,8 +2026,8 @@ public class ToolApprovalAgentTests
         {
             AutoApprovalRules =
             [
-                fcc => { rule1Called = true; return new ValueTask<bool>(fcc.Name == "SpecialTool"); },
-                fcc => { rule2Called = true; return new ValueTask<bool>(true); }  // Should not be reached
+                context => { rule1Called = true; return new ValueTask<bool>(context.FunctionCallContent.Name == "SpecialTool"); },
+                context => { rule2Called = true; return new ValueTask<bool>(true); }  // Should not be reached
             ]
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
@@ -2052,7 +2073,7 @@ public class ToolApprovalAgentTests
         var heuristicCalled = false;
         var options = new ToolApprovalAgentOptions
         {
-            AutoApprovalRules = [fcc => { heuristicCalled = true; return new ValueTask<bool>(true); }]
+            AutoApprovalRules = [context => { heuristicCalled = true; return new ValueTask<bool>(true); }]
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
 
@@ -2117,7 +2138,7 @@ public class ToolApprovalAgentTests
 
         var options = new ToolApprovalAgentOptions
         {
-            AutoApprovalRules = [fcc => new ValueTask<bool>(fcc.Name == "HeuristicTool")]
+            AutoApprovalRules = [context => new ValueTask<bool>(context.FunctionCallContent.Name == "HeuristicTool")]
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
 
@@ -2177,15 +2198,24 @@ public class ToolApprovalAgentTests
                 return ToAsyncEnumerableAsync([new AgentResponseUpdate(ChatRole.Assistant, "Done")]);
             });
 
+        ToolAutoApprovalRuleContext? capturedContext = null;
+        var runOptions = new AgentRunOptions();
         var options = new ToolApprovalAgentOptions
         {
-            AutoApprovalRules = [fcc => new ValueTask<bool>(fcc.Name == "ReadTool")]
+            AutoApprovalRules =
+            [
+                context =>
+                {
+                    capturedContext = context;
+                    return new ValueTask<bool>(context.FunctionCallContent.Name == "ReadTool");
+                }
+            ]
         };
         var agent = new ToolApprovalAgent(innerAgent.Object, options);
 
         // Act
         var updates = new List<AgentResponseUpdate>();
-        await foreach (var update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")], session))
+        await foreach (var update in agent.RunStreamingAsync([new ChatMessage(ChatRole.User, "Hi")], session, runOptions))
         {
             updates.Add(update);
         }
@@ -2194,6 +2224,14 @@ public class ToolApprovalAgentTests
         Assert.Equal(2, callCount);
         Assert.Single(updates);
         Assert.Equal("Done", updates[0].Text);
+
+        // Assert — the auto-approval rule received a fully populated context (streaming path).
+        Assert.NotNull(capturedContext);
+        Assert.Same(agent, capturedContext!.Agent);
+        Assert.Same(session, capturedContext.Session);
+        Assert.Same(runOptions, capturedContext.RunOptions);
+        Assert.Equal("ReadTool", capturedContext.FunctionCallContent.Name);
+        Assert.Contains(capturedContext.RequestMessages, m => m.Text == "Hi");
     }
 
     #endregion
