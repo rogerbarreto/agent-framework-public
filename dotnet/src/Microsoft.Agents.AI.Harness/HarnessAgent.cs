@@ -222,6 +222,15 @@ public sealed class HarnessAgent : DelegatingAIAgent
         // Build ChatClient stack
         ChatClientBuilder chatClientBuilder = chatClient.AsBuilder();
 
+        // Registered first so it sits as the outermost decorator, above the approval-not-required bypassing
+        // and function invocation middleware, so it can bind inbound approval responses to the requests the
+        // framework surfaced. The harness uses UseProvidedChatClientAsIs, so this is added manually here rather
+        // than via the default ChatClientAgent pipeline.
+        if (options?.DisableApprovalResponseBinding is not true)
+        {
+            chatClientBuilder.UseApprovalResponseBinding();
+        }
+
         if (options?.DisableApprovalNotRequiredFunctionBypassing is not true)
         {
             chatClientBuilder.UseApprovalNotRequiredFunctionBypassing();

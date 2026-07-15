@@ -52,8 +52,8 @@ internal sealed class ToolApprovalState
     public List<ToolApprovalRequestContent> QueuedApprovalRequests { get; set; } = new();
 
     /// <summary>
-    /// Gets or sets the list of model-originated approval requests that the harness has surfaced to the caller
-    /// and is awaiting a response for.
+    /// Gets or sets the model-originated approval requests that the harness has surfaced to the caller
+    /// and is awaiting a response for, keyed by request id.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -64,5 +64,5 @@ internal sealed class ToolApprovalState
     /// </para>
     /// </remarks>
     [JsonPropertyName("surfacedApprovalRequests")]
-    public List<ToolApprovalRequestContent> SurfacedApprovalRequests { get; set; } = new();
+    public Dictionary<string, ToolApprovalRequestContent> SurfacedApprovalRequests { get; set; } = new();
 }

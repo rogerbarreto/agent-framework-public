@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -280,14 +281,7 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
         List<ChatMessage> messages,
         ToolApprovalState state)
     {
-        // Index the requests the harness surfaced so responses can be bound to a model-originated request.
-        var surfacedByRequestId = new Dictionary<string, ToolApprovalRequestContent>(StringComparer.Ordinal);
-        foreach (var surfaced in state.SurfacedApprovalRequests)
-        {
-            surfacedByRequestId[surfaced.RequestId] = surfaced;
-        }
-
-        HashSet<string>? consumedRequestIds = null;
+        var surfaced = state.SurfacedApprovalRequests;
 
         // Walk messages in reverse so we can safely remove by index.
         for (int i = messages.Count - 1; i >= 0; i--)
@@ -317,11 +311,11 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
             {
                 if (content is ToolApprovalResponseContent response)
                 {
-                    // Remove on match so a duplicate response for the same request in this pass is
-                    // honored only once.
-                    if (surfacedByRequestId.TryGetValue(response.RequestId, out var surfacedRequest))
+                    // Remove on match so a matched request is consumed and a duplicate response for the
+                    // same request in this pass is honored only once.
+                    if (surfaced.TryGetValue(response.RequestId, out var surfacedRequest))
                     {
-                        surfacedByRequestId.Remove(response.RequestId);
+                        surfaced.Remove(response.RequestId);
 
                         // Rebind to the surfaced request's tool call and record for injection.
                         state.CollectedApprovalResponses.Add(
@@ -329,7 +323,6 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
                             {
                                 Reason = response.Reason,
                             });
-                        (consumedRequestIds ??= new(StringComparer.Ordinal)).Add(response.RequestId);
                     }
 
                     // Bound responses are collected above; either way the response is not kept in the message.
@@ -353,33 +346,20 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
                 messages[i] = cloned;
             }
         }
-
-        // Consume surfaced requests whose response has now been collected, so they cannot be replayed.
-        if (consumedRequestIds is { Count: > 0 })
-        {
-            state.SurfacedApprovalRequests.RemoveAll(r => consumedRequestIds.Contains(r.RequestId));
-        }
     }
 
     /// <summary>
-    /// Records the given approval requests as surfaced to the caller, de-duplicating by request id.
+    /// Records the given approval requests as surfaced to the caller, keyed by request id.
     /// A snapshot of each request is stored so later mutation of the caller-visible instance cannot change
     /// the recorded tool call used to bind the response.
     /// </summary>
     private static void RecordSurfacedApprovalRequests(ToolApprovalState state, IReadOnlyList<ToolApprovalRequestContent> requests)
     {
-        var known = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var surfaced in state.SurfacedApprovalRequests)
-        {
-            known.Add(surfaced.RequestId);
-        }
-
+        // SurfacedApprovalRequests is empty here: this is called when a response comes back from the inner
+        // agent, which cannot happen while approval requests are outstanding.
         foreach (var request in requests)
         {
-            if (known.Add(request.RequestId))
-            {
-                state.SurfacedApprovalRequests.Add(SnapshotRequest(request));
-            }
+            state.SurfacedApprovalRequests[request.RequestId] = SnapshotRequest(request);
         }
     }
 
@@ -467,8 +447,9 @@ public sealed class ToolApprovalAgent : DelegatingAIAgent
             }
 
             // Queue fully resolved — caller should proceed to call the inner agent.
-            // Clear any surfaced requests left over from the completed queue cycle.
-            state.SurfacedApprovalRequests.Clear();
+            // Surfaced requests are consumed as their responses are collected in
+            // CollectApprovalResponsesFromMessages, so nothing should remain here.
+            Debug.Assert(state.SurfacedApprovalRequests.Count == 0, "Surfaced approval requests should be empty once the queue is resolved.");
         }
 
         return (state, callerMessages, null);

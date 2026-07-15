@@ -217,6 +217,19 @@ public sealed class HarnessAgentOptions
     public bool DisableApprovalNotRequiredFunctionBypassing { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether binding inbound tool-approval responses to the
+    /// model-originated approval requests that the framework surfaced is disabled.
+    /// </summary>
+    /// <remarks>
+    /// When <see langword="false"/> (the default), the underlying chat client pipeline includes the decorator
+    /// added by <see cref="ChatClientBuilderExtensions.UseApprovalResponseBinding"/> as the outermost decorator
+    /// above the function invocation middleware. It records each surfaced approval request and, on the next
+    /// request, binds every approval response to its recorded request so an approved call matches exactly what
+    /// was surfaced for approval.
+    /// </remarks>
+    public bool DisableApprovalResponseBinding { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the <see cref="FileMemoryProvider"/> is disabled.
     /// </summary>
     /// <remarks>

@@ -3,7 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
@@ -157,12 +159,22 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
     /// <summary>
     /// Rewrites the inbound messages so that only <see cref="ToolApprovalResponseContent"/> items bound to a
     /// recorded, model-originated <see cref="ToolApprovalRequestContent"/> survive, with their tool call rebound to
-    /// the recorded call. Responses and approval requests that do not correspond to a recorded pending request are
-    /// removed. Consumed pending entries are dropped from the session state to prevent replay.
+    /// the recorded call when it differs. Responses and approval requests that do not correspond to a recorded pending
+    /// request are removed. The recorded pending requests are consumed for this turn.
     /// </summary>
     private IEnumerable<ChatMessage> ValidateInboundApprovalResponses(IEnumerable<ChatMessage> messages, AgentSession session)
     {
         var messageList = messages as IList<ChatMessage> ?? new List<ChatMessage>(messages);
+
+        // Load the model-originated pending requests recorded on the previous outbound turn and build a lookup.
+        var byRequestId = LoadPendingApprovalRequestLookup(session);
+
+        // Pending requests only need to survive one turn boundary: the model requires every request to be
+        // answered in the same turn, so nothing legitimately carries forward. Consume them now. (C5)
+        if (byRequestId.Count > 0)
+        {
+            session.StateBag.TryRemoveValue(StateBagKey);
+        }
 
         // Quick check: is there any approval request/response content worth validating?
         if (!ContainsApprovalContent(messageList))
@@ -170,76 +182,32 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
             return messageList;
         }
 
-        // Load the model-originated pending requests recorded on previous outbound turns.
-        var pendingRequests = LoadPendingApprovalRequests(session);
-        var byRequestId = new Dictionary<string, ToolApprovalRequestContent>(StringComparer.Ordinal);
-        foreach (var request in pendingRequests)
-        {
-            byRequestId[request.RequestId] = request;
-        }
+        // Copy-on-write: only allocate a new message list once a message is actually modified.
+        List<ChatMessage>? result = null;
 
-        var result = new List<ChatMessage>(messageList.Count);
-        HashSet<string>? consumedRequestIds = null;
-        bool anyModified = false;
-
-        foreach (var message in messageList)
+        for (int i = 0; i < messageList.Count; i++)
         {
-            if (!ContainsApprovalContent(message))
+            var message = messageList[i];
+            var newContents = this.BindApprovalContent(message, byRequestId);
+
+            if (newContents is null)
             {
-                result.Add(message);
+                // Message unchanged: keep the original (backfilling only if we already diverged).
+                result?.Add(message);
                 continue;
             }
 
-            var newContents = new List<AIContent>(message.Contents.Count);
-            bool messageModified = false;
-            foreach (var content in message.Contents)
+            // First modification: backfill the result with the unchanged prefix.
+            if (result is null)
             {
-                switch (content)
+                result = new List<ChatMessage>(messageList.Count);
+                for (int k = 0; k < i; k++)
                 {
-                    case ToolApprovalResponseContent response:
-                        messageModified = true;
-                        if (byRequestId.TryGetValue(response.RequestId, out var matchedRequest))
-                        {
-                            // Rebind the tool call to the model-originated call so the approved call matches the
-                            // tool name and arguments that were surfaced for approval.
-                            newContents.Add(new ToolApprovalResponseContent(response.RequestId, response.Approved, matchedRequest.ToolCall)
-                            {
-                                Reason = response.Reason,
-                            });
-                            (consumedRequestIds ??= new(StringComparer.Ordinal)).Add(response.RequestId);
-
-                            // Consume the match so a duplicate response for the same request in this turn
-                            // is not honored a second time.
-                            byRequestId.Remove(response.RequestId);
-                        }
-                        else
-                        {
-                            // Only approvals tied to a request the framework surfaced are honored; ignore this one.
-                            LogIgnoredUnboundResponse(this._logger, response.RequestId);
-                        }
-
-                        break;
-
-                    case ToolApprovalRequestContent request when !byRequestId.ContainsKey(request.RequestId):
-                        // Keep only approval requests the framework issued so responses bind to a known request.
-                        messageModified = true;
-                        LogIgnoredUnboundRequest(this._logger, request.RequestId);
-                        break;
-
-                    default:
-                        newContents.Add(content);
-                        break;
+                    result.Add(messageList[k]);
                 }
             }
 
-            if (!messageModified)
-            {
-                result.Add(message);
-                continue;
-            }
-
-            anyModified = true;
-
+            // Drop a message that is now empty; otherwise clone it with the rewritten contents.
             if (newContents.Count > 0)
             {
                 var cloned = message.Clone();
@@ -248,14 +216,123 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
             }
         }
 
-        // Consume matched pending entries so an approval cannot be replayed on a later turn.
-        if (consumedRequestIds is { Count: > 0 })
+        return result ?? messageList;
+    }
+
+    /// <summary>
+    /// Binds the approval content of a single message against the recorded pending requests.
+    /// Returns <see langword="null"/> when the message needs no change, or the rewritten content list
+    /// (which may be empty, indicating the message should be dropped) when a change is required.
+    /// </summary>
+    private List<AIContent>? BindApprovalContent(ChatMessage message, Dictionary<string, ToolApprovalRequestContent> byRequestId)
+    {
+        if (!ContainsApprovalContent(message))
         {
-            pendingRequests.RemoveAll(r => consumedRequestIds.Contains(r.RequestId));
-            SavePendingApprovalRequests(pendingRequests, session);
+            return null;
         }
 
-        return anyModified ? result : messageList;
+        var contents = message.Contents;
+        List<AIContent>? newContents = null;
+
+        for (int j = 0; j < contents.Count; j++)
+        {
+            var content = contents[j];
+            switch (content)
+            {
+                case ToolApprovalResponseContent response when byRequestId.TryGetValue(response.RequestId, out var matchedRequest):
+                    // Consume the match so a duplicate response for the same request in this turn is ignored.
+                    byRequestId.Remove(response.RequestId);
+
+                    if (ToolCallsEquivalent(response.ToolCall, matchedRequest.ToolCall))
+                    {
+                        // Already matches the surfaced call; keep the original content, no rebuild needed.
+                        AppendUnchanged(newContents, content);
+                    }
+                    else
+                    {
+                        // Rebind the tool call to the model-originated call so the approved call matches the
+                        // tool name and arguments that were surfaced for approval.
+                        Diverge(ref newContents, contents, j);
+                        newContents!.Add(new ToolApprovalResponseContent(response.RequestId, response.Approved, matchedRequest.ToolCall)
+                        {
+                            Reason = response.Reason,
+                        });
+                    }
+
+                    break;
+
+                case ToolApprovalResponseContent response:
+                    // Only approvals tied to a request the framework surfaced are honored; drop this one.
+                    LogIgnoredUnboundResponse(this._logger, response.RequestId);
+                    Diverge(ref newContents, contents, j);
+                    break;
+
+                case ToolApprovalRequestContent request when !byRequestId.ContainsKey(request.RequestId):
+                    // Drop approval requests the framework did not issue so responses bind to a known request.
+                    LogIgnoredUnboundRequest(this._logger, request.RequestId);
+                    Diverge(ref newContents, contents, j);
+                    break;
+
+                default:
+                    AppendUnchanged(newContents, content);
+                    break;
+            }
+        }
+
+        return newContents;
+    }
+
+    /// <summary>
+    /// Appends an unchanged content item. When we have not yet diverged from the original, this is a no-op
+    /// (the original list is still authoritative); once diverged, the item is added to the new list.
+    /// </summary>
+    private static void AppendUnchanged(List<AIContent>? newContents, AIContent content) =>
+        newContents?.Add(content);
+
+    /// <summary>
+    /// Marks the point where the rewritten content diverges from the original, allocating the new list and
+    /// backfilling the unchanged prefix on first use.
+    /// </summary>
+    private static void Diverge(ref List<AIContent>? newContents, IList<AIContent> original, int index)
+    {
+        if (newContents is null)
+        {
+            newContents = new List<AIContent>(original.Count);
+            for (int k = 0; k < index; k++)
+            {
+                newContents.Add(original[k]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Determines whether two tool calls are equivalent, so an already-matching approval response does not
+    /// need to be rebuilt. Compared by canonical JSON, so equal calls (tool name and arguments) are treated
+    /// as equivalent and any difference results in a rebind.
+    /// </summary>
+    private static bool ToolCallsEquivalent(ToolCallContent responseCall, ToolCallContent recordedCall)
+    {
+        if (ReferenceEquals(responseCall, recordedCall))
+        {
+            return true;
+        }
+
+        var typeInfo = AgentJsonUtilities.DefaultOptions.GetTypeInfo(typeof(ToolCallContent));
+        var responseJson = JsonSerializer.Serialize(responseCall, typeInfo);
+        var recordedJson = JsonSerializer.Serialize(recordedCall, typeInfo);
+        return string.Equals(responseJson, recordedJson, StringComparison.Ordinal);
+    }
+
+    private static Dictionary<string, ToolApprovalRequestContent> LoadPendingApprovalRequestLookup(AgentSession session)
+    {
+        var pendingRequests = LoadPendingApprovalRequests(session);
+        var byRequestId = new Dictionary<string, ToolApprovalRequestContent>(pendingRequests.Count, StringComparer.Ordinal);
+        foreach (var request in pendingRequests)
+        {
+            byRequestId[request.RequestId] = request;
+        }
+
+        return byRequestId;
     }
 
     /// <summary>
@@ -351,31 +428,11 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         }
     }
 
-    private static bool ContainsApprovalContent(IEnumerable<ChatMessage> messages)
-    {
-        foreach (var message in messages)
-        {
-            if (ContainsApprovalContent(message))
-            {
-                return true;
-            }
-        }
+    private static bool ContainsApprovalContent(IEnumerable<ChatMessage> messages) =>
+        messages.Any(ContainsApprovalContent);
 
-        return false;
-    }
-
-    private static bool ContainsApprovalContent(ChatMessage message)
-    {
-        foreach (var content in message.Contents)
-        {
-            if (content is ToolApprovalResponseContent or ToolApprovalRequestContent)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool ContainsApprovalContent(ChatMessage message) =>
+        message.Contents.Any(static c => c is ToolApprovalResponseContent or ToolApprovalRequestContent);
 
     [LoggerMessage(LogLevel.Warning, "ApprovalResponseBindingChatClient was invoked without an active agent run context or session. Approval-response binding is skipped. Invoke the chat client through AIAgent.RunAsync or AIAgent.RunStreamingAsync to enable binding.")]
     private static partial void LogValidationSkipped(ILogger logger);
