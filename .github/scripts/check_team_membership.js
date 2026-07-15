@@ -1,14 +1,14 @@
 // Copyright (c) Microsoft. All rights reserved.
 
 /**
- * Resolve the issue author and check their team membership.
+ * Resolve the issue or pull request author and check their team membership.
  *
  * @param {object} opts
  * @param {object} opts.github - Octokit REST client from actions/github-script
  * @param {object} opts.context - GitHub Actions context
  * @param {object} opts.core - GitHub Actions core toolkit
  * @param {string} opts.teamSlug - Team slug to check membership against
- * @param {string|number} opts.issueNumber - Issue number to resolve author for
+ * @param {string|number} opts.issueNumber - Issue or pull request number to resolve author for
  * @returns {Promise<{author: string|null, isTeamMember: boolean}>}
  */
 async function checkTeamMembership({ github, context, core, teamSlug, issueNumber }) {
