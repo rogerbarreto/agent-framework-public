@@ -12,14 +12,27 @@
  * @returns {Promise<{author: string|null, isTeamMember: boolean}>}
  */
 async function checkTeamMembership({ github, context, core, teamSlug, issueNumber }) {
-  let author = context.payload.issue?.user?.login;
+  let author =
+    context.payload.issue?.user?.login ??
+    context.payload.pull_request?.user?.login;
+
   if (!author) {
-    const { data: issue } = await github.rest.issues.get({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      issue_number: Number(issueNumber),
-    });
-    author = issue.user?.login;
+    const number = Number(issueNumber);
+    if (context.payload.pull_request) {
+      const { data: pr } = await github.rest.pulls.get({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        pull_number: number,
+      });
+      author = pr.user?.login;
+    } else {
+      const { data: issue } = await github.rest.issues.get({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: number,
+      });
+      author = issue.user?.login;
+    }
   }
 
   if (!author) {
