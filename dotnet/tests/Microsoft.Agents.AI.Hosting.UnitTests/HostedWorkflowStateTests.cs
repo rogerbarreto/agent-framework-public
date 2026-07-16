@@ -21,7 +21,7 @@ public class HostedWorkflowStateTests
     [Fact]
     public void Constructor_NullWorkflow_Throws() =>
         // Act & Assert
-        Assert.Throws<ArgumentNullException>("workflow", () => new HostedWorkflowState(null!));
+        Assert.Throws<ArgumentNullException>("workflow", () => new HostedWorkflowState((Workflow)null!));
 
     [Fact]
     public void TryGetCheckpoint_UnknownSession_ReturnsFalse()
@@ -166,38 +166,97 @@ public class HostedWorkflowStateTests
     }
 
     [Fact]
-    public async Task RunOrResumeAsync_ConcurrentSameSessionTurns_AreSerializedAsync()
+    public void Constructor_NullFactory_Throws() =>
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>("workflowFactory", () => new HostedWorkflowState((Func<CancellationToken, ValueTask<Workflow>>)null!));
+
+    [Fact]
+    public async Task RunOrResumeAsync_Factory_ConcurrentDifferentSessions_RunInParallelAsync()
     {
-        // Arrange: a workflow that signals when a turn enters and then blocks on a gate, so the test can
-        // hold the first turn "inside" the workflow while it starts a second turn for the same session.
+        // Arrange: factory mode builds a fresh workflow instance per run, so independent sessions are NOT
+        // serialized. The gated workflow signals on entry and blocks on a shared gate; both instances share the
+        // same gate so the test can hold both turns "inside" the workflow at once.
         using var entered = new SemaphoreSlim(0, 2);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var state = new HostedWorkflowState(GatedCountingWorkflow.Build(entered, release.Task), CheckpointManager.CreateInMemory());
+        var state = new HostedWorkflowState(
+            _ => new ValueTask<Workflow>(GatedCountingWorkflow.Build(entered, release.Task)),
+            CheckpointManager.CreateInMemory());
 
-        // Act: start the first turn and wait until it is running inside the workflow.
+        // Act: start two turns for DIFFERENT sessions.
         Task<HostedWorkflowRunResult> first = state.RunOrResumeAsync("s1", "go").AsTask();
+        Task<HostedWorkflowRunResult> second = state.RunOrResumeAsync("s2", "go").AsTask();
+
+        // Assert: BOTH turns enter the workflow before either is released — proving they run in parallel. In
+        // shared-instance mode the second would wait on the holder lock and this second wait would time out.
         Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(10)), "the first turn should enter the workflow");
+        Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(10)), "the second turn should enter concurrently in factory mode");
 
-        // Start a second same-session turn while the first is still inside the workflow.
-        Task<HostedWorkflowRunResult> second = state.RunOrResumeAsync("s1", "go").AsTask();
-
-        // Assert: the second turn must WAIT on the holder lock, not fault. Without the lock it would reach the
-        // engine's concurrent-run ownership guard and fault (completing the task); the lock instead leaves it
-        // pending until the first turn releases. Checking the task is not completed isolates the holder lock
-        // from the engine guard, and the entered gate confirms it did not run concurrently.
-        await Task.Delay(TimeSpan.FromMilliseconds(500));
-        Assert.False(second.IsCompleted, "the second turn must wait on the holder lock rather than fault or run concurrently");
-        Assert.False(await entered.WaitAsync(TimeSpan.FromMilliseconds(200)), "the second turn must not enter the workflow while the first holds it");
-
-        // Release both turns and let them run to completion.
+        // Release both and let them complete.
         release.SetResult();
         HostedWorkflowRunResult[] results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
 
-        // Both turns completed successfully (proving the lock serialized rather than faulted them), advancing
-        // the count from 1 to 2.
-        string combined = string.Concat(results.Select(StringOutput));
-        Assert.Contains("count:1", combined);
-        Assert.Contains("count:2", combined);
+        // Each independent session produced its own first-turn count.
+        Assert.All(results, r => Assert.Contains("count:1", StringOutput(r)));
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_Factory_FirstTurnThenResume_AdvancesCheckpointAsync()
+    {
+        // Arrange: factory mode with a fresh instance per run. A resume must rehydrate a fresh instance from the
+        // session's checkpoint in the shared manager.
+        var state = new HostedWorkflowState(_ => new ValueTask<Workflow>(CountingWorkflow.Build()));
+
+        // Act: two turns for the same session.
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "go");
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "go");
+
+        // Assert: the second turn resumed the first's state (count advanced 1 -> 2), proving a fresh instance
+        // resumed from the checkpoint rather than starting over.
+        Assert.Contains("count:1", StringOutput(first));
+        Assert.Contains("count:2", StringOutput(second));
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_CachedFactory_BuildsOnceAndReusesAsync()
+    {
+        // Arrange: a cached factory (cacheWorkflow: true) must build the workflow once and reuse it.
+        int builds = 0;
+        var state = new HostedWorkflowState(
+            _ =>
+            {
+                Interlocked.Increment(ref builds);
+                return new ValueTask<Workflow>(CountingWorkflow.Build());
+            },
+            cacheWorkflow: true);
+
+        // Act: two turns for the same session.
+        HostedWorkflowRunResult first = await state.RunOrResumeAsync("s1", "go");
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "go");
+
+        // Assert: the factory ran exactly once (cached), and the reused instance still advanced state 1 -> 2.
+        Assert.Equal(1, builds);
+        Assert.Contains("count:1", StringOutput(first));
+        Assert.Contains("count:2", StringOutput(second));
+    }
+
+    [Fact]
+    public async Task RunOrResumeAsync_UncachedFactory_BuildsPerRunAsync()
+    {
+        // Arrange: the default (uncached) factory builds a fresh instance for every run.
+        int builds = 0;
+        var state = new HostedWorkflowState(
+            _ =>
+            {
+                Interlocked.Increment(ref builds);
+                return new ValueTask<Workflow>(CountingWorkflow.Build());
+            });
+
+        // Act: two turns for the same session.
+        _ = await state.RunOrResumeAsync("s1", "go");
+        _ = await state.RunOrResumeAsync("s1", "go");
+
+        // Assert: the factory ran once per run.
+        Assert.Equal(2, builds);
     }
 
     [Fact]

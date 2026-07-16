@@ -38,18 +38,27 @@ AIAgent writer = projectClient.AsAIAgent(
 
 // Workflow shape: a brief adapter turns the Responses input into the writer's
 // prompt and drives the agent turn, then a formatter renders the writer's output as a single slogan line.
-var briefExecutor = new BriefExecutor();
-var formatterExecutor = new SloganFormatterExecutor();
+// A factory builds a fresh workflow instance per run so independent sessions can run concurrently.
+static Workflow BuildWorkflow(AIAgent writer)
+{
+    var briefExecutor = new BriefExecutor();
+    var formatterExecutor = new SloganFormatterExecutor();
 
-Workflow workflow = new WorkflowBuilder(briefExecutor)
-    .AddEdge(briefExecutor, writer)
-    .AddEdge(writer, formatterExecutor)
-    .WithOutputFrom(formatterExecutor)
-    .Build();
+    return new WorkflowBuilder(briefExecutor)
+        .AddEdge(briefExecutor, writer)
+        .AddEdge(writer, formatterExecutor)
+        .WithOutputFrom(formatterExecutor)
+        .Build();
+}
 
-// Optional shared execution state: pairs the workflow with an in-memory CheckpointManager and a per-session
-// sessionId -> CheckpointInfo head cursor so a session can resume from its last checkpoint.
-var state = new HostedWorkflowState(workflow);
+// Optional shared execution state: the factory constructor builds a fresh workflow instance per run (the
+// default, cacheWorkflow: false, shown explicitly here), so independent sessions run in parallel — a single
+// shared instance cannot run concurrent turns. Pass cacheWorkflow: true instead to build the workflow once,
+// lazily on first use, and reuse it (a deferred, cached target that, like a shared instance, cannot run
+// concurrent turns). It is paired with an in-memory CheckpointManager and a per-session
+// sessionId -> CheckpointInfo head cursor so a session can resume from its last checkpoint; a resume rehydrates
+// a fresh instance from that shared checkpoint store.
+var state = new HostedWorkflowState(_ => new ValueTask<Workflow>(BuildWorkflow(writer)), cacheWorkflow: false);
 
 // The app keeps a response-id -> workflow-session-id cursor. previous_response_id rotates each turn, so every id in
 // a conversation's chain maps to the same workflow session, and resuming any of them restores that session's

@@ -118,7 +118,14 @@ request object).
   restores that checkpoint and runs the workflow forward with the new turn's input (mirroring the Python
   host's restore-then-run semantics), rather than continuing a halted run with no input. When the
   in-memory cursor misses (new holder / process restart) it reads the session's latest checkpoint from the
-  `CheckpointManager`, so a durable manager resumes across restarts.
+  `CheckpointManager`, so a durable manager resumes across restarts. It accepts either a single workflow
+  instance (which cannot be run by two runners at once, so its turns are processed one at a time) or a
+  workflow factory (`Func<CancellationToken, ValueTask<Workflow>>`). By default the factory builds a fresh
+  instance per run so independent sessions run in parallel; with `cacheWorkflow: true` the factory is invoked
+  once lazily and its result is cached and reused (a deferred, cached target that, like the instance, cannot
+  run concurrent turns). A resume rehydrates an instance from the session's checkpoint in the shared store, so
+  per-run instances still continue the same run; concurrent turns against the same session id remain the
+  application's coordination responsibility.
 
 ### Scope
 

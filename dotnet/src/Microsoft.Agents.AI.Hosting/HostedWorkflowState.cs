@@ -38,20 +38,23 @@ namespace Microsoft.Agents.AI.Hosting;
 /// checkpoint boundary must be at least as specific as the authorized session boundary.
 /// </para>
 /// </remarks>
-public sealed class HostedWorkflowState : IDisposable
+public sealed class HostedWorkflowState
 {
     private readonly CheckpointManager _checkpointManager;
     private readonly IWorkflowExecutionEnvironment _executionEnvironment;
-    private readonly Workflow _workflow;
+    private readonly Workflow? _workflow;
+    private readonly Func<CancellationToken, ValueTask<Workflow>>? _workflowFactory;
+    // Cached-factory mode: the factory runs once, on first use, guarded by _cacheSync, and the built workflow task
+    // is reused for every run thereafter.
+    private readonly bool _cacheWorkflow;
+    private readonly object _cacheSync = new();
+    private Task<Workflow>? _cachedWorkflowTask;
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CheckpointInfo> _cursor = new(StringComparer.Ordinal);
 
-    // A single workflow instance backs every session on this holder, and workflow instances do not support
-    // concurrent runs, so all turns are serialized through one lock.
-    private readonly SemaphoreSlim _workflowLock = new(1, 1);
-
     /// <summary>
-    /// Initializes a new instance of the <see cref="HostedWorkflowState"/> class.
+    /// Initializes a new instance of the <see cref="HostedWorkflowState"/> class over a single shared workflow
+    /// instance.
     /// </summary>
     /// <param name="workflow">The workflow target.</param>
     /// <param name="checkpointManager">
@@ -69,6 +72,13 @@ public sealed class HostedWorkflowState : IDisposable
     /// Defaults to <see cref="NullLoggerFactory"/> when not provided.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="workflow"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// A single workflow instance cannot be run by two runners at once, so concurrent runs against this holder are
+    /// not supported; process turns one at a time. To run independent sessions concurrently, use the factory
+    /// constructor
+    /// (<see cref="HostedWorkflowState(Func{CancellationToken, ValueTask{Workflow}}, CheckpointManager?, IWorkflowExecutionEnvironment?, ILoggerFactory?, bool)"/>),
+    /// which builds a fresh workflow instance per run.
+    /// </remarks>
     public HostedWorkflowState(
         Workflow workflow,
         CheckpointManager? checkpointManager = null,
@@ -81,6 +91,87 @@ public sealed class HostedWorkflowState : IDisposable
         this._checkpointManager = checkpointManager ?? CheckpointManager.CreateInMemory();
         this._executionEnvironment = executionEnvironment ?? InProcessExecution.Default.WithCheckpointing(this._checkpointManager);
         this._logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger(typeof(HostedWorkflowState));
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HostedWorkflowState"/> class that builds its workflow from a
+    /// factory.
+    /// </summary>
+    /// <param name="workflowFactory">
+    /// A factory that produces a workflow instance. Every produced instance must have the same executor topology,
+    /// because a resume rehydrates an instance from the session's checkpoint in the shared
+    /// <paramref name="checkpointManager"/>. By default (<paramref name="cacheWorkflow"/> is <see langword="false"/>)
+    /// it is invoked once per run, so independent sessions each get their own instance and run concurrently. When
+    /// <paramref name="cacheWorkflow"/> is <see langword="true"/> it is invoked once, on first use, and the built
+    /// instance is reused for every run.
+    /// </param>
+    /// <param name="checkpointManager">
+    /// The checkpoint manager to use. Defaults to <see cref="CheckpointManager.CreateInMemory"/> when not provided.
+    /// </param>
+    /// <param name="executionEnvironment">
+    /// The workflow execution environment used to run and resume the workflow. Defaults to an in-process environment
+    /// (<see cref="InProcessExecutionEnvironment"/>) configured with <paramref name="checkpointManager"/>. A supplied
+    /// environment must checkpoint into the same store as <paramref name="checkpointManager"/>, since the holder reads
+    /// that manager directly to recover the head checkpoint when its in-memory cursor misses.
+    /// </param>
+    /// <param name="loggerFactory">
+    /// The logger factory used to report resume diagnostics (for example, a resume turn that made no progress).
+    /// Defaults to <see cref="NullLoggerFactory"/> when not provided.
+    /// </param>
+    /// <param name="cacheWorkflow">
+    /// When <see langword="false"/> (the default), the factory is invoked once per run, so independent sessions run
+    /// in parallel. When <see langword="true"/>, the factory is invoked once, lazily on first use, and the built
+    /// workflow is cached and reused for every run — a deferred, cached target. Because that reuses a single
+    /// instance (which cannot be run by two runners at once), a cached workflow's turns cannot run concurrently,
+    /// exactly like the instance constructor. The cached build uses <see cref="CancellationToken.None"/> because the
+    /// single built instance is shared across runs and must not be tied to one request's cancellation.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="workflowFactory"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// With the default (uncached) factory, turns are not serialized: independent sessions run in parallel, and
+    /// concurrent turns against the <em>same</em> session id are not serialized either — an application that needs a
+    /// single writer per session owns that coordination.
+    /// </remarks>
+    public HostedWorkflowState(
+        Func<CancellationToken, ValueTask<Workflow>> workflowFactory,
+        CheckpointManager? checkpointManager = null,
+        IWorkflowExecutionEnvironment? executionEnvironment = null,
+        ILoggerFactory? loggerFactory = null,
+        bool cacheWorkflow = false)
+    {
+        _ = Throw.IfNull(workflowFactory);
+
+        this._workflowFactory = workflowFactory;
+        this._cacheWorkflow = cacheWorkflow;
+
+        this._checkpointManager = checkpointManager ?? CheckpointManager.CreateInMemory();
+        this._executionEnvironment = executionEnvironment ?? InProcessExecution.Default.WithCheckpointing(this._checkpointManager);
+        this._logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger(typeof(HostedWorkflowState));
+    }
+
+    // Resolves the workflow for a turn: the shared instance in instance mode; the cached instance in cached-factory
+    // mode (built once on first use); or a fresh instance from the factory in the default (uncached) factory mode.
+    private async ValueTask<Workflow> ResolveWorkflowAsync(CancellationToken cancellationToken)
+    {
+        if (this._workflow is not null)
+        {
+            return this._workflow;
+        }
+
+        if (!this._cacheWorkflow)
+        {
+            return await this._workflowFactory!(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Cached factory: build the workflow once. The lock guards only the one-time task assignment (and the
+        // factory's synchronous prefix); the actual build is awaited outside the lock. CancellationToken.None is
+        // used because the single built instance is shared across runs and must not be tied to one request.
+        lock (this._cacheSync)
+        {
+            this._cachedWorkflowTask ??= this._workflowFactory!(CancellationToken.None).AsTask();
+        }
+
+        return await this._cachedWorkflowTask.ConfigureAwait(false);
     }
 
     /// <summary>
@@ -106,22 +197,14 @@ public sealed class HostedWorkflowState : IDisposable
         _ = Throw.IfNullOrEmpty(sessionId);
         _ = Throw.IfNull(input);
 
-        // Serialize turns: the shared workflow instance cannot be run by two runners at once, and concurrent
-        // same-session turns would otherwise race the head cursor.
-        await this._workflowLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await this.RunOrResumeCoreAsync(sessionId, input, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            this._workflowLock.Release();
-        }
+        return await this.RunOrResumeCoreAsync(sessionId, input, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<HostedWorkflowRunResult> RunOrResumeCoreAsync<TInput>(string sessionId, TInput input, CancellationToken cancellationToken)
         where TInput : notnull
     {
+        Workflow workflow = await this.ResolveWorkflowAsync(cancellationToken).ConfigureAwait(false);
+
         if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
         {
             // The in-memory cursor is empty for this session. Fall back to the checkpoint manager so a durable
@@ -133,7 +216,7 @@ public sealed class HostedWorkflowState : IDisposable
         if (head is null)
         {
             // First turn for this session: run the workflow forward from its start executor with the input.
-            Run freshRun = await this._executionEnvironment.RunAsync(this._workflow, input, sessionId, cancellationToken).ConfigureAwait(false);
+            Run freshRun = await this._executionEnvironment.RunAsync(workflow, input, sessionId, cancellationToken).ConfigureAwait(false);
             await using (freshRun.ConfigureAwait(false))
             {
                 return this.Record(sessionId, freshRun.OutgoingEvents.ToList(), freshRun.LastCheckpoint);
@@ -146,9 +229,9 @@ public sealed class HostedWorkflowState : IDisposable
         //
         // The streaming resume restores state without draining to a halt first; the non-streaming resume would
         // block waiting for input immediately after restore (before we can deliver the new input).
-        ProtocolDescriptor descriptor = await this._workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+        ProtocolDescriptor descriptor = await workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
 
-        StreamingRun resumed = await this._executionEnvironment.ResumeStreamingAsync(this._workflow, head, cancellationToken).ConfigureAwait(false);
+        StreamingRun resumed = await this._executionEnvironment.ResumeStreamingAsync(workflow, head, cancellationToken).ConfigureAwait(false);
         await using (resumed.ConfigureAwait(false))
         {
             await resumed.TrySendMessageAsync(input).ConfigureAwait(false);
@@ -183,10 +266,9 @@ public sealed class HostedWorkflowState : IDisposable
     /// including when the consumer abandons enumeration early.
     /// </summary>
     /// <remarks>
-    /// Turns are serialized through the holder's workflow lock, which is held for the lifetime of the returned
-    /// enumerator. The caller must enumerate the stream to completion (or dispose it) to release the lock. The head
-    /// checkpoint is recorded from the run's last committed checkpoint when the stream ends — whether it completes
-    /// normally or the consumer disposes it early — so an interrupted turn still advances the session cursor.
+    /// The head checkpoint is recorded from the run's last committed checkpoint when the stream ends — whether it
+    /// completes normally or the consumer disposes it early — so an interrupted turn still advances the session
+    /// cursor.
     /// </remarks>
     /// <typeparam name="TInput">The workflow input type.</typeparam>
     /// <param name="sessionId">The application-selected session id.</param>
@@ -199,63 +281,57 @@ public sealed class HostedWorkflowState : IDisposable
         _ = Throw.IfNullOrEmpty(sessionId);
         _ = Throw.IfNull(input);
 
-        await this._workflowLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        Workflow workflow = await this.ResolveWorkflowAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
         {
-            if (!this._cursor.TryGetValue(sessionId, out CheckpointInfo? head))
-            {
-                head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            }
-
-            ProtocolDescriptor descriptor = await this._workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
-
-            // The fresh streaming run enqueues the input itself; the streaming resume restores state and needs the
-            // input delivered explicitly. Neither streaming entry point seeds a TurnToken, so drive chat-protocol
-            // workflows with one on both paths.
-            StreamingRun run = head is null
-                ? await this._executionEnvironment.RunStreamingAsync(this._workflow, input, sessionId, cancellationToken).ConfigureAwait(false)
-                : await this._executionEnvironment.ResumeStreamingAsync(this._workflow, head, cancellationToken).ConfigureAwait(false);
-
-            await using (run.ConfigureAwait(false))
-            {
-                if (head is not null)
-                {
-                    await run.TrySendMessageAsync(input).ConfigureAwait(false);
-                }
-
-                if (descriptor.IsChatProtocol() && input is not TurnToken)
-                {
-                    await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
-                }
-
-                int eventCount = 0;
-                try
-                {
-                    // Drain non-blocking on pending requests (see RunOrResumeCoreAsync) so a workflow that halts
-                    // awaiting an external response ends the stream instead of blocking indefinitely.
-                    await foreach (WorkflowEvent evt in run.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
-                    {
-                        eventCount++;
-                        yield return evt;
-                    }
-
-                    if (eventCount == 0 && head is not null)
-                    {
-                        this.WarnOnNoProgress(sessionId);
-                    }
-                }
-                finally
-                {
-                    // Record the head checkpoint even when the consumer abandons the stream (for example an SSE
-                    // client disconnect), so an interrupted turn still advances the session cursor to the last
-                    // committed checkpoint and a later turn resumes from there rather than re-running prior work.
-                    this.UpdateCursor(sessionId, run.LastCheckpoint);
-                }
-            }
+            head = await this._checkpointManager.GetLatestCheckpointAsync(sessionId, cancellationToken).ConfigureAwait(false);
         }
-        finally
+
+        ProtocolDescriptor descriptor = await workflow.DescribeProtocolAsync(cancellationToken).ConfigureAwait(false);
+
+        // The fresh streaming run enqueues the input itself; the streaming resume restores state and needs the
+        // input delivered explicitly. Neither streaming entry point seeds a TurnToken, so drive chat-protocol
+        // workflows with one on both paths.
+        StreamingRun run = head is null
+            ? await this._executionEnvironment.RunStreamingAsync(workflow, input, sessionId, cancellationToken).ConfigureAwait(false)
+            : await this._executionEnvironment.ResumeStreamingAsync(workflow, head, cancellationToken).ConfigureAwait(false);
+
+        await using (run.ConfigureAwait(false))
         {
-            this._workflowLock.Release();
+            if (head is not null)
+            {
+                await run.TrySendMessageAsync(input).ConfigureAwait(false);
+            }
+
+            if (descriptor.IsChatProtocol() && input is not TurnToken)
+            {
+                await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
+            }
+
+            int eventCount = 0;
+            try
+            {
+                // Drain non-blocking on pending requests (see RunOrResumeCoreAsync) so a workflow that halts
+                // awaiting an external response ends the stream instead of blocking indefinitely.
+                await foreach (WorkflowEvent evt in run.WatchStreamAsync(blockOnPendingRequest: false, cancellationToken).ConfigureAwait(false))
+                {
+                    eventCount++;
+                    yield return evt;
+                }
+
+                if (eventCount == 0 && head is not null)
+                {
+                    this.WarnOnNoProgress(sessionId);
+                }
+            }
+            finally
+            {
+                // Record the head checkpoint even when the consumer abandons the stream (for example an SSE
+                // client disconnect), so an interrupted turn still advances the session cursor to the last
+                // committed checkpoint and a later turn resumes from there rather than re-running prior work.
+                this.UpdateCursor(sessionId, run.LastCheckpoint);
+            }
         }
     }
 
@@ -294,9 +370,4 @@ public sealed class HostedWorkflowState : IDisposable
         _ = Throw.IfNullOrEmpty(sessionId);
         return this._cursor.TryGetValue(sessionId, out checkpoint);
     }
-
-    /// <summary>
-    /// Releases the resources used by this instance, including the workflow serialization lock.
-    /// </summary>
-    public void Dispose() => this._workflowLock.Dispose();
 }

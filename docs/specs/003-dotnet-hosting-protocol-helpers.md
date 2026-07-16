@@ -107,7 +107,12 @@ public abstract class AgentSessionStore
 // Thin holder: pairs a workflow target with checkpointing + a per-session head cursor.
 public sealed class HostedWorkflowState
 {
+    // Shared-instance mode: one instance cannot be run by two runners at once, so turns run one at a time.
     public HostedWorkflowState(Workflow workflow, CheckpointManager? checkpointManager = null);
+
+    // Factory mode: by default a fresh instance is built per run, so independent sessions run in parallel.
+    // With cacheWorkflow: true the factory is invoked once lazily and the built instance is cached and reused.
+    public HostedWorkflowState(Func<CancellationToken, ValueTask<Workflow>> workflowFactory, CheckpointManager? checkpointManager = null, bool cacheWorkflow = false);
 
     // First turn runs forward from the start; subsequent turns restore the session's latest
     // checkpoint and run forward with the new turn's input, then record the new head checkpoint.
@@ -137,9 +142,15 @@ turn is driven. When the in-memory cursor misses (a new holder or a process rest
 back to `CheckpointManager.GetLatestCheckpointAsync(sessionId)`, so a durable `CheckpointManager` resumes
 correctly across restarts (the default in-memory manager does not persist, so a restart starts fresh). A
 resume that produces no events is logged as a warning (possible stale checkpoint or mismatched input).
-Because a single workflow instance backs the
-holder and workflow instances do not support concurrent runs, `RunOrResumeAsync` serializes turns through
-one lock; `HostedWorkflowState` is therefore `IDisposable`. A
+Concurrency depends on how the holder is constructed. With a single shared workflow instance, concurrent runs
+are not supported, because a workflow instance cannot be run by two runners at once; process turns one at a
+time. With a workflow factory
+(`Func<CancellationToken, ValueTask<Workflow>>`) it builds a fresh instance per run by default, so independent
+sessions run in parallel; a resume rehydrates a fresh instance
+from the session's checkpoint in the shared store, and concurrent turns against the same session id remain the
+application's coordination responsibility. Passing `cacheWorkflow: true` instead builds the workflow once,
+lazily on first use, and reuses it (a deferred, cached target that — like the instance — cannot run concurrent
+turns). A
 streaming counterpart, `RunOrResumeStreamingAsync`, yields the turn's `WorkflowEvent`s as they occur (for
 example to render agent updates over the Responses SSE wire) and records the head checkpoint once the
 stream is fully enumerated, keeping the blocking and streaming workflow paths in lockstep.

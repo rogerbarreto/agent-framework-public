@@ -13,6 +13,15 @@ response id to the stable workflow session id, so the whole rotating chain resum
 run. The first turn runs the workflow forward; later turns restore the latest checkpoint and run forward
 with the new brief. Binds to `http://localhost:5001` (override with `ASPNETCORE_URLS`).
 
+`HostedWorkflowState` is constructed with a **workflow factory** and `cacheWorkflow: false` (the default,
+shown explicitly), so it builds a fresh workflow instance for every run. This lets independent sessions run
+concurrently — a single shared `Workflow` instance permits only one active run, so the instance constructor
+cannot process turns concurrently. A resume rehydrates a fresh instance from the session's checkpoint in the
+shared `CheckpointManager`, so per-run instances still continue the same run. (Passing `cacheWorkflow: true`
+would instead build the workflow once, lazily, and reuse it — a deferred, cached target that, like a shared
+instance, cannot run concurrent turns.) Concurrent turns against the *same* session id are the application's
+responsibility; a production app owns that per-session single-writer coordination.
+
 ```bash
 export FOUNDRY_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"
 export FOUNDRY_MODEL="gpt-5.4-mini"
