@@ -1,9 +1,11 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
 using Moq;
 using Moq.Protected;
 
@@ -72,6 +74,35 @@ public class InMemoryAgentSessionStoreTests
         await Assert.ThrowsAsync<NotSupportedException>(() => store.DeleteSessionAsync(new Mock<AIAgent>().Object, "any").AsTask());
     }
 
+    [Fact]
+    public async Task GetSessionAsync_ReturnsIndependentSnapshot_ForConcurrentBranchesAsync()
+    {
+        // Arrange: a real agent so the store round-trips the session through genuine serialize/deserialize,
+        // and a stored session that carries some state to copy.
+        AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
+        var store = new InMemoryAgentSessionStore();
+
+        AgentSession original = await agent.CreateSessionAsync();
+        original.StateBag.SetValue("marker", "v1");
+        await store.SaveSessionAsync(agent, "s1", original);
+
+        // Act: two concurrent branches read the same stored id.
+        AgentSession branchA = await store.GetSessionAsync(agent, "s1");
+        AgentSession branchB = await store.GetSessionAsync(agent, "s1");
+
+        // Assert: each branch is an independent instance carrying the same content.
+        Assert.NotSame(branchA, branchB);
+        Assert.Equal("v1", branchA.StateBag.GetValue<string>("marker"));
+        Assert.Equal("v1", branchB.StateBag.GetValue<string>("marker"));
+
+        // Mutating one branch must not affect the other branch or the stored snapshot.
+        branchA.StateBag.SetValue("marker", "mutated");
+        Assert.Equal("v1", branchB.StateBag.GetValue<string>("marker"));
+
+        AgentSession branchC = await store.GetSessionAsync(agent, "s1");
+        Assert.Equal("v1", branchC.StateBag.GetValue<string>("marker"));
+    }
+
     private sealed class TestAgentSession : AgentSession;
 
     private sealed class ConcreteAgentSessionStore : AgentSessionStore
@@ -84,5 +115,21 @@ public class InMemoryAgentSessionStoreTests
 
         public override ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+    }
+
+    // A chat client that is never invoked: these tests only create, serialize, and deserialize sessions.
+    private sealed class NotInvokedChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 }

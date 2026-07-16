@@ -69,6 +69,16 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId, cancellationToken).ConfigureAwait(false);
     string responseId = OpenAIResponses.CreateResponseId();
 
+    // Choose where to persist the post-run session, which depends on how the caller continued the thread:
+    // - A stable "conversation" id is a MUTABLE HEAD: write the advanced session back under the same id so
+    //   the next turn on that conversation sees this turn. Concurrent runs against one conversation id are
+    //   NOT serialized here; a production app must provide its own per-conversation single-writer coordination.
+    // - Otherwise (a "previous_response_id" continuation or a first turn) the new response id is an IMMUTABLE
+    //   SNAPSHOT: persist under it so a later previous_response_id can branch from this exact point, and two
+    //   branches from the same prior response stay independent.
+    string? conversationId = run.ConversationId is { Length: > 0 } cid && cid == sessionStoreId ? cid : null;
+    string saveId = conversationId ?? responseId;
+
     bool stream = body.TryGetProperty("stream", out JsonElement streamProp) && streamProp.ValueKind == JsonValueKind.True;
 
     if (stream)
@@ -81,8 +91,8 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
             await http.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Persist the post-run session under the new response id so the next turn can continue from it.
-        await sessionStore.SaveSessionAsync(agent, responseId, session, cancellationToken).ConfigureAwait(false);
+        // Persist the post-run session under the selected continuation id (see saveId above).
+        await sessionStore.SaveSessionAsync(agent, saveId, session, cancellationToken).ConfigureAwait(false);
 
         // The SSE body was already written straight to http.Response above, so return an empty result:
         // this returns from the handler (the non-streaming code below does not run) without writing a body.
@@ -90,7 +100,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     }
 
     AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, cancellationToken).ConfigureAwait(false);
-    await sessionStore.SaveSessionAsync(agent, responseId, session, cancellationToken).ConfigureAwait(false);
+    await sessionStore.SaveSessionAsync(agent, saveId, session, cancellationToken).ConfigureAwait(false);
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
 });
 

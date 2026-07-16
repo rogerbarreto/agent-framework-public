@@ -68,9 +68,21 @@ public abstract class AgentSessionStore
     /// <param name="sessionStoreId">The id under which the session is stored.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>
-    /// A task that represents the asynchronous retrieval operation.
-    /// The task result contains the serialized session state, or <see langword="null"/> if not found.
+    /// A task that represents the asynchronous retrieval operation. The task result contains the
+    /// restored <see cref="AgentSession"/>, or a newly created session when nothing is stored for the id.
     /// </returns>
+    /// <remarks>
+    /// <strong>Isolation.</strong> Each call must return an <em>independent</em> <see cref="AgentSession"/>
+    /// instance. Callers may mutate the returned session, and may run several concurrent branches from the
+    /// same <paramref name="sessionStoreId"/> (for example forking from an OpenAI Responses
+    /// <c>previous_response_id</c>), without those branches observing one another's mutations or altering the
+    /// stored state. The in-box stores satisfy this by returning a fresh instance rehydrated from a serialized
+    /// snapshot on every call; implementations that cache a live <see cref="AgentSession"/> must return an
+    /// independent copy (for example by round-tripping through
+    /// <see cref="AIAgent.SerializeSessionAsync(AgentSession, System.Text.Json.JsonSerializerOptions?, CancellationToken)"/>
+    /// and <see cref="AIAgent.DeserializeSessionAsync(System.Text.Json.JsonElement, System.Text.Json.JsonSerializerOptions?, CancellationToken)"/>)
+    /// rather than handing back the shared instance.
+    /// </remarks>
     public abstract ValueTask<AgentSession> GetSessionAsync(
         AIAgent agent,
         string sessionStoreId,

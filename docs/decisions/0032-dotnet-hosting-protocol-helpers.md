@@ -52,7 +52,7 @@ A capability comparison of the ADR-0027 / PR #6891 helper surface against the ex
 | `responses_from_streaming_run` | `AgentResponseUpdateExtensions.ToStreamingResponseAsync` + `SseJsonResult` (also renders workflow events) | exists, internal, richer |
 | `responses_session_id` | continuity resolved inside `InMemoryResponsesService` | exists, internal, not standalone |
 | `create_response_id` | `IdGenerator` | exists, internal |
-| `AgentState` (target + store, get-or-create) | `AgentSessionStore` (get-or-create + save + serialize + isolation) | richer; internal per-session lock on create-on-miss (matches Python) |
+| `AgentState` (target + store, get-or-create) | `AgentSessionStore` (get-or-create + save + serialize + isolation) | richer; create-on-miss lives in the store, so no separate holder is needed |
 | `SessionStore` (get/set/delete) | `AgentSessionStore` + `InMemoryAgentSessionStore` | richer; `Delete` added |
 | `WorkflowState` + checkpoint resume | `WorkflowCatalog`/`HostedWorkflowBuilder`; workflow events already render over Responses; `CheckpointManager` is session-keyed | partial; no per-session checkpoint cursor |
 | App owns routing/auth/middleware/storage | `MapOpenAIResponses`/`IResponsesService` own routing + storage | **the one real gap** |
@@ -138,8 +138,8 @@ persistence happens only after the run completes.
 
 Positive:
 
-- Smallest possible surface: the released addition is one facade type plus two thin state holders and
-  one new store method.
+- Smallest possible surface: the released addition is one facade type plus one thin workflow state
+  holder and one new store method (agents use `AgentSessionStore` directly, no holder).
 - No duplicated conversion; the app-owned-routing path and the route-owning server share one core.
 - `MapOpenAIResponses` users are unaffected.
 

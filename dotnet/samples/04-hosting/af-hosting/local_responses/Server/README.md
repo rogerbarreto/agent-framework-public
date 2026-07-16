@@ -14,6 +14,17 @@ Exposes an `AIAgent` over the OpenAI Responses protocol on a `POST /responses` r
 Session continuity uses an in-memory `AgentSessionStore` directly. `GetSessionAsync(agent, id)` creates a
 session on first use and returns an independent instance per call; the store does no internal locking, so a
 route that runs concurrent turns against the same id owns any coordination it needs.
+
+The route persists each turn under a continuation id chosen by how the caller continued the thread:
+
+- A stable **`conversation` id is a mutable head**: the advanced session is written back under the same id,
+  so the next turn on that conversation sees this one. Concurrent runs against a single conversation id are
+  not serialized by the store; a production app must supply its own per-conversation single-writer
+  coordination.
+- A **`previous_response_id` continuation (or a first turn) is an immutable snapshot**: the session is saved
+  under the newly minted response id, so a later `previous_response_id` can branch from that exact point and
+  two branches from the same prior response stay independent.
+
 The agent has a deterministic `lookup_weather` tool. Binds to `http://localhost:5000` (override with
 `ASPNETCORE_URLS`).
 

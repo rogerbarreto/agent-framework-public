@@ -30,6 +30,9 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Tests;
 /// </summary>
 public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
 {
+    private static readonly int[] s_independentBranchUserCounts = [1, 2, 2, 3, 3];
+    private static readonly int[] s_conversationAdvanceUserCounts = [1, 2];
+
     private WebApplication? _app;
     private HttpClient? _client;
 
@@ -102,6 +105,56 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AgentRoute_PreviousResponseId_SupportsIndependentBranchesAsync()
+    {
+        // Arrange: a recording mock so we can count how much history each turn saw.
+        var recorder = new TestHelpers.ConversationMemoryMockChatClient("ok");
+        HttpClient client = await this.StartAgentHostAsync(recorder);
+
+        // Act: a root turn, then two branches from the SAME response id, then a continuation of each branch.
+        string rootId = await PostAndGetResponseIdAsync(client, """{ "input": "root" }""");
+        string branchOneId = await PostAndGetResponseIdAsync(client, $$"""{ "input": "branch one", "previous_response_id": "{{rootId}}" }""");
+        string branchTwoId = await PostAndGetResponseIdAsync(client, $$"""{ "input": "branch two", "previous_response_id": "{{rootId}}" }""");
+        _ = await PostAndGetResponseIdAsync(client, $$"""{ "input": "continue one", "previous_response_id": "{{branchOneId}}" }""");
+        _ = await PostAndGetResponseIdAsync(client, $$"""{ "input": "continue two", "previous_response_id": "{{branchTwoId}}" }""");
+
+        // Assert: user-message counts per turn are [1, 2, 2, 3, 3]. Both branches build on the root (2) and not
+        // on each other; each continuation builds only on its own branch (3). Shared/leaked state would instead
+        // yield an increasing chain such as [1, 2, 3, 4, 5].
+        int[] userCounts = recorder.CallHistory
+            .Select(call => call.Count(m => m.Role == ChatRole.User))
+            .ToArray();
+        Assert.Equal(s_independentBranchUserCounts, userCounts);
+    }
+
+    [Fact]
+    public async Task AgentRoute_ConversationId_AdvancesMutableHeadAcrossTurnsAsync()
+    {
+        // Arrange
+        var recorder = new TestHelpers.ConversationMemoryMockChatClient("ok");
+        HttpClient client = await this.StartAgentHostAsync(recorder);
+
+        // Act: two turns on the SAME stable conversation id.
+        _ = await client.PostAsync(new Uri("/responses", UriKind.Relative), JsonContent("""{ "input": "turn one", "conversation": "conv_stable" }"""));
+        _ = await client.PostAsync(new Uri("/responses", UriKind.Relative), JsonContent("""{ "input": "turn two", "conversation": "conv_stable" }"""));
+
+        // Assert: the conversation head advanced in place — turn two saw turn one's message (2 user messages),
+        // rather than resetting to a fresh session (which would show 1). This is the mutable-head write-back.
+        int[] userCounts = recorder.CallHistory
+            .Select(call => call.Count(m => m.Role == ChatRole.User))
+            .ToArray();
+        Assert.Equal(s_conversationAdvanceUserCounts, userCounts);
+    }
+
+    private static async Task<string> PostAndGetResponseIdAsync(HttpClient client, string body)
+    {
+        HttpResponseMessage response = await client.PostAsync(new Uri("/responses", UriKind.Relative), JsonContent(body));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("id").GetString()!;
+    }
+
+    [Fact]
     public async Task AgentRoute_MalformedBody_ReturnsBadRequestAsync()
     {
         // Arrange
@@ -166,6 +219,12 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
             AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId, ct);
             string responseId = OpenAIResponses.CreateResponseId();
 
+            // A stable conversation id is a mutable head (write back under the same id); a previous_response_id
+            // continuation or first turn is an immutable snapshot (save under the new response id so branches
+            // from the same prior response stay independent).
+            string? conversationId = run.ConversationId is { Length: > 0 } cid && cid == sessionStoreId ? cid : null;
+            string saveId = conversationId ?? responseId;
+
             if (body.TryGetProperty("stream", out JsonElement s) && s.ValueKind == JsonValueKind.True)
             {
                 http.Response.ContentType = "text/event-stream";
@@ -175,12 +234,12 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
                     await http.Response.WriteAsync(frame, ct);
                 }
 
-                await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
+                await sessionStore.SaveSessionAsync(agent, saveId, session, ct);
                 return Results.Empty;
             }
 
             AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, ct);
-            await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
+            await sessionStore.SaveSessionAsync(agent, saveId, session, ct);
             return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
         });
 
