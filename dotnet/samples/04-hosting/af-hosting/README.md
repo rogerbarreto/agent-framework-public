@@ -23,7 +23,7 @@ Agent Framework gives you two options:
 
 | Sample | What it shows |
 |---|---|
-| [`local_responses/`](./local_responses) | An agent behind an ASP.NET Core route you write, using the `OpenAIResponses` helper methods plus `HostedAgentState` / `AgentSessionStore` for conversation continuity. The simplest sample to start with. |
+| [`local_responses/`](./local_responses) | An agent behind an ASP.NET Core route you write, using the `OpenAIResponses` helper methods plus `AgentSessionStore` for conversation continuity. The simplest sample to start with. |
 | [`local_responses_workflow/`](./local_responses_workflow) | A workflow behind an ASP.NET Core route you write, using the `OpenAIResponses` helper methods, `HostedWorkflowState`, an explicit `CheckpointManager`, and a checkpoint cursor your app keeps so a run resumes across turns. |
 
 Each sample is a **client/server pair** split into two projects:

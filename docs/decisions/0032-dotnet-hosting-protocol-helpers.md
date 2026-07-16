@@ -102,12 +102,15 @@ request object).
 
 - `AgentSessionStore.DeleteSessionAsync(...)` (+ `InMemoryAgentSessionStore` implementation and
   isolation-decorator passthrough): the one missing store operation.
-- `HostedAgentState`: a thin holder bundling an `AIAgent` with an `AgentSessionStore`, exposing
-  `GetOrCreateSessionAsync`, `SaveSessionAsync` (including under a newly minted id), and
-  `DeleteSessionAsync`. `GetOrCreateSessionAsync` serializes concurrent first-touch of the same id through
-  an internal per-session lock (automatic and on by default; callers never manage locking). It exists
-  because only the holder has both the target and the store; it does not replace `AgentSessionStore`, which
-  already provides serialization and isolation that Python's `AgentState`/`SessionStore` lack.
+- No agent-side holder. Applications use `AgentSessionStore` directly: `GetSessionAsync(agent, id)`
+  already creates on miss and returns an independent session instance per call (so concurrent calls fork
+  the same stored state rather than sharing an instance), `SaveSessionAsync(agent, id, session)` persists
+  post-run (including under a newly minted id), and `DeleteSessionAsync(agent, id)` removes it. An earlier
+  draft added a `HostedAgentState` holder, but once create-on-miss lives in the store and the store does no
+  cross-call locking, the holder would only bind the `agent` argument — not enough to justify a public type.
+  Any coordination for concurrent runs against the same id is the application's concern. (Unlike Python,
+  whose `SessionStore` is get/set-only and whose `AgentState` therefore owns create-on-miss, .NET's store
+  already owns it.)
 - `HostedWorkflowState`: a thin holder bundling a workflow target with a `CheckpointManager` and an
   internal `sessionId -> CheckpointInfo` head cursor, exposing `RunOrResumeAsync`. .NET's checkpoint
   store is already `sessionId`-keyed (unlike Python's workflow-name keying), but `CheckpointInfo` has

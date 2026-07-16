@@ -12,7 +12,7 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.IntegrationTests;
 
 /// <summary>
 /// Live integration tests for the app-owned routing helper surface (<see cref="OpenAIResponses"/> plus
-/// <see cref="HostedAgentState"/>) exercised against a real OpenAI model. These confirm the crucial
+/// <see cref="AgentSessionStore"/>) exercised against a real OpenAI model. These confirm the crucial
 /// consumption paths — request conversion, an agent run, response rendering, and multi-turn session
 /// continuity — behave correctly end to end with a real chat client.
 /// </summary>
@@ -32,13 +32,13 @@ public sealed class OpenAIResponsesHostingLiveTests
         // Arrange
         Assert.SkipWhen(string.IsNullOrEmpty(ApiKey), "OPENAI_API_KEY is not configured; skipping live hosting test.");
         AIAgent agent = CreateAgent();
-        var state = new HostedAgentState(agent);
+        AgentSessionStore sessionStore = new InMemoryAgentSessionStore();
         JsonElement body = ParseBody("""{ "input": "Reply with exactly the word: apple" }""");
 
         // Act
         OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
         string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
-        AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId);
+        AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId);
         string responseId = OpenAIResponses.CreateResponseId();
         AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options);
         JsonElement payload = OpenAIResponses.WriteResponse(result, responseId, responseId);
@@ -55,14 +55,14 @@ public sealed class OpenAIResponsesHostingLiveTests
         // Arrange
         Assert.SkipWhen(string.IsNullOrEmpty(ApiKey), "OPENAI_API_KEY is not configured; skipping live hosting test.");
         AIAgent agent = CreateAgent();
-        var state = new HostedAgentState(agent);
+        AgentSessionStore sessionStore = new InMemoryAgentSessionStore();
 
         // Act: first turn establishes context, second turn continues from the first response id.
-        string firstResponseId = await RunTurnAsync(agent, state, """{ "input": "Remember the number 7." }""");
+        string firstResponseId = await RunTurnAsync(agent, sessionStore, """{ "input": "Remember the number 7." }""");
         JsonElement secondBody = ParseBody($$"""{ "input": "What number did I ask you to remember?", "previous_response_id": "{{firstResponseId}}" }""");
         OpenAIResponsesRunRequest secondRun = OpenAIResponses.ToAgentRunRequest(secondBody);
         string secondSessionStoreId = OpenAIResponses.GetSessionStoreId(secondRun)!;
-        AgentSession session = await state.GetOrCreateSessionAsync(secondSessionStoreId);
+        AgentSession session = await sessionStore.GetSessionAsync(agent, secondSessionStoreId);
         AgentResponse secondResult = await agent.RunAsync(secondRun.Messages, session, secondRun.Options);
 
         // Assert: continuation succeeded and the model produced a textual answer.
@@ -70,15 +70,15 @@ public sealed class OpenAIResponsesHostingLiveTests
         Assert.False(string.IsNullOrWhiteSpace(secondResult.Text));
     }
 
-    private static async Task<string> RunTurnAsync(AIAgent agent, HostedAgentState state, string bodyJson)
+    private static async Task<string> RunTurnAsync(AIAgent agent, AgentSessionStore sessionStore, string bodyJson)
     {
         JsonElement body = ParseBody(bodyJson);
         OpenAIResponsesRunRequest run = OpenAIResponses.ToAgentRunRequest(body);
         string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
-        AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId);
+        AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId);
         string responseId = OpenAIResponses.CreateResponseId();
         _ = await agent.RunAsync(run.Messages, session, run.Options);
-        await state.SaveSessionAsync(responseId, session);
+        await sessionStore.SaveSessionAsync(agent, responseId, session);
         return responseId;
     }
 

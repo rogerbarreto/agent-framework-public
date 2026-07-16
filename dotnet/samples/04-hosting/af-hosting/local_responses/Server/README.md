@@ -11,8 +11,9 @@ Exposes an `AIAgent` over the OpenAI Responses protocol on a `POST /responses` r
 - `OpenAIResponses.WriteResponse(...)` / `WriteResponseStreamAsync(...)` render the agent output back to the
   Responses wire shape (non-streaming JSON and SSE).
 
-Session continuity uses `HostedAgentState` over an in-memory `AgentSessionStore`. `GetOrCreateSessionAsync`
-serializes concurrent first-touch of the same session internally, so the route does not manage any locking.
+Session continuity uses an in-memory `AgentSessionStore` directly. `GetSessionAsync(agent, id)` creates a
+session on first use and returns an independent instance per call; the store does no internal locking, so a
+route that runs concurrent turns against the same id owns any coordination it needs.
 The agent has a deterministic `lookup_weather` tool. Binds to `http://localhost:5000` (override with
 `ASPNETCORE_URLS`).
 

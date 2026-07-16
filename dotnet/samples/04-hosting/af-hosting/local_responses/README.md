@@ -14,8 +14,8 @@ local_responses/
 The server owns routing, authentication, and session storage. The framework provides only the protocol
 conversion via `OpenAIResponses` (`ToAgentRunRequest`, `GetSessionStoreId`, `WriteResponse` /
 `WriteResponseStreamAsync`), instead of the batteries-included `MapOpenAIResponses` endpoint. The agent has a
-deterministic `lookup_weather` tool. Session continuity uses `HostedAgentState` over an in-memory
-`AgentSessionStore`. It binds to `http://localhost:5000`.
+deterministic `lookup_weather` tool. Session continuity uses an in-memory `AgentSessionStore` directly. It
+binds to `http://localhost:5000`.
 
 See [Server/README.md](Server/README.md).
 

@@ -104,16 +104,6 @@ public abstract class AgentSessionStore
         AIAgent agent, string conversationId, CancellationToken cancellationToken = default);
 }
 
-// Thin holder: pairs an agent target with a session store.
-public sealed class HostedAgentState
-{
-    public HostedAgentState(AIAgent agent, AgentSessionStore? sessionStore = null);
-
-    public ValueTask<AgentSession> GetOrCreateSessionAsync(string sessionId, CancellationToken ct = default);
-    public ValueTask SaveSessionAsync(string sessionId, AgentSession session, CancellationToken ct = default);
-    public ValueTask DeleteSessionAsync(string sessionId, CancellationToken ct = default);
-}
-
 // Thin holder: pairs a workflow target with checkpointing + a per-session head cursor.
 public sealed class HostedWorkflowState
 {
@@ -126,11 +116,15 @@ public sealed class HostedWorkflowState
 }
 ```
 
-`HostedAgentState.GetOrCreateSessionAsync` delegates to `AgentSessionStore.GetSessionAsync(agent, id)`
-(which already creates on miss), serializing concurrent first-touch of the same id through an internal
-per-session lock (automatic and on by default; callers never manage it).
-`SaveSessionAsync(id, session)` persists post-run, including under a newly minted `resp_*` id when the
-protocol mints a new continuation id. `DeleteSessionAsync` uses the new store method.
+For agents, the application uses `AgentSessionStore` directly: `GetSessionAsync(agent, id)` creates a
+session on miss and returns an independent instance per call (so concurrent calls can fork the same
+stored state — for example branching from a `previous_response_id` or managing several `conversation`
+ids side by side — without one branch observing another's in-flight mutations). The store performs no
+cross-call locking; an application that needs concurrent runs against the same id to be serialized owns
+that coordination. `SaveSessionAsync(agent, id, session)` persists post-run, including under a newly
+minted `resp_*` id when the protocol mints a new continuation id. `DeleteSessionAsync` uses the new
+store method. No agent-side holder is needed: create-on-miss already lives in the store, so a
+pass-through wrapper would only bind the `agent` argument.
 
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory
 `sessionId -> CheckpointInfo` cursor. Because the checkpoint store is already `sessionId`-keyed but
@@ -176,7 +170,7 @@ parsing a structured payload into a typed record), without coupling the holder t
 
 ```csharp
 var agent = /* an AIAgent */;
-var state = new HostedAgentState(agent); // in-memory session store by default
+AgentSessionStore sessionStore = new InMemoryAgentSessionStore(); // in-memory session store
 
 app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
 {
@@ -188,7 +182,7 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
     string sessionId = Authorize(http.User, candidate) ?? OpenAIResponses.CreateResponseId();
 
     var run = OpenAIResponses.ToAgentRunRequest(body);
-    var session = await state.GetOrCreateSessionAsync(sessionId, ct);
+    var session = await sessionStore.GetSessionAsync(agent, sessionId, ct);
 
     string responseId = OpenAIResponses.CreateResponseId();
 
@@ -201,12 +195,12 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
             await http.Response.WriteAsync(frame, ct);
             await http.Response.Body.FlushAsync(ct);
         }
-        await state.SaveSessionAsync(responseId, session, ct);
+        await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
         return Results.Empty;
     }
 
     var result = await agent.RunAsync(run.Messages, session, run.Options, ct);
-    await state.SaveSessionAsync(responseId, session, ct);
+    await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, sessionId));
 });
 ```

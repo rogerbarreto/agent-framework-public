@@ -46,10 +46,10 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint), new DefaultAzureCredentia
         name: "WeatherAgent",
         tools: [AIFunctionFactory.Create(LookupWeather, name: "lookup_weather")]);
 
-// Optional shared execution state: pairs the agent with a session store (in-memory by default).
-// GetOrCreateSessionAsync serializes concurrent first-touch of the same session internally, so route code
-// does not manage any locking.
-var state = new HostedAgentState(agent);
+// The application owns session storage directly. The in-memory store's GetSessionAsync creates a session
+// on first use and returns an independent instance per call; no shared holder is needed. A real app that
+// runs concurrent turns against the same session id owns any coordination it needs.
+AgentSessionStore sessionStore = new InMemoryAgentSessionStore();
 
 var app = builder.Build();
 
@@ -66,7 +66,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     string? candidateSessionStoreId = OpenAIResponses.GetSessionStoreId(run);
     string sessionStoreId = Authorize(http, candidateSessionStoreId) ?? OpenAIResponses.CreateResponseId();
 
-    AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
+    AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId, cancellationToken).ConfigureAwait(false);
     string responseId = OpenAIResponses.CreateResponseId();
 
     bool stream = body.TryGetProperty("stream", out JsonElement streamProp) && streamProp.ValueKind == JsonValueKind.True;
@@ -82,7 +82,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
         }
 
         // Persist the post-run session under the new response id so the next turn can continue from it.
-        await state.SaveSessionAsync(responseId, session, cancellationToken).ConfigureAwait(false);
+        await sessionStore.SaveSessionAsync(agent, responseId, session, cancellationToken).ConfigureAwait(false);
 
         // The SSE body was already written straight to http.Response above, so return an empty result:
         // this returns from the handler (the non-streaming code below does not run) without writing a body.
@@ -90,7 +90,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     }
 
     AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, cancellationToken).ConfigureAwait(false);
-    await state.SaveSessionAsync(responseId, session, cancellationToken).ConfigureAwait(false);
+    await sessionStore.SaveSessionAsync(agent, responseId, session, cancellationToken).ConfigureAwait(false);
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
 });
 

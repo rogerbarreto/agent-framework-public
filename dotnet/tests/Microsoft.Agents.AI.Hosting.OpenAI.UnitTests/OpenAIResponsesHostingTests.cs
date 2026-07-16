@@ -22,7 +22,7 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Tests;
 /// <summary>
 /// In-process, in-memory hosting tests for <see cref="OpenAIResponses"/>: a request travels through an
 /// app-owned ASP.NET Core route (hosted in-memory via <see cref="TestServer"/>) that wires
-/// <see cref="OpenAIResponses"/> plus <see cref="HostedAgentState"/> / <see cref="HostedWorkflowState"/>,
+/// <see cref="OpenAIResponses"/> plus an <see cref="AgentSessionStore"/> / <see cref="HostedWorkflowState"/>,
 /// exactly like the <c>local_responses</c> / <c>local_responses_workflow</c> samples. These run fully
 /// in-process against a deterministic mock chat client — there is no external server process and no live
 /// model. Live-model coverage lives in the separate <c>Microsoft.Agents.AI.Hosting.OpenAI.IntegrationTests</c>
@@ -93,7 +93,7 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
         Assert.Equal(2, recorder.CallHistory.Count);
 
-        // The second call must include the first turn's user message (continuity through HostedAgentState),
+        // The second call must include the first turn's user message (continuity through the session store),
         // whereas the first call must not contain the second turn's text.
         string firstCallText = string.Join("\n", recorder.CallHistory[0].Select(m => m.Text));
         string secondCallText = string.Join("\n", recorder.CallHistory[1].Select(m => m.Text));
@@ -148,7 +148,7 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
         this._app = builder.Build();
 
         var agent = new ChatClientAgent(chatClient, instructions: "You are a helpful assistant.", name: "assistant");
-        var state = new HostedAgentState(agent);
+        AgentSessionStore sessionStore = new InMemoryAgentSessionStore();
 
         this._app.MapPost("/responses", async (JsonElement body, HttpContext http, CancellationToken ct) =>
         {
@@ -163,7 +163,7 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
             }
 
             string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
-            AgentSession session = await state.GetOrCreateSessionAsync(sessionStoreId, ct);
+            AgentSession session = await sessionStore.GetSessionAsync(agent, sessionStoreId, ct);
             string responseId = OpenAIResponses.CreateResponseId();
 
             if (body.TryGetProperty("stream", out JsonElement s) && s.ValueKind == JsonValueKind.True)
@@ -175,12 +175,12 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
                     await http.Response.WriteAsync(frame, ct);
                 }
 
-                await state.SaveSessionAsync(responseId, session, ct);
+                await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
                 return Results.Empty;
             }
 
             AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, ct);
-            await state.SaveSessionAsync(responseId, session, ct);
+            await sessionStore.SaveSessionAsync(agent, responseId, session, ct);
             return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
         });
 
