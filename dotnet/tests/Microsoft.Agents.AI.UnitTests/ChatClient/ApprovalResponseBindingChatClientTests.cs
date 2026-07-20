@@ -98,6 +98,31 @@ public class ApprovalResponseBindingChatClientTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_EquivalentResponse_KeepsOriginalWithoutRebuildAsync()
+    {
+        // Arrange — turn 1 records a request; turn 2 approves it with a matching (equivalent) tool call.
+        var session = new ChatClientAgentSession();
+        var recordedCall = new FunctionCallContent("call1", "toolA", new Dictionary<string, object?> { ["amount"] = 1 });
+        await RecordRequestAsync(session, new ToolApprovalRequestContent(RequestId, recordedCall));
+
+        var matching = new ToolApprovalResponseContent(
+            RequestId,
+            approved: true,
+            new FunctionCallContent("call1", "toolA", new Dictionary<string, object?> { ["amount"] = 1 }));
+
+        var capture = new Capture();
+        var inner = CreateCapturingChatClient(capture);
+        var decorator = new ApprovalResponseBindingChatClient(inner);
+
+        // Act
+        await RunAsync(decorator, session, [new ChatMessage(ChatRole.User, [matching])]);
+
+        // Assert — the already-matching response is forwarded unchanged (same instance, no rebuild).
+        var forwarded = capture.Messages!.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().Single();
+        Assert.Same(matching, forwarded);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_MatchingRejection_IsPreservedAsync()
     {
         // Arrange

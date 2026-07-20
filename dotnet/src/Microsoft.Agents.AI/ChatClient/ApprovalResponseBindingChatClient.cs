@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
@@ -307,8 +306,9 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
 
     /// <summary>
     /// Determines whether two tool calls are equivalent, so an already-matching approval response does not
-    /// need to be rebuilt. Compared by canonical JSON, so equal calls (tool name and arguments) are treated
-    /// as equivalent and any difference results in a rebind.
+    /// need to be rebuilt. This is a conservative optimization: it only returns <see langword="true"/> when the
+    /// calls are known to be equivalent. A <see langword="false"/> result simply triggers a (safe) rebind, so
+    /// callers never keep a substituted tool call.
     /// </summary>
     private static bool ToolCallsEquivalent(ToolCallContent responseCall, ToolCallContent recordedCall)
     {
@@ -317,10 +317,46 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
             return true;
         }
 
-        var typeInfo = AgentJsonUtilities.DefaultOptions.GetTypeInfo(typeof(ToolCallContent));
-        var responseJson = JsonSerializer.Serialize(responseCall, typeInfo);
-        var recordedJson = JsonSerializer.Serialize(recordedCall, typeInfo);
-        return string.Equals(responseJson, recordedJson, StringComparison.Ordinal);
+        // Fast path for the overwhelmingly common case: both are FunctionCallContent. Compare fields directly
+        // rather than serializing, which is far cheaper.
+        if (responseCall is FunctionCallContent responseFunction && recordedCall is FunctionCallContent recordedFunction)
+        {
+            return string.Equals(responseFunction.CallId, recordedFunction.CallId, StringComparison.Ordinal)
+                && string.Equals(responseFunction.Name, recordedFunction.Name, StringComparison.Ordinal)
+                && ArgumentsEquivalent(responseFunction.Arguments, recordedFunction.Arguments);
+        }
+
+        // Any other tool call shape: treat as not equivalent so the call is rebound. This is safe and avoids
+        // an expensive general-purpose comparison for shapes that effectively never occur here.
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether two function-call argument dictionaries are equivalent. Uses a shallow value
+    /// comparison; when values cannot be proven equal (for example after a serialization round-trip changes the
+    /// runtime type), this returns <see langword="false"/>, which is safe because it only forces a rebind.
+    /// </summary>
+    private static bool ArgumentsEquivalent(IDictionary<string, object?>? responseArguments, IDictionary<string, object?>? recordedArguments)
+    {
+        if (ReferenceEquals(responseArguments, recordedArguments))
+        {
+            return true;
+        }
+
+        if (responseArguments is null || recordedArguments is null || responseArguments.Count != recordedArguments.Count)
+        {
+            return false;
+        }
+
+        foreach (var pair in responseArguments)
+        {
+            if (!recordedArguments.TryGetValue(pair.Key, out var recordedValue) || !Equals(pair.Value, recordedValue))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Dictionary<string, ToolApprovalRequestContent> LoadPendingApprovalRequestLookup(AgentSession session)
