@@ -52,7 +52,7 @@ A capability comparison of the ADR-0027 / PR #6891 helper surface against the ex
 | `responses_from_streaming_run` | `AgentResponseUpdateExtensions.ToStreamingResponseAsync` + `SseJsonResult` (also renders workflow events) | exists, internal, richer |
 | `responses_session_id` | continuity resolved inside `InMemoryResponsesService` | exists, internal, not standalone |
 | `create_response_id` | `IdGenerator` | exists, internal |
-| `AgentState` (target + store, get-or-create) | `AgentSessionStore` (get-or-create + save + serialize + isolation) | richer; create-on-miss lives in the store, so no separate holder is needed |
+| `AgentState` (target + store, get-or-create, callable/awaitable target) | `AgentSessionStore` (get-or-create + save + serialize + isolation) + DI container (target lifetime + async setup) | create-on-miss lives in the store; per-run instance and deferred/async target come from DI, so no separate holder is needed |
 | `SessionStore` (get/set/delete) | `AgentSessionStore` + `InMemoryAgentSessionStore` | richer; `Delete` added |
 | `WorkflowState` + checkpoint resume | `WorkflowCatalog`/`HostedWorkflowBuilder`; workflow events already render over Responses; `CheckpointManager` is session-keyed | partial; no per-session checkpoint cursor |
 | App owns routing/auth/middleware/storage | `MapOpenAIResponses`/`IResponsesService` own routing + storage | **the one real gap** |
@@ -107,10 +107,24 @@ request object).
   the same stored state rather than sharing an instance), `SaveSessionAsync(agent, id, session)` persists
   post-run (including under a newly minted id), and `DeleteSessionAsync(agent, id)` removes it. An earlier
   draft added a `HostedAgentState` holder, but once create-on-miss lives in the store and the store does no
-  cross-call locking, the holder would only bind the `agent` argument — not enough to justify a public type.
-  Any coordination for concurrent runs against the same id is the application's concern. (Unlike Python,
-  whose `SessionStore` is get/set-only and whose `AgentState` therefore owns create-on-miss, .NET's store
-  already owns it.)
+  cross-call locking, the holder would only bind the `agent` argument, which is not enough to justify a
+  public type. Any coordination for concurrent runs against the same id is the application's concern.
+  (Unlike Python, whose `SessionStore` is get/set-only and whose `AgentState` therefore owns
+  create-on-miss, .NET's store already owns it.)
+
+  Python's `AgentState` carries two further responsibilities beyond create-on-miss: it accepts a callable
+  or awaitable target so the host can (1) obtain a fresh agent instance per run and (2) defer expensive or
+  asynchronous agent setup while keeping server construction synchronous. In .NET these two concerns are
+  owned by the dependency-injection container, not by a hosting type. Per-run lifetime is expressed by the
+  registration lifetime (`AddScoped`/`AddTransient` yields a fresh `AIAgent` per request or scope, resolved
+  by the framework), and deferred or asynchronous construction is expressed by an async factory registration
+  (for example an `async` factory delegate, `ActivatorUtilities`, or resolving the agent inside the request
+  after any async warm-up), so the route handler resolves an already-built agent from the container. An
+  `AIAgent` is also safe to invoke concurrently (per-turn state lives in `AgentSession`, not the agent), so
+  the "fresh instance per run" motivation does not apply to it the way it does to a workflow. This is the
+  deliberate asymmetry with `HostedWorkflowState` below: a `Workflow` instance is a stateful run engine that
+  cannot be driven by two runners at once, so the factory/`cacheWorkflow` affordance is load-bearing there
+  for correctness, whereas for agents the container already provides both per-run instances and async setup.
 - `HostedWorkflowState`: a thin holder bundling a workflow target with a `CheckpointManager` and an
   internal `sessionId -> CheckpointInfo` head cursor, exposing `RunOrResumeAsync`. .NET's checkpoint
   store is already `sessionId`-keyed (unlike Python's workflow-name keying), but `CheckpointInfo` has
