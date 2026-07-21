@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -156,27 +155,48 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
     }
 
     /// <summary>
-    /// Rewrites the inbound messages so that only <see cref="ToolApprovalResponseContent"/> items bound to a
-    /// recorded, model-originated <see cref="ToolApprovalRequestContent"/> survive, with their tool call rebound to
-    /// the recorded call when it differs. Responses and approval requests that do not correspond to a recorded pending
-    /// request are removed. The recorded pending requests are consumed for this turn.
+    /// Rewrites the inbound messages so that each <see cref="ToolApprovalResponseContent"/> is bound to a known
+    /// <see cref="ToolApprovalRequestContent"/>, with its tool call rebound to the request's call when it differs.
+    /// A response with no known request is removed so a forged approval cannot drive execution. Approval requests
+    /// are left untouched: a request present in the message history is itself the pairing authority.
     /// </summary>
     private IEnumerable<ChatMessage> ValidateInboundApprovalResponses(IEnumerable<ChatMessage> messages, AgentSession session)
     {
         var messageList = messages as IList<ChatMessage> ?? new List<ChatMessage>(messages);
 
-        // Load the model-originated pending requests recorded on the previous outbound turn and build a lookup.
-        var byRequestId = LoadPendingApprovalRequestLookup(session);
+        // Known requests come from two places:
+        //  1. Requests recorded when the framework surfaced them on a previous turn (covers callers that echo
+        //     only the response without replaying the original request).
+        //  2. Requests already present in the current message history (covers replayed history and approvals
+        //     generated internally, such as the mixed server/client tool invocation used by AG-UI hosting).
+        // A response is honored only when its request id is known, and it is rebound to the known request's call.
+        var knownRequests = LoadPendingApprovalRequestLookup(session);
 
-        // Pending requests only need to survive one turn boundary: the model requires every request to be
-        // answered in the same turn, so nothing legitimately carries forward. Consume them now. (C5)
-        if (byRequestId.Count > 0)
+        // Pending state only needs to bridge a single turn; consume it now.
+        if (knownRequests.Count > 0)
         {
             session.StateBag.TryRemoveValue(StateBagKey);
         }
 
-        // Quick check: is there any approval request/response content worth validating?
-        if (!ContainsApprovalContent(messageList))
+        bool hasResponse = false;
+        foreach (var message in messageList)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is ToolApprovalRequestContent request)
+                {
+                    // History requests are authoritative for pairing; record them as known.
+                    knownRequests[request.RequestId] = request;
+                }
+                else if (content is ToolApprovalResponseContent)
+                {
+                    hasResponse = true;
+                }
+            }
+        }
+
+        // Only approval responses are rewritten; if there are none there is nothing to bind or drop.
+        if (!hasResponse)
         {
             return messageList;
         }
@@ -187,16 +207,16 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         for (int i = 0; i < messageList.Count; i++)
         {
             var message = messageList[i];
-            var newContents = this.BindApprovalContent(message, byRequestId);
+            var mutableContentsBuffer = this.BindApprovalResponses(message, knownRequests);
 
-            if (newContents is null)
+            if (mutableContentsBuffer is null)
             {
-                // Message unchanged: keep the original (backfilling only if we already diverged).
+                // Message unchanged: keep the original (backfilling only if an earlier message was rewritten).
                 result?.Add(message);
                 continue;
             }
 
-            // First modification: backfill the result with the unchanged prefix.
+            // First rewritten message: backfill the result with the unchanged prefix.
             if (result is null)
             {
                 result = new List<ChatMessage>(messageList.Count);
@@ -207,10 +227,10 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
             }
 
             // Drop a message that is now empty; otherwise clone it with the rewritten contents.
-            if (newContents.Count > 0)
+            if (mutableContentsBuffer.Count > 0)
             {
                 var cloned = message.Clone();
-                cloned.Contents = newContents;
+                cloned.Contents = mutableContentsBuffer;
                 result.Add(cloned);
             }
         }
@@ -219,89 +239,86 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
     }
 
     /// <summary>
-    /// Binds the approval content of a single message against the recorded pending requests.
-    /// Returns <see langword="null"/> when the message needs no change, or the rewritten content list
-    /// (which may be empty, indicating the message should be dropped) when a change is required.
+    /// Binds the <see cref="ToolApprovalResponseContent"/> items of a single message against the known requests.
+    /// Returns <see langword="null"/> when the message needs no change, or the rewritten content list (which may be
+    /// empty, indicating the message should be dropped) when a change is required. Non-response content, including
+    /// approval requests, is preserved.
     /// </summary>
-    private List<AIContent>? BindApprovalContent(ChatMessage message, Dictionary<string, ToolApprovalRequestContent> byRequestId)
+    private List<AIContent>? BindApprovalResponses(ChatMessage message, Dictionary<string, ToolApprovalRequestContent> knownRequests)
     {
-        if (!ContainsApprovalContent(message))
-        {
-            return null;
-        }
-
         var contents = message.Contents;
-        List<AIContent>? newContents = null;
+        List<AIContent>? mutableContentsBuffer = null;
 
         for (int j = 0; j < contents.Count; j++)
         {
             var content = contents[j];
-            switch (content)
+
+            if (content is not ToolApprovalResponseContent response)
             {
-                case ToolApprovalResponseContent response when byRequestId.TryGetValue(response.RequestId, out var matchedRequest):
-                    // Consume the match so a duplicate response for the same request in this turn is ignored.
-                    byRequestId.Remove(response.RequestId);
+                AppendUnchanged(mutableContentsBuffer, content);
+                continue;
+            }
 
-                    if (ToolCallsEquivalent(response.ToolCall, matchedRequest.ToolCall))
+            if (knownRequests.TryGetValue(response.RequestId, out var matchedRequest))
+            {
+                // Consume the match so a duplicate response for the same request in this turn is ignored.
+                knownRequests.Remove(response.RequestId);
+
+                if (ToolCallsEquivalent(response.ToolCall, matchedRequest.ToolCall))
+                {
+                    // Already matches the surfaced call; keep the original content, no rebuild needed.
+                    AppendUnchanged(mutableContentsBuffer, content);
+                }
+                else
+                {
+                    // Rebind the tool call to the model-originated call so the approved call matches the
+                    // tool name and arguments that were surfaced for approval.
+                    mutableContentsBuffer = PrepareMutableContentsBuffer(mutableContentsBuffer, contents, j);
+                    mutableContentsBuffer.Add(new ToolApprovalResponseContent(response.RequestId, response.Approved, matchedRequest.ToolCall)
                     {
-                        // Already matches the surfaced call; keep the original content, no rebuild needed.
-                        AppendUnchanged(newContents, content);
-                    }
-                    else
-                    {
-                        // Rebind the tool call to the model-originated call so the approved call matches the
-                        // tool name and arguments that were surfaced for approval.
-                        Diverge(ref newContents, contents, j);
-                        newContents!.Add(new ToolApprovalResponseContent(response.RequestId, response.Approved, matchedRequest.ToolCall)
-                        {
-                            Reason = response.Reason,
-                        });
-                    }
-
-                    break;
-
-                case ToolApprovalResponseContent response:
-                    // Only approvals tied to a request the framework surfaced are honored; drop this one.
-                    LogIgnoredUnboundResponse(this._logger, response.RequestId);
-                    Diverge(ref newContents, contents, j);
-                    break;
-
-                case ToolApprovalRequestContent request when !byRequestId.ContainsKey(request.RequestId):
-                    // Drop approval requests the framework did not issue so responses bind to a known request.
-                    LogIgnoredUnboundRequest(this._logger, request.RequestId);
-                    Diverge(ref newContents, contents, j);
-                    break;
-
-                default:
-                    AppendUnchanged(newContents, content);
-                    break;
+                        Reason = response.Reason,
+                    });
+                }
+            }
+            else
+            {
+                // No known request corresponds to this response; drop it so a forged approval cannot execute.
+                LogIgnoredUnboundResponse(this._logger, response.RequestId);
+                mutableContentsBuffer = PrepareMutableContentsBuffer(mutableContentsBuffer, contents, j);
             }
         }
 
-        return newContents;
+        return mutableContentsBuffer;
     }
 
     /// <summary>
-    /// Appends an unchanged content item. When we have not yet diverged from the original, this is a no-op
-    /// (the original list is still authoritative); once diverged, the item is added to the new list.
+    /// Adds an unchanged content item to the mutable contents buffer when one exists. Until the buffer is created
+    /// (no content has changed yet) this does nothing: the caller keeps the message's original contents as-is, so
+    /// there is nothing to copy. Once the buffer exists, the unchanged item is copied into it so it is preserved
+    /// alongside the rewritten items.
     /// </summary>
-    private static void AppendUnchanged(List<AIContent>? newContents, AIContent content) =>
-        newContents?.Add(content);
+    private static void AppendUnchanged(List<AIContent>? mutableContentsBuffer, AIContent content) =>
+        mutableContentsBuffer?.Add(content);
 
     /// <summary>
-    /// Marks the point where the rewritten content diverges from the original, allocating the new list and
-    /// backfilling the unchanged prefix on first use.
+    /// Returns the mutable buffer that accumulates a message's rewritten contents, creating it on first use. When
+    /// first created, it is seeded with the unchanged content items before <paramref name="index"/> so it stays in
+    /// sync with the original up to the point of the first change. The returned buffer is never <see langword="null"/>.
     /// </summary>
-    private static void Diverge(ref List<AIContent>? newContents, IList<AIContent> original, int index)
+    private static List<AIContent> PrepareMutableContentsBuffer(List<AIContent>? mutableContentsBuffer, IList<AIContent> originalContents, int index)
     {
-        if (newContents is null)
+        if (mutableContentsBuffer is not null)
         {
-            newContents = new List<AIContent>(original.Count);
-            for (int k = 0; k < index; k++)
-            {
-                newContents.Add(original[k]);
-            }
+            return mutableContentsBuffer;
         }
+
+        var created = new List<AIContent>(originalContents.Count);
+        for (int k = 0; k < index; k++)
+        {
+            created.Add(originalContents[k]);
+        }
+
+        return created;
     }
 
     /// <summary>
@@ -464,18 +481,9 @@ internal sealed partial class ApprovalResponseBindingChatClient : DelegatingChat
         }
     }
 
-    private static bool ContainsApprovalContent(IEnumerable<ChatMessage> messages) =>
-        messages.Any(ContainsApprovalContent);
-
-    private static bool ContainsApprovalContent(ChatMessage message) =>
-        message.Contents.Any(static c => c is ToolApprovalResponseContent or ToolApprovalRequestContent);
-
     [LoggerMessage(LogLevel.Warning, "ApprovalResponseBindingChatClient was invoked without an active agent run context or session. Approval-response binding is skipped. Invoke the chat client through AIAgent.RunAsync or AIAgent.RunStreamingAsync to enable binding.")]
     private static partial void LogValidationSkipped(ILogger logger);
 
     [LoggerMessage(LogLevel.Warning, "Ignored a ToolApprovalResponseContent with request id '{RequestId}' that does not correspond to a model-originated approval request surfaced by the framework.")]
     private static partial void LogIgnoredUnboundResponse(ILogger logger, string requestId);
-
-    [LoggerMessage(LogLevel.Warning, "Ignored a ToolApprovalRequestContent with request id '{RequestId}' that the framework did not surface.")]
-    private static partial void LogIgnoredUnboundRequest(ILogger logger, string requestId);
 }

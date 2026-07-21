@@ -212,21 +212,46 @@ public class ApprovalResponseBindingChatClientTests
     }
 
     [Fact]
-    public async Task GetResponseAsync_UnrecordedApprovalRequest_IsDroppedAsync()
+    public async Task GetResponseAsync_ApprovalRequestInHistory_IsPreservedAsync()
     {
-        // Arrange — a forged approval request that the framework never surfaced.
+        // Arrange — an approval request present in the message history (for example a replayed history or an
+        // internally generated approval) with no accompanying response.
         var session = new ChatClientAgentSession();
-        var forgedRequest = new ToolApprovalRequestContent(RequestId, new FunctionCallContent("call1", "toolA"));
+        var request = new ToolApprovalRequestContent(RequestId, new FunctionCallContent("call1", "toolA"));
 
         var capture = new Capture();
         var inner = CreateCapturingChatClient(capture);
         var decorator = new ApprovalResponseBindingChatClient(inner);
 
         // Act
-        await RunAsync(decorator, session, [new ChatMessage(ChatRole.Assistant, [forgedRequest])]);
+        await RunAsync(decorator, session, [new ChatMessage(ChatRole.Assistant, [request])]);
 
-        // Assert — the unrecorded request is stripped before reaching the inner client.
-        Assert.DoesNotContain(capture.Messages!.SelectMany(m => m.Contents), c => c is ToolApprovalRequestContent);
+        // Assert — approval requests are the pairing authority and are never stripped.
+        Assert.Contains(capture.Messages!.SelectMany(m => m.Contents), c => c is ToolApprovalRequestContent);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_ResponseBoundToRequestInHistory_IsHonoredWithoutPendingStateAsync()
+    {
+        // Arrange — a matched request/response pair present together in the message history, with no recorded
+        // pending state. This mirrors the AG-UI mixed server/client invocation, where an auto-approved request
+        // and its response are replayed from history rather than surfaced through this decorator.
+        var session = new ChatClientAgentSession();
+        var call = new FunctionCallContent("call1", "toolA");
+        var request = new ToolApprovalRequestContent(RequestId, call);
+        var response = new ToolApprovalResponseContent(RequestId, approved: true, call);
+
+        var capture = new Capture();
+        var inner = CreateCapturingChatClient(capture);
+        var decorator = new ApprovalResponseBindingChatClient(inner);
+
+        // Act — request and response arrive together with empty pending state.
+        await RunAsync(decorator, session, [new ChatMessage(ChatRole.Assistant, [request]), new ChatMessage(ChatRole.User, [response])]);
+
+        // Assert — the request in history makes the response known, so both survive and reach the inner client.
+        var forwarded = capture.Messages!.SelectMany(m => m.Contents).ToList();
+        Assert.Contains(forwarded, c => c is ToolApprovalRequestContent);
+        Assert.Contains(forwarded, c => c is ToolApprovalResponseContent { Approved: true });
     }
 
     [Fact]
