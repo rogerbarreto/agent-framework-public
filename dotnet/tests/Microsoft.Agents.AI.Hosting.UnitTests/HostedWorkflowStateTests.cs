@@ -240,6 +240,40 @@ public class HostedWorkflowStateTests
     }
 
     [Fact]
+    public async Task RunOrResumeAsync_CachedFactory_RetriesAfterFaultedBuildAsync()
+    {
+        // Arrange: a cached factory whose first build faults, then succeeds. A faulted cached build must not be
+        // reused; the next run must retry rather than re-observe the same failure forever. The first build faults
+        // asynchronously so the faulted Task is actually cached, exercising the reuse guard.
+        int builds = 0;
+        var state = new HostedWorkflowState(
+            _ =>
+            {
+                int attempt = Interlocked.Increment(ref builds);
+                if (attempt == 1)
+                {
+                    return new ValueTask<Workflow>(Task.FromException<Workflow>(new InvalidOperationException("transient build failure")));
+                }
+
+                return new ValueTask<Workflow>(CountingWorkflow.Build());
+            },
+            cacheWorkflow: true);
+
+        // Act & Assert: the first run surfaces the build failure.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => state.RunOrResumeAsync("s1", "go").AsTask());
+
+        // A later run rebuilds (the faulted task was not cached) and succeeds.
+        HostedWorkflowRunResult second = await state.RunOrResumeAsync("s1", "go");
+        Assert.Equal(2, builds);
+        Assert.Contains("count:1", StringOutput(second));
+
+        // Once a successful build is cached, further runs reuse it (no additional builds).
+        HostedWorkflowRunResult third = await state.RunOrResumeAsync("s1", "go");
+        Assert.Equal(2, builds);
+        Assert.Contains("count:2", StringOutput(third));
+    }
+
+    [Fact]
     public async Task RunOrResumeAsync_UncachedFactory_BuildsPerRunAsync()
     {
         // Arrange: the default (uncached) factory builds a fresh instance for every run.

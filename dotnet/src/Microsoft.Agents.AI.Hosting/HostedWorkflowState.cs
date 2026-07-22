@@ -121,10 +121,12 @@ public sealed class HostedWorkflowState
     /// <param name="cacheWorkflow">
     /// When <see langword="false"/> (the default), the factory is invoked once per run, so independent sessions run
     /// in parallel. When <see langword="true"/>, the factory is invoked once, lazily on first use, and the built
-    /// workflow is cached and reused for every run — a deferred, cached target. Because that reuses a single
+    /// workflow is cached and reused for every run, a deferred, cached target. Because that reuses a single
     /// instance (which cannot be run by two runners at once), a cached workflow's turns cannot run concurrently,
     /// exactly like the instance constructor. The cached build uses <see cref="CancellationToken.None"/> because the
-    /// single built instance is shared across runs and must not be tied to one request's cancellation.
+    /// single built instance is shared across runs and must not be tied to one request's cancellation. If a cached
+    /// build faults or is canceled, it is not reused: the next run starts a fresh build so a transient setup failure
+    /// does not poison every later run.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="workflowFactory"/> is <see langword="null"/>.</exception>
     /// <remarks>
@@ -166,12 +168,22 @@ public sealed class HostedWorkflowState
         // Cached factory: build the workflow once. The lock guards only the one-time task assignment (and the
         // factory's synchronous prefix); the actual build is awaited outside the lock. CancellationToken.None is
         // used because the single built instance is shared across runs and must not be tied to one request.
+        // A previously cached build that faulted or was canceled is not reused: the next call starts a fresh
+        // build so a transient setup failure does not poison every later run with the same cached failure.
+        Task<Workflow> buildTask;
         lock (this._cacheSync)
         {
-            this._cachedWorkflowTask ??= this._workflowFactory!(CancellationToken.None).AsTask();
+            // Reuse the cached build only when it exists and has not faulted or been canceled; otherwise start a
+            // fresh build so a transient setup failure does not poison every later run.
+            if (this._cachedWorkflowTask is not { IsFaulted: false, IsCanceled: false })
+            {
+                this._cachedWorkflowTask = this._workflowFactory!(CancellationToken.None).AsTask();
+            }
+
+            buildTask = this._cachedWorkflowTask;
         }
 
-        return await this._cachedWorkflowTask.ConfigureAwait(false);
+        return await buildTask.ConfigureAwait(false);
     }
 
     /// <summary>
