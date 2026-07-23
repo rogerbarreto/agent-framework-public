@@ -11,6 +11,7 @@ using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
@@ -28,6 +29,14 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private readonly FoundryToolboxService? _toolboxService;
 
     /// <summary>
+    /// Whether the host-wide Responses server was configured for durable long-running (resilient)
+    /// background responses (<see cref="ResponsesServerOptions.ResilientBackground"/>). This is the
+    /// first half of the resilience gate: when it is <see langword="false"/> the handler never does
+    /// any checkpoint/recovery work and behaves exactly as a non-resilient host.
+    /// </summary>
+    private readonly bool _resilientBackground;
+
+    /// <summary>
     /// Cached fallback used when no <see cref="HostedSessionIsolationKeyProvider"/> is registered in DI.
     /// Avoids a per-request allocation on the request hot path.
     /// </summary>
@@ -40,10 +49,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// <param name="serviceProvider">The service provider for resolving agents.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="toolboxService">Optional Foundry Toolbox service providing MCP tools.</param>
+    /// <param name="responsesServerOptions">
+    /// The host-wide Responses server options, used only to read whether resilient background
+    /// responses are enabled. Optional so the handler can be constructed without the options
+    /// registered (for example in unit tests), in which case resilience is treated as off.
+    /// </param>
     public AgentFrameworkResponseHandler(
         IServiceProvider serviceProvider,
         ILogger<AgentFrameworkResponseHandler> logger,
-        FoundryToolboxService? toolboxService = null)
+        FoundryToolboxService? toolboxService = null,
+        IOptions<ResponsesServerOptions>? responsesServerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -51,7 +66,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         this._serviceProvider = serviceProvider;
         this._logger = logger;
         this._toolboxService = toolboxService;
+        this._resilientBackground = responsesServerOptions?.Value.ResilientBackground ?? false;
     }
+
+    /// <summary>
+    /// The resilience gate for the save-progress path: checkpoint work is worthwhile only when the
+    /// host enabled resilient background responses and this specific request is a stored background
+    /// response. When any part is false, the request runs exactly as it does on a non-resilient host
+    /// (the recovery path is gated separately on <c>ResponseContext.IsRecovery</c>).
+    /// </summary>
+    private bool ShouldPersistForResilience(CreateResponse request)
+        => this._resilientBackground && request.Background == true && request.Store == true;
 
     /// <inheritdoc/>
     public override async IAsyncEnumerable<ResponseStreamEvent> CreateAsync(
@@ -349,6 +374,15 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
+        //
+        // Resilient turn: when the host enabled resilient background responses for this stored
+        // background request (or this is a crash-recovery re-entry), the session is persisted at
+        // each output-item boundary so a mid-turn crash leaves the last completed workflow superstep
+        // on disk. A workflow hosted as an agent already checkpoints per superstep and resumes from
+        // its restored checkpoint on load; the only gap is that the session was previously persisted
+        // only at end-of-turn. All of this is gated: a non-resilient host runs exactly as before.
+        bool isResilientTurn = this.ShouldPersistForResilience(request) || context.IsRecovery;
+
         bool emittedTerminal = false;
         var enumerator = OutputConverter.ConvertUpdatesToEventsAsync(
             agent.RunStreamingAsync(messages, session, options: options, cancellationToken: consentCts.Token),
@@ -424,7 +458,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (shutdownDetected)
                 {
-                    // Server is shutting down — emit incomplete so clients can resume
+                    // Server is shutting down. On a resilient turn, defer for recovery instead of
+                    // failing: leaving the response in_progress lets the platform re-invoke the
+                    // handler next lifetime, where the workflow resumes from its last persisted
+                    // superstep. On a non-resilient turn, keep today's behavior (emit incomplete).
+                    if (isResilientTurn)
+                    {
+                        this._logger.LogInformation("Shutdown detected on a resilient turn; deferring for recovery.");
+                        await context.ExitForRecoveryAsync(cancellationToken).ConfigureAwait(false);
+                        yield break;
+                    }
+
                     this._logger.LogInformation("Shutdown detected, emitting incomplete response.");
                     yield return stream.EmitIncomplete();
                     yield break;
@@ -432,6 +476,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 // yield is in the outer try (finally-only) — allowed by C#
                 yield return evt!;
+
+                // Resilient checkpoint cadence: persist the session at each completed output item,
+                // a natural workflow phase boundary. Idempotent and gated; awaiting here is safe
+                // because this sits in the outer (finally-only) try, not the inner try/catch.
+                if (isResilientTurn
+                    && evt is ResponseOutputItemDoneEvent
+                    && session is not null
+                    && !string.IsNullOrWhiteSpace(sessionConversationId))
+                {
+                    await sessionStore.SaveSessionAsync(agent, sessionConversationId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+                }
 
                 if (evt is ResponseCompletedEvent or ResponseFailedEvent or ResponseIncompleteEvent)
                 {

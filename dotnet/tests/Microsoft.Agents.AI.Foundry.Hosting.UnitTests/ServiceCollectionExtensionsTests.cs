@@ -46,6 +46,70 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddFoundryResponses_WithAgent_CalledTwice_ThrowsActionable()
+    {
+        // Arrange: the single-agent extension is not composable; a second call must be rejected
+        // with guidance to use the parameterless overload plus keyed agents for multiple agents.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var agent = new Mock<AIAgent>().Object;
+
+        services.AddFoundryResponses(agent);
+
+        // Act + Assert
+        var ex = Assert.Throws<InvalidOperationException>(() => services.AddFoundryResponses(agent));
+        Assert.Contains("single-agent extension", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AddKeyedSingleton", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddFoundryResponses_ParameterlessThenWithAgent_Throws()
+    {
+        // Arrange: once the multi-agent path built the host-wide server, the single-agent extension
+        // cannot be added on top of it.
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddFoundryResponses();
+
+        // Act + Assert
+        Assert.Throws<InvalidOperationException>(
+            () => services.AddFoundryResponses(new Mock<AIAgent>().Object));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_WithAgentThenParameterless_DoesNotThrow()
+    {
+        // Arrange: the single-agent extension builds the server; a later parameterless call (for
+        // example from shared wiring) must be a safe no-op rather than a throw.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddFoundryResponses(new Mock<AIAgent>().Object);
+
+        // Act
+        var exception = Record.Exception(() => services.AddFoundryResponses());
+
+        // Assert
+        Assert.Null(exception);
+        Assert.Equal(1, services.Count(d => d.ServiceType == typeof(ResponseHandler)));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_RegistersAgentRegistrationHealthCheck()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddFoundryResponses();
+
+        var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<
+            Microsoft.Extensions.Options.IOptions<
+                Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>>();
+        Assert.Contains(options.Value.Registrations, r => r.Name == "foundry-agent-registration");
+    }
+
+    [Fact]
     public void AddFoundryResponses_NullServices_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(
@@ -74,8 +138,10 @@ public class ServiceCollectionExtensionsTests
     public void AddFoundryResponses_WithNullAgent_ThrowsArgumentNullException()
     {
         var services = new ServiceCollection();
+        // Cast to bind the agent overload: the parameterless overload also accepts a single null
+        // (as its optional configure callback), so the cast keeps this test targeting the agent path.
         Assert.Throws<ArgumentNullException>(
-            () => services.AddFoundryResponses(null!));
+            () => services.AddFoundryResponses((AIAgent)null!));
     }
 
     [Fact]
