@@ -1,0 +1,28 @@
+# Controls which files are excluded from the code-deploy ZIP upload (.gitignore syntax).
+# Note: only the root .agentignore is read; subdirectory files are not supported.
+#
+# To include a file that is excluded by default, use negation: !filename
+
+# azd tooling files
+agent.yaml
+agent.manifest.yaml
+azure.yaml
+.agentignore
+
+# Security / secrets
+.env
+.env.*
+.azure/
+.git/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Docker (not used in code deploy)
+Dockerfile
+Dockerfile.contributor
+.dockerignore
