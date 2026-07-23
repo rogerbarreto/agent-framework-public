@@ -178,8 +178,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
-        // 3. Create the SDK event stream builder
-        var stream = new ResponseEventStream(context, request);
+        // 3. Create the SDK event stream builder.
+        // On a crash-recovery re-invocation, seed the stream from the last durable snapshot
+        // (context.PersistedResponse) instead of the request, so the resumed stream continues from
+        // the output items already emitted before the crash: the output-index allocator advances to
+        // PersistedResponse.Output.Count and re-emitted items do not collide with the already-durable
+        // slots. On a fresh invocation, seed from the request as before. This is gated on IsRecovery,
+        // so a non-resilient turn is unchanged.
+        var stream = context.IsRecovery && context.PersistedResponse is { } persistedResponse
+            ? new ResponseEventStream(context, persistedResponse)
+            : new ResponseEventStream(context, request);
 
         // 3. Emit lifecycle events
         yield return stream.EmitCreated();
@@ -188,31 +196,40 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: history + current input → ChatMessage[]
         var messages = new List<ChatMessage>();
 
-        // Load conversation history only for fresh sessions. When a session already exists
-        // (e.g. resuming a workflow paused at an external-input port), the workflow's
-        // checkpointed state already contains the prior turns' messages — replaying history
-        // would re-drive completed actions and break HITL resume semantics.
-        var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
-            && session?.StateBag?.Count > 0;
-        if (!isResume)
+        // On a crash-recovery re-invocation the platform re-delivers the same input, but the
+        // persisted session already carries the progress: a workflow hosted as an agent resumes from
+        // its last checkpoint (restored above by GetSessionAsync). Re-injecting the original input
+        // would enqueue a duplicate turn on top of the resumed state, so the run never reaches a
+        // terminal state. Leave messages empty on recovery and let the restored session drive the
+        // resume to completion.
+        if (!context.IsRecovery)
         {
-            var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
-            if (history.Count > 0)
+            // Load conversation history only for fresh sessions. When a session already exists
+            // (e.g. resuming a workflow paused at an external-input port), the workflow's
+            // checkpointed state already contains the prior turns' messages — replaying history
+            // would re-drive completed actions and break HITL resume semantics.
+            var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
+                && session?.StateBag?.Count > 0;
+            if (!isResume)
             {
-                messages.AddRange(InputConverter.ConvertOutputItemsToMessages(history, session?.StateBag));
+                var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
+                if (history.Count > 0)
+                {
+                    messages.AddRange(InputConverter.ConvertOutputItemsToMessages(history, session?.StateBag));
+                }
             }
-        }
 
-        // Load and convert current input items
-        var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (inputItems.Count > 0)
-        {
-            messages.AddRange(InputConverter.ConvertItemsToMessages(inputItems, session?.StateBag));
-        }
-        else
-        {
-            // Fall back to raw request input
-            messages.AddRange(InputConverter.ConvertInputToMessages(request, session?.StateBag));
+            // Load and convert current input items
+            var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (inputItems.Count > 0)
+            {
+                messages.AddRange(InputConverter.ConvertItemsToMessages(inputItems, session?.StateBag));
+            }
+            else
+            {
+                // Fall back to raw request input
+                messages.AddRange(InputConverter.ConvertInputToMessages(request, session?.StateBag));
+            }
         }
 
         // 5. Build chat options
