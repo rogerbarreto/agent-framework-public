@@ -20,6 +20,7 @@
     <RootNamespace>HostedChatClientAgent</RootNamespace>
     <AssemblyName>HostedChatClientAgent</AssemblyName>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <UserSecretsId>222d2622-da26-4da0-99b4-0507fb8d41b0</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,7 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.ClientModel;
 using System.ClientModel.Primitives;
+using Azure.AI.Extensions.OpenAI;
 using Azure.AI.Projects;
+using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
 using Microsoft.Agents.AI;
@@ -24,20 +27,26 @@ Uri agentEndpoint = new($"{projectEndpoint}/agents/{agentName}/endpoint/protocol
 
 // ── Create an agent-framework agent backed by the remote agent endpoint ──────
 
-var options = new AIProjectClientOptions();
+// Per-agent client options. The scheme-rewrite policy for local HTTP dev must live on
+// THIS options bag (the per-agent responses pipeline), not on AIProjectClientOptions:
+// FoundryAgent builds the responses client from these options, so a policy added here
+// is the one that actually runs on the /responses request.
+var clientOptions = new ProjectOpenAIClientOptions();
 
-if (projectEndpoint.Scheme == "http")
+if (agentEndpoint.Scheme == "http")
 {
-    // For local HTTP dev: tell AIProjectClient the endpoint is HTTPS (to satisfy
-    // BearerTokenPolicy's TLS check), then swap the scheme back to HTTP right
-    // before the request hits the wire.
-    projectEndpoint = new UriBuilder(projectEndpoint) { Scheme = "https" }.Uri;
+    // For local HTTP dev: present the endpoint as HTTPS (to satisfy BearerTokenPolicy's
+    // TLS check), then swap the scheme back to HTTP right before the request hits the
+    // wire. Rewriting the agent endpoint preserves its explicit port (for example 8088).
     agentEndpoint = new UriBuilder(agentEndpoint) { Scheme = "https" }.Uri;
-    options.AddPolicy(new HttpSchemeRewritePolicy(), PipelinePosition.BeforeTransport);
+    clientOptions.AddPolicy(new HttpSchemeRewritePolicy(), PipelinePosition.BeforeTransport);
 }
 
-var aiProjectClient = new AIProjectClient(projectEndpoint, new AzureCliCredential(), options);
-FoundryAgent agent = aiProjectClient.AsAIAgent(agentEndpoint);
+// FoundryAgent's agent-endpoint constructor builds the responses client directly from
+// agentEndpoint (port preserved) and applies clientOptions to that pipeline. It expects a
+// System.ClientModel AuthenticationTokenProvider, so adapt the Azure CLI credential.
+var credential = new AzureCliAuthenticationTokenProvider(new AzureCliCredential(), "https://ai.azure.com/.default");
+FoundryAgent agent = new(agentEndpoint, credential, clientOptions);
 
 AgentSession session = await agent.CreateSessionAsync();
 
@@ -116,5 +125,31 @@ internal sealed class HttpSchemeRewritePolicy : PipelinePolicy
         {
             message.Request.Uri = new UriBuilder(uri) { Scheme = "http" }.Uri;
         }
+    }
+}
+
+/// <summary>
+/// For Local Development Only
+/// Adapts an Azure.Core <see cref="TokenCredential"/> (for example <see cref="AzureCliCredential"/>)
+/// to the System.ClientModel <see cref="AuthenticationTokenProvider"/> that the
+/// <see cref="FoundryAgent"/> agent-endpoint constructor expects. Uses the fixed Azure AI resource
+/// scope that the Foundry control plane accepts.
+/// </summary>
+internal sealed class AzureCliAuthenticationTokenProvider(TokenCredential credential, params string[] scopes)
+    : AuthenticationTokenProvider
+{
+    public override GetTokenOptions? CreateTokenOptions(IReadOnlyDictionary<string, object> properties)
+        => new(properties);
+
+    public override AuthenticationToken GetToken(GetTokenOptions options, CancellationToken cancellationToken)
+    {
+        AccessToken token = credential.GetToken(new TokenRequestContext(scopes), cancellationToken);
+        return new AuthenticationToken(token.Token, "Bearer", token.ExpiresOn);
+    }
+
+    public override async ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
+    {
+        AccessToken token = await credential.GetTokenAsync(new TokenRequestContext(scopes), cancellationToken).ConfigureAwait(false);
+        return new AuthenticationToken(token.Token, "Bearer", token.ExpiresOn);
     }
 }

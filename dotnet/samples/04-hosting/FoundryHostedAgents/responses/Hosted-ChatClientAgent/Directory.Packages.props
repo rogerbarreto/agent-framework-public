@@ -1,0 +1,12 @@
+﻿<Project>
+  <!--
+    Self-contained sample: this local Directory.Packages.props stops inheritance of the
+    repository's central package management (CPM) file. The code-deploy ZIP upload is a flat
+    folder with no repo-level props, so the sample pins its own package versions directly in
+    the .csproj (ManagePackageVersionsCentrally is off). Keeping this file makes the in-repo
+    build behave the same as the server-side `dotnet restore` + `publish` on the uploaded zip.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

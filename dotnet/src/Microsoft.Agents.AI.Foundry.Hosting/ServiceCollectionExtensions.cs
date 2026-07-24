@@ -5,10 +5,12 @@ using System.ClientModel.Primitives;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Azure.AI.AgentServer.Core;
 using Azure.AI.AgentServer.Responses;
 using Azure.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -54,6 +56,7 @@ public static class FoundryHostingExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddResponsesServer();
         services.AddHealthChecks();
+        ConfigureFoundryListenPort(services);
         services.TryAddSingleton<AgentSessionStore>(_ => FileSystemAgentSessionStore.CreateDefault());
         services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
         return services;
@@ -90,6 +93,7 @@ public static class FoundryHostingExtensions
 
         services.AddResponsesServer();
         services.AddHealthChecks();
+        ConfigureFoundryListenPort(services);
         agentSessionStore ??= FileSystemAgentSessionStore.CreateDefault();
 
         if (!string.IsNullOrWhiteSpace(agent.Name))
@@ -247,6 +251,46 @@ public static class FoundryHostingExtensions
         endpoints.MapResponsesServer(prefix);
         MapReadinessIfMissing(endpoints);
         return endpoints;
+    }
+
+    /// <summary>
+    /// Marker registered once per <see cref="IServiceCollection"/> so the Foundry listen-port
+    /// configuration is applied at most once, even across multiple <c>AddFoundryResponses</c> calls.
+    /// </summary>
+    private sealed class FoundryListenPortMarker;
+
+    /// <summary>
+    /// Binds Kestrel to the port the Foundry hosted runtime probes and routes to, so a plain
+    /// <c>WebApplication.CreateBuilder</c> host (Tier 3) works with no Dockerfile and no
+    /// <c>ASPNETCORE_URLS</c>. Mirrors <c>AgentHostBuilder</c>, which listens on
+    /// <see cref="FoundryEnvironment.Port"/> (the <c>PORT</c> environment variable, default 8088).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// No-op when <c>ASPNETCORE_URLS</c> is set: an explicit ASP.NET Core URL binding always wins,
+    /// so a developer can override the port locally (for example <c>ASPNETCORE_URLS=http://+:9000</c>).
+    /// The Foundry hosted runtime injects <c>PORT</c> (not <c>ASPNETCORE_URLS</c>), so the container
+    /// path always flows through <see cref="FoundryEnvironment.Port"/> here.
+    /// </para>
+    /// <para>
+    /// Idempotent and harmless when no Kestrel server is present (for example unit tests): the
+    /// <see cref="KestrelServerOptions"/> options callback is only invoked when Kestrel is resolved.
+    /// </para>
+    /// </remarks>
+    private static void ConfigureFoundryListenPort(IServiceCollection services)
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+        {
+            return;
+        }
+
+        if (services.Any(static d => d.ServiceType == typeof(FoundryListenPortMarker)))
+        {
+            return;
+        }
+
+        services.AddSingleton<FoundryListenPortMarker>();
+        services.Configure<KestrelServerOptions>(static options => options.ListenAnyIP(FoundryEnvironment.Port));
     }
 
     /// <summary>

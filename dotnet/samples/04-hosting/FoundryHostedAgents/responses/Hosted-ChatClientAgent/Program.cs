@@ -7,6 +7,7 @@
 using Azure.AI.Projects;
 using Azure.Identity;
 using DotNetEnv;
+using HostedChatClientAgent;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -45,4 +46,10 @@ builder.Services.AddFoundryResponses(agent);
 
 var app = builder.Build();
 app.MapFoundryResponses();
+
+// Local development only: also expose the per-agent OpenAI route shape that live Foundry uses,
+// so the code-first Using-Samples REPLs can reach this server on http://localhost:8088.
+// This is a no-op in the deployed (Production) environment.
+app.MapLocalDevAgentEndpoint();
+
 app.Run();

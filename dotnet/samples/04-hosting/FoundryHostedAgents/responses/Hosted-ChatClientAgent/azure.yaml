@@ -1,37 +1,34 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
 name: hosted-chat-client-agent
-
 services:
-  ai-project:
-    host: azure.ai.project
-    deployments:
-      - name: gpt-4o
-        model:
-          format: OpenAI
-          name: gpt-4o
-          version: "2024-11-20"
-        sku:
-          name: GlobalStandard
-          capacity: 10
-
-  hosted-chat-client-agent:
-    host: azure.ai.agent
-    project: .
-    kind: hosted
-    uses:
-      - ai-project
-    protocols:
-      - protocol: responses
-        version: 2.0.0
-    codeConfiguration:
-      runtime: dotnet_10
-      entryPoint:
-        - dotnet
-        - HostedChatClientAgent.dll
-      dependencyResolution: remote_build
-    container:
-      resources:
-        cpu: "0.25"
-        memory: 0.5Gi
-    env:
-      FOUNDRY_MODEL: ${FOUNDRY_MODEL}
+    ai-project:
+        host: azure.ai.project
+    hosted-chat-client-agent:
+        project: .
+        host: azure.ai.agent
+        language: csharp
+        uses:
+            - ai-project
+        codeConfiguration:
+            dependencyResolution: remote_build
+            entryPoint: HostedChatClientAgent.dll
+            runtime: dotnet_10
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        description: |
+            A simple general-purpose AI assistant hosted as a Foundry Hosted Agent using the Agent Framework instance hosting pattern.
+        kind: hosted
+        metadata:
+            tags:
+                - AI Agent Hosting
+                - Azure AI AgentServer
+                - Responses Protocol
+                - Streaming
+                - Agent Framework
+        name: hosted-chat-client-agent
+        protocols:
+            - protocol: responses
+              version: 2.0.0
