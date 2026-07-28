@@ -21,10 +21,19 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 | `HostedChatClientAgent.csproj` | Self-contained project: single target framework, central package management off, explicit package versions (there is no repo-level props file inside the ZIP). |
 | `Directory.Packages.props` | Stops inheritance of the repository's central package management so the in-repo build matches the server-side build of the uploaded ZIP. |
 | `.env.example` | Template for local configuration. |
+| `../../scripts/Add-LocalFrameworkFeed.ps1`, `../../scripts/add-local-framework-feed.sh` | Contributor-only helpers, see [Deploy your local framework changes](#deploy-your-local-framework-changes-contributors). |
 
 ## Configuration
 
 Copy the template and fill in your project endpoint:
+
+PowerShell:
+
+```powershell
+copy .env.example .env
+```
+
+Bash:
 
 ```bash
 cp .env.example .env
@@ -64,7 +73,7 @@ local server needs no extra wiring: the client just points an OpenAI responses c
 
 **Terminal 1 — host the agent:**
 
-```bash
+```
 cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent
 az login
 dotnet run
@@ -74,9 +83,19 @@ The agent starts on `http://localhost:8088`.
 
 **Terminal 2 — chat with it (code-first REPL):**
 
+PowerShell:
+
 ```powershell
 cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
 $env:AZURE_AI_AGENT_NAME = "hosted-chat-client-agent"
+dotnet run
+```
+
+Bash:
+
+```bash
+cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
+export AZURE_AI_AGENT_NAME="hosted-chat-client-agent"
 dotnet run
 ```
 
@@ -85,24 +104,73 @@ client at the local server and streams the reply.
 
 ## Deploy to Foundry (source / ZIP)
 
-The Azure Developer CLI scaffolds the project into a working folder, so run `init` from an empty
-directory outside the repo and point `-m` at this sample's `azure.yaml`:
+`azd` scaffolds the project into a working folder, so every step below runs from an **empty
+directory outside the repository**, and `-m` points at this sample's `azure.yaml`.
+
+### Step 1: create the working directory and enter it
+
+PowerShell:
 
 ```powershell
-mkdir <work-dir>; cd <work-dir>
+$work = Join-Path $env:TEMP "hosted-chat-work"
+mkdir $work
+cd $work
+```
+
+Bash:
+
+```bash
+WORK="${TMPDIR:-/tmp}/hosted-chat-work"
+mkdir -p "$WORK"
+cd "$WORK"
+```
+
+### Step 2: scaffold the project
+
+`azd ai agent init` copies the sample into a subfolder named after the top-level `name:` in
+`azure.yaml`, which is `hosted-chat-client-agent`. It also writes the adopted `azure.yaml` and the
+`azd` environment there.
+
+PowerShell:
+
+```powershell
+$sample = "<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent/azure.yaml"
+$projectId = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>"
+
 azd auth login
-azd ai agent init -m <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent/azure.yaml `
-  -p <project-id> -d <model-deployment>
+azd ai agent init -m $sample -p $projectId -d <model-deployment>
+```
+
+Bash:
+
+```bash
+SAMPLE="<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent/azure.yaml"
+PROJECT_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>"
+
+azd auth login
+azd ai agent init -m "$SAMPLE" -p "$PROJECT_ID" -d <model-deployment>
+```
+
+Reusing an agent name creates a **new version** of that agent rather than a separate one. To deploy
+a separate agent, change the agent service's `name` in the generated `azure.yaml` before deploying.
+
+### Step 3: provision and deploy
+
+```
 cd hosted-chat-client-agent
 azd provision
 azd deploy
+azd ai agent invoke "Hello!"
 ```
 
 `azd` packages the source into a ZIP (honoring `.agentignore`), uploads it, and Foundry runs
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
-in `azure.yaml`). No Dockerfile, no container registry.
+in `azure.yaml`). No Dockerfile, no container registry. A real deploy takes roughly a minute; see
+[Troubleshooting](#troubleshooting) if it returns in a few seconds.
 
-Test the deployed agent with the REPL, choosing **1 (Foundry)** at the prompt:
+You can also test the deployed agent with the REPL, choosing **1 (Foundry)** at the prompt:
+
+PowerShell:
 
 ```powershell
 cd <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
@@ -111,25 +179,95 @@ $env:AZURE_AI_AGENT_NAME      = "hosted-chat-client-agent"
 dotnet run
 ```
 
-Or use the `azd` shortcut: `azd ai agent invoke "Hello!"`.
+Bash:
+
+```bash
+cd <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
+export FOUNDRY_PROJECT_ENDPOINT="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
+export AZURE_AI_AGENT_NAME="hosted-chat-client-agent"
+dotnet run
+```
+
+### Step 4: clean up
+
+```
+azd down
+```
+
+Then delete the working directory.
 
 ## Deploy your local framework changes (contributors)
 
-By default the project restores the published Agent Framework packages, so local changes to the
-framework are not exercised. To deploy them, run one extra step in the middle of the flow above,
-after `azd ai agent init` and before `azd provision`:
+By default the project restores the **published** Agent Framework packages, so local changes to the
+framework are never exercised: Foundry restores from nuget.org when it builds the upload.
+
+To deploy your local build instead, run one extra step in the flow above, **between step 2 and
+step 3**. Everything else is unchanged.
+
+PowerShell:
 
 ```powershell
-<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 `
-  -Path ./hosted-chat-client-agent
+<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 -Path ./hosted-chat-client-agent
 ```
 
-The script packs the local Agent Framework source into a `local-feed` folder inside the scaffolded
-agent folder, writes the `nuget.config` that points the build at those packages, and repoints the
-project file's `AgentFrameworkVersion` at the version it just packed. Both generated files travel
-inside the ZIP, so the server-side restore resolves the framework from the upload. The scaffolded
-folder is a throwaway copy, so the repository is left untouched. Everything else, including
-`azd provision`, `azd deploy`, and `azd ai agent invoke`, is unchanged.
+Bash:
+
+```bash
+<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/add-local-framework-feed.sh ./hosted-chat-client-agent
+```
+
+The script changes three things in the scaffolded folder:
+
+| Change | Detail |
+|--------|--------|
+| Creates `local-feed/` | The Agent Framework packed from your local source, stamped with a version like `1.15.0-preview-local.<timestamp>` |
+| Creates `nuget.config` | Resolves `Microsoft.Agents.AI*` from that folder and everything else from nuget.org |
+| Edits the `.csproj` | Repoints its `AgentFrameworkVersion` property at the version just packed |
+
+Both generated files ship inside the ZIP, so the server-side restore resolves the framework from
+the upload. The scaffolded folder is a throwaway copy, so the repository is left untouched.
+
+Two details worth knowing:
+
+- The version carries a timestamp because NuGet caches by package id and version. Reusing a version
+  would silently restore the previously packed bits instead of the build you just made. It also
+  changes the ZIP on every run, which matters for the deploy deduplication described under
+  [Troubleshooting](#troubleshooting).
+- The whole package closure is packed, not just the two packages the sample references. Packing
+  only the leaf packages lets NuGet fill the rest from nuget.org, mixing a published core with a
+  locally built host, which fails to compile.
+
+Before spending a deploy, build the scaffolded folder locally. A restore problem surfaces in
+seconds instead of after the server-side build:
+
+```
+dotnet build -c Debug --tl:off
+```
+
+Reaching `active` is itself proof that the upload was used: the packed version does not exist on
+nuget.org, so a restore that ignored the bundled `nuget.config` would have failed with a missing
+package. To see exactly what was deployed, download the ZIP and list it:
+
+PowerShell:
+
+```powershell
+$token = az account get-access-token --resource "https://ai.azure.com" --query accessToken -o tsv
+$ep    = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
+curl.exe -sS -H "Authorization: Bearer $token" -H "Accept: application/zip" `
+  "$ep/agents/hosted-chat-client-agent/code:download?api-version=v1" -o deployed.zip
+Expand-Archive deployed.zip -DestinationPath deployed -Force
+dir deployed/local-feed
+```
+
+Bash:
+
+```bash
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+EP="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/zip" \
+  "$EP/agents/hosted-chat-client-agent/code:download?api-version=v1" -o deployed.zip
+unzip -l deployed.zip
+```
 
 ## Troubleshooting
 
@@ -139,13 +277,24 @@ folder is a throwaway copy, so the repository is left untouched. Everything else
 | `azd ai agent invoke` returns HTTP 424 `session_not_ready` | The container is listening on a port Foundry does not probe | Stream the container logs and check the `Now listening on` line; it must be port 8088 |
 
 Stream the logs of a failing session, using the session id from the error message or the
-`x-agent-session-id` response header:
+`x-agent-session-id` response header. The line that matters is `Now listening on`.
+
+PowerShell:
 
 ```powershell
 $token = az account get-access-token --resource "https://ai.azure.com" --query accessToken -o tsv
 $ep    = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
 curl.exe -sS -N --max-time 60 -H "Authorization: Bearer $token" -H "Accept: text/event-stream" `
   "$ep/agents/hosted-chat-client-agent/sessions/<session-id>:logstream?api-version=v1"
+```
+
+Bash:
+
+```bash
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+EP="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
+curl -sS -N --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Accept: text/event-stream" \
+  "$EP/agents/hosted-chat-client-agent/sessions/<session-id>:logstream?api-version=v1"
 ```
 
 For the full hosted-agent deployment guide, see the [official source-code deployment doc](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent-code).
