@@ -25,6 +25,6 @@ obj/
 # would ship stale sessions with the agent.
 .checkpoints/
 
-# Contributor staging (scripts/New-ContributorStage.ps1) generates local-feed/, nuget.config,
+# Contributor mode (scripts/Add-LocalFrameworkFeed.ps1) generates local-feed/, nuget.config,
 # and local-feed.props. Those are deliberately NOT excluded: the server-side restore needs them
 # to resolve the Agent Framework from the packages shipped in this upload instead of nuget.org.

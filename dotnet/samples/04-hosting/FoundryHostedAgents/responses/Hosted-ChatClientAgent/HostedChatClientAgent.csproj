@@ -10,8 +10,8 @@
   -->
 
   <!--
-    Contributor mode (optional): scripts/New-ContributorStage.ps1 (under FoundryHostedAgents)
-    stages this sample in a temp folder alongside a generated local-feed.props, which overrides
+    Contributor mode (optional): scripts/Add-LocalFrameworkFeed.ps1 (under FoundryHostedAgents) runs
+    after `azd ai agent init` and drops a generated local-feed.props, which overrides
     AgentFrameworkVersion with a locally built version, a local-feed/ folder of .nupkg files, and
     a nuget.config that maps Microsoft.Agents.AI* to that folder. All three ship inside the ZIP,
     so the server-side restore resolves the Agent Framework from the packages in the upload

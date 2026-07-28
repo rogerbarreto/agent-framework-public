@@ -116,17 +116,35 @@ Or use the `azd` shortcut: `azd ai agent invoke "Hello!"`.
 ## Deploy your local framework changes (contributors)
 
 By default the project restores the published Agent Framework packages, so local changes to the
-framework are not exercised. To deploy them, stage the sample first:
+framework are not exercised. To deploy them, run one extra step in the middle of the flow above,
+after `azd ai agent init` and before `azd provision`:
 
 ```powershell
-cd dotnet/samples/04-hosting/FoundryHostedAgents/scripts
-./New-ContributorStage.ps1 -Sample Hosted-ChatClientAgent
+<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 `
+  -Path ./hosted-chat-client-agent
 ```
 
-The script copies the sample to a temp folder, packs the local Agent Framework source into a
-`local-feed` folder next to it, and writes the `nuget.config` and `local-feed.props` that point the
-build at those packages. All three travel inside the ZIP, so the server-side restore resolves the
-framework from the upload. It prints the same `azd` commands as above, with `-m` pointing at the
-staged copy.
+The script packs the local Agent Framework source into a `local-feed` folder inside the scaffolded
+agent folder and writes the `nuget.config` and `local-feed.props` that point the build at those
+packages. All three travel inside the ZIP, so the server-side restore resolves the framework from
+the upload. Everything else, including `azd provision`, `azd deploy`, and `azd ai agent invoke`,
+is unchanged.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `azd deploy` finishes in a few seconds and reports the previous version number | Foundry mints a new version only when the uploaded ZIP changes, so edits confined to `azure.yaml` (which `.agentignore` keeps out of the ZIP) are discarded | Change a file that ships in the ZIP, or delete the agent and deploy again |
+| `azd ai agent invoke` returns HTTP 424 `session_not_ready` | The container is listening on a port Foundry does not probe | Stream the container logs and check the `Now listening on` line; it must be port 8088 |
+
+Stream the logs of a failing session, using the session id from the error message or the
+`x-agent-session-id` response header:
+
+```powershell
+$token = az account get-access-token --resource "https://ai.azure.com" --query accessToken -o tsv
+$ep    = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
+curl.exe -sS -N --max-time 60 -H "Authorization: Bearer $token" -H "Accept: text/event-stream" `
+  "$ep/agents/hosted-chat-client-agent/sessions/<session-id>:logstream?api-version=v1"
+```
 
 For the full hosted-agent deployment guide, see the [official source-code deployment doc](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent-code).
