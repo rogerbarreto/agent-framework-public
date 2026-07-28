@@ -1,12 +1,25 @@
 ﻿<Project>
+
   <!--
-    Self-contained sample: this local Directory.Packages.props stops inheritance of the
-    repository's central package management (CPM) file. The code-deploy ZIP upload is a flat
-    folder with no repo-level props, so the sample pins its own package versions directly in
-    the .csproj (ManagePackageVersionsCentrally is off). Keeping this file makes the in-repo
-    build behave the same as the server-side `dotnet restore` + `publish` on the uploaded zip.
+    Self-contained sample: the code-deploy ZIP upload is a flat folder with no repo-level props,
+    so this file replaces the repository's central package management (CPM) file rather than
+    adding to it. MSBuild stops walking up once it finds a Directory.Packages.props, so the
+    in-repo build resolves the same versions as the server-side `dotnet restore` on the upload.
+    Keep these versions in sync with the repository's Directory.Packages.props.
   -->
+
   <PropertyGroup>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    <AgentFrameworkVersion>1.15.0-preview.260722.1</AgentFrameworkVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Agents.AI.Foundry" Version="$(AgentFrameworkVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Foundry.Hosting" Version="$(AgentFrameworkVersion)" />
+    <PackageVersion Include="Azure.AI.Projects" Version="2.1.0-beta.4" />
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="DotNetEnv" Version="3.1.1" />
+  </ItemGroup>
+
 </Project>

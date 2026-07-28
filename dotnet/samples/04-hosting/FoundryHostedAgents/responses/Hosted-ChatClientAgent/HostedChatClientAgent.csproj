@@ -2,11 +2,9 @@
 
   <!--
     Source (ZIP) deploy sample. The code-deploy upload is a flat folder with no
-    repo-level Directory.Build.props / Directory.Packages.props, so this project
-    is intentionally self-contained: a single target framework, central package
-    management turned off, and explicit package versions. Foundry runs
-    `dotnet restore` + `dotnet publish` on this project during provisioning
-    (dependencyResolution: remote_build in azure.yaml).
+    repo-level props, so the sample carries its own Directory.Packages.props with
+    the package versions. Foundry runs `dotnet restore` + `dotnet publish` on this
+    project during provisioning (dependencyResolution: remote_build in azure.yaml).
   -->
 
   <PropertyGroup>
@@ -19,17 +17,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>HostedChatClientAgent</RootNamespace>
     <AssemblyName>HostedChatClientAgent</AssemblyName>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <UserSecretsId>222d2622-da26-4da0-99b4-0507fb8d41b0</UserSecretsId>
-    <AgentFrameworkVersion>1.15.0-preview.260722.1</AgentFrameworkVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI.Foundry" Version="$(AgentFrameworkVersion)" />
-    <PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting" Version="$(AgentFrameworkVersion)" />
-    <PackageReference Include="Azure.AI.Projects" Version="2.1.0-beta.4" />
-    <PackageReference Include="Azure.Identity" Version="1.21.0" />
-    <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Foundry" />
+    <PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting" />
+    <PackageReference Include="Azure.AI.Projects" />
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="DotNetEnv" />
   </ItemGroup>
 
 </Project>

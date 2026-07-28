@@ -21,8 +21,8 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 | `Program.cs` | The agent: builds the agent, hosts it with the Responses protocol. |
 | `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy), and passes the listen port and the model deployment name to the container through `env`. |
 | `.agentignore` | Controls which files are excluded from the code-deploy ZIP upload (`.gitignore` syntax). |
-| `HostedChatClientAgent.csproj` | Self-contained project: single target framework, central package management off, explicit package versions (there is no repo-level props file inside the ZIP). |
-| `Directory.Packages.props` | Stops inheritance of the repository's central package management so the in-repo build matches the server-side build of the uploaded ZIP. |
+| `HostedChatClientAgent.csproj` | Project file. Package references carry no versions: they come from the sample's own `Directory.Packages.props`. |
+| `Directory.Packages.props` | Central package management for the sample. The ZIP has no repo-level props, so the sample carries its own copy of the versions it needs. |
 | `.env.example` | Template for local configuration. |
 | `../../scripts/Add-LocalFrameworkFeed.ps1`, `../../scripts/add-local-framework-feed.sh` | Contributor-only helpers, see [Deploy your local framework changes](#deploy-your-local-framework-changes-contributors). |
 
@@ -229,7 +229,7 @@ The script changes three things in the scaffolded folder:
 |--------|--------|
 | Creates `local-feed/` | The Agent Framework packed from your local source, stamped with a version like `1.15.0-preview-local.<timestamp>` |
 | Creates `nuget.config` | Resolves `Microsoft.Agents.AI*` from that folder and everything else from nuget.org |
-| Edits the `.csproj` | Repoints its `AgentFrameworkVersion` property at the version just packed |
+| Edits `Directory.Packages.props` | Repoints its `AgentFrameworkVersion` property at the version just packed |
 
 Both generated files ship inside the ZIP, so the server-side restore resolves the framework from
 the upload. The scaffolded folder is a throwaway copy, so the repository is left untouched.
