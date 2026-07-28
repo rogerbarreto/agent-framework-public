@@ -41,9 +41,16 @@ Which agent do you want to chat with?
 Choice:
 ```
 
-This is the same choice `azd ai agent invoke` exposes through its `--local` flag, asked at
-startup instead of passed as an argument. Pick **2** while a `Hosted-*` sample is running locally
-with `dotnet run`; pick **1** (or press Enter) to reach the agent deployed to Foundry.
+Pass `--local` or `--remote` to answer up front and skip the prompt, which is what scripted runs
+need:
+
+```
+dotnet run -- --local
+dotnet run -- --remote
+```
+
+This mirrors the `--local` flag on `azd ai agent invoke`. Use local while a `Hosted-*` sample is
+running with `dotnet run`; use remote to reach the agent deployed to Foundry.
 
 The two choices differ only in how the agent is built:
 

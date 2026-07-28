@@ -28,10 +28,14 @@ just a matter of changing `AZURE_AI_AGENT_NAME`.
 
 ## Local HTTP dev
 
-When the target is a local `http://localhost:8088` dev server, the REPLs install a small
-`HttpSchemeRewritePolicy`: `AIProjectClient`/`BearerTokenPolicy` require HTTPS, so the client
-presents the endpoint as `https://` to satisfy the TLS check, then rewrites the scheme back to
-`http://` right before the request hits the wire. This is local-development only.
+`SessionFilesClient` and `Hosted-Toolbox-AuthPaths-Client` reach their agent through
+`AIProjectClient`, whose bearer-token policy requires HTTPS. To target a local `http://` dev server
+they install a small `HttpSchemeRewritePolicy`: the endpoint is presented as `https://` to satisfy
+the TLS check, then rewritten back to `http://` right before the request hits the wire. This is
+local-development only.
+
+`SimpleAgent` needs none of that. For a local target it points an `OpenAIClient` at the server's
+standard `POST /responses` route, which carries no bearer token and therefore no TLS check.
 
 ## The clients
 

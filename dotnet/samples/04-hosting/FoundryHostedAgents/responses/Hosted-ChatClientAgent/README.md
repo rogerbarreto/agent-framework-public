@@ -45,10 +45,15 @@ cp .env.example .env
 ```env
 FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projects/<your-project>
 AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o
+ASPNETCORE_URLS=http://+:8088
 AZURE_TOKEN_CREDENTIALS=dev
 ```
 
 > `.env` is gitignored. The `.env.example` template is checked in as a reference.
+
+> `ASPNETCORE_URLS` pins the local run to the port the `Using-Samples` REPLs expect. Recent
+> `Microsoft.Agents.AI.Foundry.Hosting` versions bind that port themselves, so it only matters
+> while this project is pinned to an older published package.
 
 > **Windows note:** write `.env` as UTF-8 **without** a byte order mark. `azd` reads the file
 > during `azd ai agent init` and fails with `unexpected character "»" in variable name` when a mark
@@ -91,7 +96,7 @@ PowerShell:
 ```powershell
 cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
 $env:AZURE_AI_AGENT_NAME = "hosted-chat-client-agent"
-dotnet run
+dotnet run -- --local
 ```
 
 Bash:
@@ -99,11 +104,11 @@ Bash:
 ```bash
 cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
 export AZURE_AI_AGENT_NAME="hosted-chat-client-agent"
-dotnet run
+dotnet run -- --local
 ```
 
-The REPL asks which agent to chat with; choose **2 (Local)**. It then points an OpenAI responses
-client at the local server and streams the reply.
+Without `--local` the REPL asks which agent to chat with; choose **2 (Local)**. Either way it
+points an OpenAI responses client at the local server and streams the reply.
 
 ## Deploy to Foundry (source / ZIP)
 
@@ -170,7 +175,7 @@ azd ai agent invoke "Hello!"
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
 in `azure.yaml`). No Dockerfile, no container registry.
 
-You can also test the deployed agent with the REPL, choosing **1 (Foundry)** at the prompt:
+You can also test the deployed agent with the REPL:
 
 PowerShell:
 
@@ -178,7 +183,7 @@ PowerShell:
 cd <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
 $env:FOUNDRY_PROJECT_ENDPOINT = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
 $env:AZURE_AI_AGENT_NAME      = "hosted-chat-client-agent"
-dotnet run
+dotnet run -- --remote
 ```
 
 Bash:
@@ -187,7 +192,7 @@ Bash:
 cd <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Using-Samples/SimpleAgent
 export FOUNDRY_PROJECT_ENDPOINT="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
 export AZURE_AI_AGENT_NAME="hosted-chat-client-agent"
-dotnet run
+dotnet run -- --remote
 ```
 
 ### Step 4: clean up

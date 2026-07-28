@@ -19,9 +19,9 @@ const int LocalAgentPort = 8088;
 string agentName = Environment.GetEnvironmentVariable("AZURE_AI_AGENT_NAME")
     ?? throw new InvalidOperationException("AZURE_AI_AGENT_NAME is not set.");
 
-// Ask which server to talk to. This is the same choice `azd ai agent invoke` exposes through its
-// --local flag, asked at startup instead of passed as an argument.
-bool useLocalAgent = PromptForLocalTarget();
+// Pick the server to talk to. `--local` and `--remote` mirror the flag `azd ai agent invoke`
+// exposes; with neither, ask at startup.
+bool useLocalAgent = ResolveTarget(args);
 
 AIAgent agent = useLocalAgent ? CreateLocalAgent() : CreateHostedAgent(agentName);
 string target = useLocalAgent ? $"http://localhost:{LocalAgentPort}" : agentName;
@@ -76,6 +76,16 @@ while (true)
 }
 
 Console.WriteLine("Goodbye!");
+
+// Returns true when the client should target a locally running agent. `--local` and `--remote`
+// answer the question up front, which is what non-interactive runs need; with neither, ask.
+static bool ResolveTarget(string[] args)
+{
+    if (args.Contains("--local", StringComparer.OrdinalIgnoreCase)) { return true; }
+    if (args.Contains("--remote", StringComparer.OrdinalIgnoreCase)) { return false; }
+
+    return PromptForLocalTarget();
+}
 
 // Asks whether to target a locally running agent or the one deployed to Foundry, and returns
 // true for local. Defaults to remote on an empty answer, matching `azd ai agent invoke`, which
