@@ -286,4 +286,18 @@ cd hosted-chat-client-agent
 dotnet build -c Debug --tl:off
 ```
 
+## Troubleshooting
+
+**`azd ai agent invoke` fails with `404 not_found: Conversation '<id>' not found`**
+
+`azd` saves the session and conversation per agent and reuses them on the next invoke. Once the
+agent is redeployed, deleted, or restarted, that saved conversation no longer exists on the server,
+so every following invoke fails even though the agent itself is healthy. Start a fresh one:
+
+```
+azd ai agent invoke --new-conversation "Hello!"
+```
+
+Add `--new-session` as well if the failure persists.
+
 For the full hosted-agent deployment guide, see the [official source-code deployment doc](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent-code).
