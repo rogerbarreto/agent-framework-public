@@ -16,7 +16,7 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 | File | Purpose |
 |------|---------|
 | `Program.cs` | The agent: builds the agent, hosts it with the Responses protocol. |
-| `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy). |
+| `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy), and pins the listen port through `environment_variables`. |
 | `.agentignore` | Controls which files are excluded from the code-deploy ZIP upload (`.gitignore` syntax). |
 | `HostedChatClientAgent.csproj` | Self-contained project: single target framework, central package management off, explicit package versions (there is no repo-level props file inside the ZIP). |
 | `Directory.Packages.props` | Stops inheritance of the repository's central package management so the in-repo build matches the server-side build of the uploaded ZIP. |
@@ -37,6 +37,10 @@ AZURE_TOKEN_CREDENTIALS=dev
 ```
 
 > `.env` is gitignored. The `.env.example` template is checked in as a reference.
+
+> **Windows note:** write `.env` as UTF-8 **without** a byte order mark. `azd` reads the file
+> during `azd ai agent init` and fails with `unexpected character "»" in variable name` when a mark
+> is present. PowerShell's `Set-Content -Encoding UTF8BOM` adds one; use `-Encoding utf8NoBOM`.
 
 > **Local development on a machine without a managed identity:** set `AZURE_TOKEN_CREDENTIALS=dev`.
 > `Program.cs` authenticates with `DefaultAzureCredential` (the pattern the hosted platform

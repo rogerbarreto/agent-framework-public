@@ -14,6 +14,15 @@ services:
             dependencyResolution: remote_build
             entryPoint: HostedChatClientAgent.dll
             runtime: dotnet_10
+        # Pins the port the app listens on to the one Foundry probes for readiness.
+        # Source deploy runs this project as a plain ASP.NET app, and the .NET base image
+        # defaults ASPNETCORE_URLS to port 80, so without this the readiness probe never
+        # succeeds and every invoke fails with HTTP 424 session_not_ready.
+        # Recent Microsoft.Agents.AI.Foundry.Hosting versions bind the port themselves, which
+        # takes precedence over this value, so keeping it only helps when the project is pinned
+        # to an older published package.
+        environment_variables:
+            ASPNETCORE_URLS: http://+:8088
         container:
             resources:
                 cpu: "0.5"
