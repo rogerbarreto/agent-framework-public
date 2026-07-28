@@ -151,9 +151,6 @@ azd auth login
 azd ai agent init -m "$SAMPLE" -p "$PROJECT_ID" -d <model-deployment>
 ```
 
-Reusing an agent name creates a **new version** of that agent rather than a separate one. To deploy
-a separate agent, change the agent service's `name` in the generated `azure.yaml` before deploying.
-
 ### Step 3: provision and deploy
 
 ```
@@ -165,8 +162,7 @@ azd ai agent invoke "Hello!"
 
 `azd` packages the source into a ZIP (honoring `.agentignore`), uploads it, and Foundry runs
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
-in `azure.yaml`). No Dockerfile, no container registry. A real deploy takes roughly a minute; see
-[Troubleshooting](#troubleshooting) if it returns in a few seconds.
+in `azure.yaml`). No Dockerfile, no container registry.
 
 You can also test the deployed agent with the REPL, choosing **1 (Foundry)** at the prompt:
 
@@ -230,9 +226,7 @@ the upload. The scaffolded folder is a throwaway copy, so the repository is left
 Two details worth knowing:
 
 - The version carries a timestamp because NuGet caches by package id and version. Reusing a version
-  would silently restore the previously packed bits instead of the build you just made. It also
-  changes the ZIP on every run, which matters for the deploy deduplication described under
-  [Troubleshooting](#troubleshooting).
+  would silently restore the previously packed bits instead of the build you just made.
 - The whole package closure is packed, not just the two packages the sample references. Packing
   only the leaf packages lets NuGet fill the rest from nuget.org, mixing a published core with a
   locally built host, which fails to compile.
@@ -246,55 +240,6 @@ dotnet build -c Debug --tl:off
 
 Reaching `active` is itself proof that the upload was used: the packed version does not exist on
 nuget.org, so a restore that ignored the bundled `nuget.config` would have failed with a missing
-package. To see exactly what was deployed, download the ZIP and list it:
-
-PowerShell:
-
-```powershell
-$token = az account get-access-token --resource "https://ai.azure.com" --query accessToken -o tsv
-$ep    = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
-curl.exe -sS -H "Authorization: Bearer $token" -H "Accept: application/zip" `
-  "$ep/agents/hosted-chat-client-agent/code:download?api-version=v1" -o deployed.zip
-Expand-Archive deployed.zip -DestinationPath deployed -Force
-dir deployed/local-feed
-```
-
-Bash:
-
-```bash
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-EP="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
-curl -sS -H "Authorization: Bearer $TOKEN" -H "Accept: application/zip" \
-  "$EP/agents/hosted-chat-client-agent/code:download?api-version=v1" -o deployed.zip
-unzip -l deployed.zip
-```
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `azd deploy` finishes in a few seconds and reports the previous version number | Foundry mints a new version only when the uploaded ZIP changes, so edits confined to `azure.yaml` (which `.agentignore` keeps out of the ZIP) are discarded | Change a file that ships in the ZIP, or delete the agent and deploy again |
-| `azd ai agent invoke` returns HTTP 424 `session_not_ready` | The container is listening on a port Foundry does not probe | Stream the container logs and check the `Now listening on` line; it must be port 8088 |
-
-Stream the logs of a failing session, using the session id from the error message or the
-`x-agent-session-id` response header. The line that matters is `Now listening on`.
-
-PowerShell:
-
-```powershell
-$token = az account get-access-token --resource "https://ai.azure.com" --query accessToken -o tsv
-$ep    = "https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
-curl.exe -sS -N --max-time 60 -H "Authorization: Bearer $token" -H "Accept: text/event-stream" `
-  "$ep/agents/hosted-chat-client-agent/sessions/<session-id>:logstream?api-version=v1"
-```
-
-Bash:
-
-```bash
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-EP="https://<your-account>.services.ai.azure.com/api/projects/<your-project>"
-curl -sS -N --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Accept: text/event-stream" \
-  "$EP/agents/hosted-chat-client-agent/sessions/<session-id>:logstream?api-version=v1"
-```
+package.
 
 For the full hosted-agent deployment guide, see the [official source-code deployment doc](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent-code).
