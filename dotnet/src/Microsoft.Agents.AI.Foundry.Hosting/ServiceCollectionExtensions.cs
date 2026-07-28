@@ -261,29 +261,29 @@ public static class FoundryHostingExtensions
 
     /// <summary>
     /// Binds Kestrel to the port the Foundry hosted runtime probes and routes to, so a plain
-    /// <c>WebApplication.CreateBuilder</c> host (Tier 3) works with no Dockerfile and no
-    /// <c>ASPNETCORE_URLS</c>. Mirrors <c>AgentHostBuilder</c>, which listens on
-    /// <see cref="FoundryEnvironment.Port"/> (the <c>PORT</c> environment variable, default 8088).
+    /// <c>WebApplication.CreateBuilder</c> host (Tier 3) works with no Dockerfile. Mirrors
+    /// <c>AgentHostBuilder</c>, which listens on <see cref="FoundryEnvironment.Port"/> (the
+    /// <c>PORT</c> environment variable, default 8088).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// No-op when <c>ASPNETCORE_URLS</c> is set: an explicit ASP.NET Core URL binding always wins,
-    /// so a developer can override the port locally (for example <c>ASPNETCORE_URLS=http://+:9000</c>).
-    /// The Foundry hosted runtime injects <c>PORT</c> (not <c>ASPNETCORE_URLS</c>), so the container
-    /// path always flows through <see cref="FoundryEnvironment.Port"/> here.
+    /// The binding is unconditional, which is what makes source (ZIP) deploy work: the .NET base
+    /// image sets <c>ASPNETCORE_URLS</c> to port 80, and a listener configured in code takes
+    /// precedence over that setting (Kestrel logs "Overriding address(es)"). Skipping the binding
+    /// whenever <c>ASPNETCORE_URLS</c> was set would therefore always leave the container on port
+    /// 80 and fail the readiness probe with HTTP 424.
     /// </para>
     /// <para>
-    /// Idempotent and harmless when no Kestrel server is present (for example unit tests): the
-    /// <see cref="KestrelServerOptions"/> options callback is only invoked when Kestrel is resolved.
+    /// To listen on a different port, set <c>PORT</c>, the same knob the Agent Server SDK uses.
+    /// </para>
+    /// <para>
+    /// Idempotent, and harmless when no Kestrel server is present (for example under
+    /// <c>TestServer</c>): the <see cref="KestrelServerOptions"/> callback only runs when Kestrel
+    /// is resolved.
     /// </para>
     /// </remarks>
     private static void ConfigureFoundryListenPort(IServiceCollection services)
     {
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-        {
-            return;
-        }
-
         if (services.Any(static d => d.ServiceType == typeof(FoundryListenPortMarker)))
         {
             return;

@@ -17,8 +17,8 @@ namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 /// <summary>
 /// Verifies that <c>AddFoundryResponses</c> binds Kestrel to the Foundry hosted-runtime port
 /// (<see cref="FoundryEnvironment.Port"/>, the <c>PORT</c> env var, default 8088) for a plain
-/// <c>WebApplication.CreateBuilder</c> (Tier 3) host, so the sample works with no Dockerfile and
-/// no <c>ASPNETCORE_URLS</c>, while still respecting an explicit <c>ASPNETCORE_URLS</c> override.
+/// <c>WebApplication.CreateBuilder</c> (Tier 3) host, so a source (ZIP) deployed agent passes the
+/// platform readiness probe with no Dockerfile pinning the port.
 /// </summary>
 [Collection(AspNetCoreUrlsEnvFixture.Name)]
 public sealed class FoundryListenPortTests
@@ -26,13 +26,46 @@ public sealed class FoundryListenPortTests
     private const string AspNetCoreUrls = "ASPNETCORE_URLS";
 
     [Fact]
-    public void AddFoundryResponses_NoAspNetCoreUrls_BindsFoundryPort()
+    public void AddFoundryResponses_BindsFoundryPort()
     {
         // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        // Act
+        services.AddFoundryResponses();
+
+        // Assert
+        Assert.Contains(FoundryEnvironment.Port, GetCodeBackedPorts(services));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_WithAgent_BindsFoundryPort()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var mockAgent = new Mock<AIAgent>();
+        mockAgent.SetupGet(a => a.Name).Returns("test-agent");
+
+        // Act
+        services.AddFoundryResponses(mockAgent.Object);
+
+        // Assert
+        Assert.Contains(FoundryEnvironment.Port, GetCodeBackedPorts(services));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_WithAspNetCoreUrlsSet_StillBindsFoundryPort()
+    {
+        // Arrange: the .NET base image used by source (ZIP) deploy sets ASPNETCORE_URLS to port 80.
+        // The binding must still be applied, because a listener configured in code takes precedence
+        // over that setting. Skipping it here would leave the container on port 80 and fail every
+        // invocation with HTTP 424 session_not_ready.
         var original = Environment.GetEnvironmentVariable(AspNetCoreUrls);
         try
         {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, null);
+            Environment.SetEnvironmentVariable(AspNetCoreUrls, "http://+:80");
             var services = new ServiceCollection();
             services.AddLogging();
 
@@ -40,59 +73,7 @@ public sealed class FoundryListenPortTests
             services.AddFoundryResponses();
 
             // Assert
-            var ports = GetCodeBackedPorts(services);
-            Assert.Contains(FoundryEnvironment.Port, ports);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, original);
-        }
-    }
-
-    [Fact]
-    public void AddFoundryResponses_WithAgent_NoAspNetCoreUrls_BindsFoundryPort()
-    {
-        // Arrange
-        var original = Environment.GetEnvironmentVariable(AspNetCoreUrls);
-        try
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, null);
-            var services = new ServiceCollection();
-            services.AddLogging();
-            var mockAgent = new Mock<AIAgent>();
-            mockAgent.SetupGet(a => a.Name).Returns("test-agent");
-
-            // Act
-            services.AddFoundryResponses(mockAgent.Object);
-
-            // Assert
-            var ports = GetCodeBackedPorts(services);
-            Assert.Contains(FoundryEnvironment.Port, ports);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, original);
-        }
-    }
-
-    [Fact]
-    public void AddFoundryResponses_WithAspNetCoreUrls_DoesNotBindFoundryPort()
-    {
-        // Arrange: an explicit ASP.NET Core URL binding must win; the package adds no listener.
-        var original = Environment.GetEnvironmentVariable(AspNetCoreUrls);
-        try
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, "http://+:9123");
-            var services = new ServiceCollection();
-            services.AddLogging();
-
-            // Act
-            services.AddFoundryResponses();
-
-            // Assert
-            var ports = GetCodeBackedPorts(services);
-            Assert.DoesNotContain(FoundryEnvironment.Port, ports);
-            Assert.DoesNotContain(9123, ports);
+            Assert.Contains(FoundryEnvironment.Port, GetCodeBackedPorts(services));
         }
         finally
         {
@@ -104,26 +85,16 @@ public sealed class FoundryListenPortTests
     public void AddFoundryResponses_CalledTwice_BindsFoundryPortOnce()
     {
         // Arrange
-        var original = Environment.GetEnvironmentVariable(AspNetCoreUrls);
-        try
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, null);
-            var services = new ServiceCollection();
-            services.AddLogging();
+        var services = new ServiceCollection();
+        services.AddLogging();
 
-            // Act
-            services.AddFoundryResponses();
-            services.AddFoundryResponses();
+        // Act
+        services.AddFoundryResponses();
+        services.AddFoundryResponses();
 
-            // Assert: the listen port is configured exactly once, not duplicated (a duplicate
-            // ListenAnyIP on the same port would fail Kestrel startup with "address already in use").
-            var ports = GetCodeBackedPorts(services);
-            Assert.Equal(1, ports.Count(p => p == FoundryEnvironment.Port));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(AspNetCoreUrls, original);
-        }
+        // Assert: a duplicate ListenAnyIP on the same port fails Kestrel startup with
+        // "address already in use", so the binding must be applied exactly once.
+        Assert.Equal(1, GetCodeBackedPorts(services).Count(port => port == FoundryEnvironment.Port));
     }
 
     /// <summary>

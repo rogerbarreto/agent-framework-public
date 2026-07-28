@@ -9,6 +9,17 @@
     (dependencyResolution: remote_build in azure.yaml).
   -->
 
+  <!--
+    Contributor mode (optional): scripts/New-ContributorStage.ps1 (under FoundryHostedAgents)
+    stages this sample in a temp folder alongside a generated local-feed.props, which overrides
+    AgentFrameworkVersion with a locally built version, a local-feed/ folder of .nupkg files, and
+    a nuget.config that maps Microsoft.Agents.AI* to that folder. All three ship inside the ZIP,
+    so the server-side restore resolves the Agent Framework from the packages in the upload
+    instead of nuget.org. Without those generated files this project builds against the published
+    packages below, which is what end users get.
+  -->
+  <Import Project="local-feed.props" Condition="Exists('local-feed.props')" />
+
   <PropertyGroup>
     <!-- Single target: the Foundry dotnet_10 runtime publishes without -f, so the
          project must not multi-target. The empty TargetFrameworks clears the value
@@ -21,11 +32,13 @@
     <AssemblyName>HostedChatClientAgent</AssemblyName>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <UserSecretsId>222d2622-da26-4da0-99b4-0507fb8d41b0</UserSecretsId>
+    <!-- Published Agent Framework version. Overridden by local-feed.props in contributor mode. -->
+    <AgentFrameworkVersion Condition="'$(AgentFrameworkVersion)' == ''">1.15.0-preview.260722.1</AgentFrameworkVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI.Foundry" Version="1.15.0-preview.260722.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting" Version="1.15.0-preview.260722.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Foundry" Version="$(AgentFrameworkVersion)" />
+    <PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting" Version="$(AgentFrameworkVersion)" />
     <PackageReference Include="Azure.AI.Projects" Version="2.1.0-beta.4" />
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="DotNetEnv" Version="3.1.1" />

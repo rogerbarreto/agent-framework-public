@@ -1,52 +1,30 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System.ClientModel;
-using System.ClientModel.Primitives;
-using Azure.AI.Extensions.OpenAI;
 using Azure.AI.Projects;
-using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry;
+using OpenAI;
+using OpenAI.Responses;
 
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
 
-// FOUNDRY_PROJECT_ENDPOINT is the Foundry project endpoint. Shape:
-//   https://<host>/api/projects/<project>
-Uri projectEndpoint = new(Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
-    ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
+// Port the Hosted-* samples listen on when run locally with `dotnet run`.
+const int LocalAgentPort = 8088;
 
 // AZURE_AI_AGENT_NAME is the registered server-side agent name.
 string agentName = Environment.GetEnvironmentVariable("AZURE_AI_AGENT_NAME")
     ?? throw new InvalidOperationException("AZURE_AI_AGENT_NAME is not set.");
 
-// Derive the per-agent OpenAI endpoint that hosted Foundry agents require.
-Uri agentEndpoint = new($"{projectEndpoint}/agents/{agentName}/endpoint/protocols/openai");
+// Ask which server to talk to. This is the same choice `azd ai agent invoke` exposes through its
+// --local flag, asked at startup instead of passed as an argument.
+bool useLocalAgent = PromptForLocalTarget();
 
-// ── Create an agent-framework agent backed by the remote agent endpoint ──────
-
-// Per-agent client options. The scheme-rewrite policy for local HTTP dev must live on
-// THIS options bag (the per-agent responses pipeline), not on AIProjectClientOptions:
-// FoundryAgent builds the responses client from these options, so a policy added here
-// is the one that actually runs on the /responses request.
-var clientOptions = new ProjectOpenAIClientOptions();
-
-if (agentEndpoint.Scheme == "http")
-{
-    // For local HTTP dev: present the endpoint as HTTPS (to satisfy BearerTokenPolicy's
-    // TLS check), then swap the scheme back to HTTP right before the request hits the
-    // wire. Rewriting the agent endpoint preserves its explicit port (for example 8088).
-    agentEndpoint = new UriBuilder(agentEndpoint) { Scheme = "https" }.Uri;
-    clientOptions.AddPolicy(new HttpSchemeRewritePolicy(), PipelinePosition.BeforeTransport);
-}
-
-// FoundryAgent's agent-endpoint constructor builds the responses client directly from
-// agentEndpoint (port preserved) and applies clientOptions to that pipeline. It expects a
-// System.ClientModel AuthenticationTokenProvider, so adapt the Azure CLI credential.
-var credential = new AzureCliAuthenticationTokenProvider(new AzureCliCredential(), "https://ai.azure.com/.default");
-FoundryAgent agent = new(agentEndpoint, credential, clientOptions);
+AIAgent agent = useLocalAgent ? CreateLocalAgent() : CreateHostedAgent(agentName);
+string target = useLocalAgent ? $"http://localhost:{LocalAgentPort}" : agentName;
 
 AgentSession session = await agent.CreateSessionAsync();
 
@@ -56,7 +34,7 @@ Console.ForegroundColor = ConsoleColor.Cyan;
 Console.WriteLine($"""
     ══════════════════════════════════════════════════════════
     Simple Agent Sample
-    Connected to: {agentEndpoint}
+    Connected to: {target}
     Type a message or 'quit' to exit
     ══════════════════════════════════════════════════════════
     """);
@@ -99,57 +77,45 @@ while (true)
 
 Console.WriteLine("Goodbye!");
 
-/// <summary>
-/// For Local Development Only
-/// Rewrites HTTPS URIs to HTTP right before transport, allowing AIProjectClient
-/// to target a local HTTP dev server while satisfying BearerTokenPolicy's TLS check.
-/// </summary>
-internal sealed class HttpSchemeRewritePolicy : PipelinePolicy
+// Asks whether to target a locally running agent or the one deployed to Foundry, and returns
+// true for local. Defaults to remote on an empty answer, matching `azd ai agent invoke`, which
+// targets Foundry unless --local is passed.
+static bool PromptForLocalTarget()
 {
-    public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
-    {
-        RewriteScheme(message);
-        ProcessNext(message, pipeline, currentIndex);
-    }
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("Which agent do you want to chat with?");
+    Console.ResetColor();
+    Console.WriteLine("  [1] Foundry (deployed agent)   [default]");
+    Console.WriteLine($"  [2] Local    (dotnet run, http://localhost:{LocalAgentPort})");
+    Console.Write("Choice: ");
 
-    public override async ValueTask ProcessAsync(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
-    {
-        RewriteScheme(message);
-        await ProcessNextAsync(message, pipeline, currentIndex).ConfigureAwait(false);
-    }
+    string? choice = Console.ReadLine()?.Trim();
+    Console.WriteLine();
 
-    private static void RewriteScheme(PipelineMessage message)
-    {
-        var uri = message.Request.Uri!;
-        if (uri.Scheme == Uri.UriSchemeHttps)
-        {
-            message.Request.Uri = new UriBuilder(uri) { Scheme = "http" }.Uri;
-        }
-    }
+    return choice is "2";
 }
 
-/// <summary>
-/// For Local Development Only
-/// Adapts an Azure.Core <see cref="TokenCredential"/> (for example <see cref="AzureCliCredential"/>)
-/// to the System.ClientModel <see cref="AuthenticationTokenProvider"/> that the
-/// <see cref="FoundryAgent"/> agent-endpoint constructor expects. Uses the fixed Azure AI resource
-/// scope that the Foundry control plane accepts.
-/// </summary>
-internal sealed class AzureCliAuthenticationTokenProvider(TokenCredential credential, params string[] scopes)
-    : AuthenticationTokenProvider
+// Builds an agent against a Hosted-* sample running locally. The sample serves the standard
+// Responses route (POST /responses), so an OpenAI responses client pointed at the server reaches
+// it directly. The server hosts its own agent and ignores both the model id and the api key, but
+// the SDK requires them to shape the request.
+static AIAgent CreateLocalAgent()
 {
-    public override GetTokenOptions? CreateTokenOptions(IReadOnlyDictionary<string, object> properties)
-        => new(properties);
+    var options = new OpenAIClientOptions { Endpoint = new Uri($"http://localhost:{LocalAgentPort}") };
 
-    public override AuthenticationToken GetToken(GetTokenOptions options, CancellationToken cancellationToken)
-    {
-        AccessToken token = credential.GetToken(new TokenRequestContext(scopes), cancellationToken);
-        return new AuthenticationToken(token.Token, "Bearer", token.ExpiresOn);
-    }
+    return new OpenAIClient(new ApiKeyCredential("not-needed"), options)
+        .GetResponsesClient()
+        .AsAIAgent(model: "hosted-agent", name: "LocalHostedAgent");
+}
 
-    public override async ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
-    {
-        AccessToken token = await credential.GetTokenAsync(new TokenRequestContext(scopes), cancellationToken).ConfigureAwait(false);
-        return new AuthenticationToken(token.Token, "Bearer", token.ExpiresOn);
-    }
+// Builds an agent against an agent deployed to Foundry. Hosted agents are reached through their
+// per-agent endpoint, which the platform routes to the container's /responses route.
+static AIAgent CreateHostedAgent(string agentName)
+{
+    Uri projectEndpoint = new(Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+        ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
+
+    Uri agentEndpoint = new($"{projectEndpoint}/agents/{agentName}/endpoint/protocols/openai");
+
+    return new AIProjectClient(projectEndpoint, new AzureCliCredential()).AsAIAgent(agentEndpoint);
 }

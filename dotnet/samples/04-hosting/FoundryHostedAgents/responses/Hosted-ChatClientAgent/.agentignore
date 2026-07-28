@@ -4,8 +4,6 @@
 # To include a file that is excluded by default, use negation: !filename
 
 # azd tooling files
-agent.yaml
-agent.manifest.yaml
 azure.yaml
 .agentignore
 
@@ -15,14 +13,18 @@ azure.yaml
 .azure/
 .git/
 
-# .NET
+# .NET build output
 bin/
 obj/
 *.user
 *.suo
 .vs/
 
-# Docker (not used in code deploy)
-Dockerfile
-Dockerfile.contributor
-.dockerignore
+# Agent session state written by FileSystemAgentSessionStore during local runs. The hosted
+# runtime writes its own under the container's home directory, so uploading the local copy
+# would ship stale sessions with the agent.
+.checkpoints/
+
+# Contributor staging (scripts/New-ContributorStage.ps1) generates local-feed/, nuget.config,
+# and local-feed.props. Those are deliberately NOT excluded: the server-side restore needs them
+# to resolve the Agent Framework from the packages shipped in this upload instead of nuget.org.
