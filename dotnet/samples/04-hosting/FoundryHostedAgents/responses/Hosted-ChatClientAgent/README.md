@@ -7,7 +7,10 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- A Foundry project with a deployed model (for example `gpt-4o`)
+- An **existing** Foundry project with an **existing** model deployment (for example `gpt-4o`).
+  This sample's `azure.yaml` declares no `deployments:` block, so `azd` connects to a project and
+  a deployment you already have rather than creating them. `azd ai agent init` takes both as
+  arguments (`-p` and `-d`) and prompts for them when they are omitted.
 - Azure CLI logged in (`az login`)
 - Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`
 
@@ -16,7 +19,7 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 | File | Purpose |
 |------|---------|
 | `Program.cs` | The agent: builds the agent, hosts it with the Responses protocol. |
-| `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy), and pins the listen port through `environment_variables`. |
+| `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy), and passes the listen port and the model deployment name to the container through `env`. |
 | `.agentignore` | Controls which files are excluded from the code-deploy ZIP upload (`.gitignore` syntax). |
 | `HostedChatClientAgent.csproj` | Self-contained project: single target framework, central package management off, explicit package versions (there is no repo-level props file inside the ZIP). |
 | `Directory.Packages.props` | Stops inheritance of the repository's central package management so the in-repo build matches the server-side build of the uploaded ZIP. |
@@ -130,6 +133,9 @@ cd "$WORK"
 `azd ai agent init` copies the sample into a subfolder named after the top-level `name:` in
 `azure.yaml`, which is `hosted-chat-client-agent`. It also writes the adopted `azure.yaml` and the
 `azd` environment there.
+
+`-p` is the resource ID of an existing Foundry project and `-d` the name of an existing model
+deployment in it. Omit either one and `azd` prompts for it.
 
 PowerShell:
 
