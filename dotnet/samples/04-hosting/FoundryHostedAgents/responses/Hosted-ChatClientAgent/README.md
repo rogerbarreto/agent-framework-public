@@ -21,8 +21,7 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 | `Program.cs` | The agent: builds the agent, hosts it with the Responses protocol. |
 | `azure.yaml` | The unified `azd` project file. Declares the Foundry project and the hosted agent with `codeConfiguration` (source/ZIP deploy), and passes the listen port and the model deployment name to the container through `env`. |
 | `.agentignore` | Controls which files are excluded from the code-deploy ZIP upload (`.gitignore` syntax). |
-| `HostedChatClientAgent.csproj` | Self-contained project: single target framework, central package management off, explicit package versions (there is no repo-level props file inside the ZIP). |
-| `Directory.Packages.props` | Stops MSBuild from picking up the repository's own props file, so the in-repo build resolves the same packages as the server-side build of the uploaded ZIP. |
+| `HostedChatClientAgent.csproj` | Self-contained project: single target framework and explicit package versions. It also opts out of the repository's central package management, which does not travel inside the ZIP. |
 | `.env.example` | Template for local configuration. |
 | `../../scripts/Add-LocalFrameworkFeed.ps1`, `../../scripts/add-local-framework-feed.sh` | Contributor-only helpers, see [Deploy your local framework changes](#deploy-your-local-framework-changes-contributors). |
 
