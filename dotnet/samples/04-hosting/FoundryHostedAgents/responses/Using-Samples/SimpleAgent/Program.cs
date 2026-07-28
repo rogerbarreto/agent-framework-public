@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Azure.AI.Projects;
 using Azure.Identity;
 using DotNetEnv;
@@ -127,5 +128,47 @@ static AIAgent CreateHostedAgent(string agentName)
 
     Uri agentEndpoint = new($"{projectEndpoint}/agents/{agentName}/endpoint/protocols/openai");
 
-    return new AIProjectClient(projectEndpoint, new AzureCliCredential()).AsAIAgent(agentEndpoint);
+    var options = new AIProjectClientOptions();
+
+    if (projectEndpoint.Scheme == Uri.UriSchemeHttp)
+    {
+        // For local HTTP dev: the client pipeline refuses to attach a bearer token to a plain
+        // HTTP endpoint, so point the client at an https:// URI to satisfy that check, then swap
+        // the scheme back to http:// right before the request hits the wire.
+        projectEndpoint = new UriBuilder(projectEndpoint) { Scheme = Uri.UriSchemeHttps }.Uri;
+        agentEndpoint = new UriBuilder(agentEndpoint) { Scheme = Uri.UriSchemeHttps }.Uri;
+        options.AddPolicy(new HttpSchemeRewritePolicy(), PipelinePosition.BeforeTransport);
+    }
+
+    return new AIProjectClient(projectEndpoint, new AzureCliCredential(), options).AsAIAgent(agentEndpoint);
+}
+
+/// <summary>
+/// For Local Development Only.
+/// Rewrites HTTPS URIs to HTTP right before transport, allowing <see cref="AIProjectClient"/> to
+/// target a local HTTP dev server while satisfying the pipeline's TLS check: bearer tokens are
+/// only attached to TLS-protected endpoints, so a plain http:// endpoint is rejected outright.
+/// </summary>
+internal sealed class HttpSchemeRewritePolicy : PipelinePolicy
+{
+    public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
+    {
+        RewriteScheme(message);
+        ProcessNext(message, pipeline, currentIndex);
+    }
+
+    public override async ValueTask ProcessAsync(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
+    {
+        RewriteScheme(message);
+        await ProcessNextAsync(message, pipeline, currentIndex).ConfigureAwait(false);
+    }
+
+    private static void RewriteScheme(PipelineMessage message)
+    {
+        var uri = message.Request.Uri!;
+        if (uri.Scheme == Uri.UriSchemeHttps)
+        {
+            message.Request.Uri = new UriBuilder(uri) { Scheme = Uri.UriSchemeHttp }.Uri;
+        }
+    }
 }

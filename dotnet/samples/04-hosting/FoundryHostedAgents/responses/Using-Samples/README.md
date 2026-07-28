@@ -28,14 +28,17 @@ just a matter of changing `AZURE_AI_AGENT_NAME`.
 
 ## Local HTTP dev
 
-`SessionFilesClient` and `Hosted-Toolbox-AuthPaths-Client` reach their agent through
-`AIProjectClient`, whose bearer-token policy requires HTTPS. To target a local `http://` dev server
-they install a small `HttpSchemeRewritePolicy`: the endpoint is presented as `https://` to satisfy
-the TLS check, then rewritten back to `http://` right before the request hits the wire. This is
-local-development only.
+`AIProjectClient` authenticates with a bearer token, and the client pipeline refuses to attach one
+to a plain `http://` endpoint, failing with `InvalidOperationException: Bearer token authentication
+is not permitted for non TLS protected (https) endpoints.` before the request is even sent. To
+target a local dev server over HTTP, the REPLs install a small `HttpSchemeRewritePolicy`: the
+client is pointed at an `https://` URI to satisfy that check, and the policy puts the scheme back
+to `http://` right before the request hits the wire. This is local-development only.
 
-`SimpleAgent` needs none of that. For a local target it points an `OpenAIClient` at the server's
-standard `POST /responses` route, which carries no bearer token and therefore no TLS check.
+`SimpleAgent` applies it only on the Foundry path, and only when `FOUNDRY_PROJECT_ENDPOINT` is an
+`http://` URL. Its `--local` path needs nothing of the sort: it points an `OpenAIClient` at the
+server's standard `POST /responses` route with an api key, which carries no bearer token and so
+never hits the TLS check.
 
 ## The clients
 

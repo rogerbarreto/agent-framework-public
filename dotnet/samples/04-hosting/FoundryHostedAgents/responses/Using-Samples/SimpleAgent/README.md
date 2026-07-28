@@ -59,6 +59,10 @@ The two choices differ only in how the agent is built:
 | Local | An `OpenAIClient` pointed at `http://localhost:8088`, then `GetResponsesClient().AsAIAgent(...)`. That hits the standard `POST /responses` route the local server already serves. The model id and api key are placeholders: the server runs its own agent and ignores both, but the SDK requires them to shape the request. |
 | Foundry | An `AIProjectClient` plus the agent's per-agent endpoint (`{projectEndpoint}/agents/{AZURE_AI_AGENT_NAME}/endpoint/protocols/openai`), which the platform routes to the container's `/responses` route. |
 
+The Foundry path also works against a local server that maps the per-agent route: set
+`FOUNDRY_PROJECT_ENDPOINT` to an `http://` URL and the client installs a scheme-rewrite policy so
+the bearer-token pipeline accepts it. See [Local HTTP dev](../README.md#local-http-dev).
+
 ## End-to-end demo
 
 With a hosted agent running:
