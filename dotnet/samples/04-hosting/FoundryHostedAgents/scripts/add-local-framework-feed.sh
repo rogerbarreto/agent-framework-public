@@ -16,15 +16,15 @@
 #                  fill the rest from nuget.org, mixing a published core with a locally built host.
 #   nuget.config   New. Maps Microsoft.Agents.AI* to that folder feed and everything else to
 #                  nuget.org.
-#   the versions   Edited. Directory.Packages.props has its AgentFrameworkVersion property
-#                  repointed at the version just packed.
+#   the .csproj    Edited. Its AgentFrameworkVersion property is repointed at the version just
+#                  packed.
 #
 # Neither generated file is excluded by `.agentignore`, so they travel inside the ZIP and the
 # server-side restore uses them.
 #
 # Everything else stays identical to the end-user flow: you create the working directory, run
 # `azd ai agent init`, and finish with `azd provision`, `azd deploy`, and `azd ai agent invoke`.
-# The scaffolded folder is a throwaway copy, so editing its package versions leaves the repository
+# The scaffolded folder is a throwaway copy, so editing its project file leaves the repository
 # untouched.
 #
 # Usage:
@@ -61,15 +61,15 @@ if [[ ! -f "$target/azure.yaml" ]]; then
     exit 1
 fi
 
-project_file="$target/Directory.Packages.props"
+project_file="$(find "$target" -maxdepth 1 -name '*.csproj' | head -n 1)"
 
-if [[ ! -f "$project_file" ]]; then
-    echo "Error: no Directory.Packages.props in '$target'. This script targets .NET hosted agents." >&2
+if [[ -z "$project_file" ]]; then
+    echo "Error: no .csproj in '$target'. This script targets .NET hosted agents." >&2
     exit 1
 fi
 
 if ! grep -q '<AgentFrameworkVersion>' "$project_file"; then
-    echo "Error: Directory.Packages.props has no <AgentFrameworkVersion> property to repoint at a local build." >&2
+    echo "Error: $(basename "$project_file") has no <AgentFrameworkVersion> property to repoint at a local build." >&2
     exit 1
 fi
 
@@ -136,8 +136,8 @@ cat > "$target/nuget.config" <<'EOF'
 </configuration>
 EOF
 
-# The scaffolded copy is disposable, so repointing its package versions at the local build is safe
-# and keeps the checked-in sample free of contributor-only scaffolding. Reruns are safe: the pattern
+# The scaffolded copy is disposable, so repointing its project file at the local build is safe and
+# keeps the checked-in sample free of contributor-only scaffolding. Reruns are safe: the pattern
 # matches whatever version is currently there. sed rewrites the line in place, leaving the file's
 # leading byte order mark untouched.
 sed -i.bak "s|<AgentFrameworkVersion>[^<]*</AgentFrameworkVersion>|<AgentFrameworkVersion>$version</AgentFrameworkVersion>|" "$project_file"

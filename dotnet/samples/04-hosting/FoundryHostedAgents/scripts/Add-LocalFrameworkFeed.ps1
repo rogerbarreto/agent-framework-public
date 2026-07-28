@@ -17,15 +17,15 @@
                    fill the rest from nuget.org, mixing a published core with a locally built host.
     nuget.config   New. Maps Microsoft.Agents.AI* to that folder feed and everything else to
                    nuget.org.
-    the versions   Edited. Directory.Packages.props has its AgentFrameworkVersion property
-                   repointed at the version just packed.
+    the .csproj    Edited. Its AgentFrameworkVersion property is repointed at the version just
+                   packed.
 
   Neither generated file is excluded by `.agentignore`, so they travel inside the ZIP and the
   server-side restore uses them.
 
   Everything else stays identical to the end-user flow: you create the working directory, run
   `azd ai agent init`, and finish with `azd provision`, `azd deploy`, and `azd ai agent invoke`.
-  The scaffolded folder is a throwaway copy, so editing its package versions leaves the repository
+  The scaffolded folder is a throwaway copy, so editing its project file leaves the repository
   untouched.
 .PARAMETER Path
   The folder `azd ai agent init` scaffolded, for example `./hosted-chat-client-agent`.
@@ -65,13 +65,13 @@ if (-not (Test-Path (Join-Path $target 'azure.yaml'))) {
     throw "No azure.yaml in '$target'. Point -Path at the folder 'azd ai agent init' scaffolded."
 }
 
-$versionsFile = Join-Path $target 'Directory.Packages.props'
-if (-not (Test-Path $versionsFile)) {
-    throw "No Directory.Packages.props in '$target'. This script targets .NET hosted agents."
+$projectFile = Get-ChildItem $target -Filter *.csproj -File | Select-Object -First 1
+if (-not $projectFile) {
+    throw "No .csproj in '$target'. This script targets .NET hosted agents."
 }
 
-if (-not (Select-String -Path $versionsFile -Pattern '<AgentFrameworkVersion>' -Quiet)) {
-    throw "Directory.Packages.props has no <AgentFrameworkVersion> property to repoint at a local build."
+if (-not (Select-String -Path $projectFile.FullName -Pattern '<AgentFrameworkVersion>' -Quiet)) {
+    throw "$($projectFile.Name) has no <AgentFrameworkVersion> property to repoint at a local build."
 }
 
 $hostedRoot = Split-Path -Parent $PSScriptRoot
@@ -136,12 +136,12 @@ $nugetConfig = @'
 '@
 [System.IO.File]::WriteAllText((Join-Path $target 'nuget.config'), ($nugetConfig -replace "`r`n", "`n"), $utf8NoBom)
 
-# The scaffolded copy is disposable, so repointing its package versions at the local build is safe
-# and keeps the checked-in sample free of contributor-only scaffolding. Reruns are safe: the pattern
+# The scaffolded copy is disposable, so repointing its project file at the local build is safe and
+# keeps the checked-in sample free of contributor-only scaffolding. Reruns are safe: the pattern
 # matches whatever version is currently there.
-$versionsXml = [System.IO.File]::ReadAllText($versionsFile)
-$versionsXml = $versionsXml -replace '(?<open><AgentFrameworkVersion>)[^<]*(?<close></AgentFrameworkVersion>)', "`${open}$version`${close}"
-[System.IO.File]::WriteAllText($versionsFile, $versionsXml, [System.Text.UTF8Encoding]::new($true))
+$projectXml = [System.IO.File]::ReadAllText($projectFile.FullName)
+$projectXml = $projectXml -replace '(?<open><AgentFrameworkVersion>)[^<]*(?<close></AgentFrameworkVersion>)', "`${open}$version`${close}"
+[System.IO.File]::WriteAllText($projectFile.FullName, $projectXml, [System.Text.UTF8Encoding]::new($true))
 
 Write-Host ''
 Write-Host 'Done. Continue with the standard flow:' -ForegroundColor Green
