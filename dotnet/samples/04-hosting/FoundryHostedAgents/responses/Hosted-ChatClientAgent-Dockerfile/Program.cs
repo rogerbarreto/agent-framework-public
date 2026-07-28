@@ -21,9 +21,13 @@ Env.TraversePath().Load();
 var projectEndpoint = new Uri(System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
 
-var model = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME")
-    ?? System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL")
-    ?? "gpt-4o";
+// Environment variables can arrive set but blank: azd substitutes an empty string when the azd
+// environment does not define the variable referenced from azure.yaml. An empty string is not
+// null, so a plain ?? chain would pass the blank straight through and fail deep inside the SDK.
+var model = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o");
 
 var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-chat-client-agent-docker";
 
@@ -51,3 +55,7 @@ var app = builder.Build();
 app.MapFoundryResponses();
 
 app.Run();
+
+// Returns the first candidate that has an actual value, ignoring null and blank entries.
+static string FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, c => !string.IsNullOrWhiteSpace(c))!;

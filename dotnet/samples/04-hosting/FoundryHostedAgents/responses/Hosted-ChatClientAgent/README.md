@@ -143,6 +143,14 @@ cd "$WORK"
 `-p` is the resource ID of an existing Foundry project and `-d` the name of an existing model
 deployment in it. Omit either one and `azd` prompts for it.
 
+`azure.yaml` passes the model deployment to the container by reading it from the `azd` environment.
+Confirm it landed there, and set it yourself if it did not:
+
+```
+azd env get-values
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
+```
+
 PowerShell:
 
 ```powershell
