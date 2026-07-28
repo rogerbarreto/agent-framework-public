@@ -253,6 +253,12 @@ public static class FoundryHostingExtensions
     }
 
     /// <summary>
+    /// Environment variable the Foundry hosting platform injects with a non-empty value inside a
+    /// hosted container. It is the documented way for container code to detect a Foundry context.
+    /// </summary>
+    internal const string FoundryHostingEnvironmentVariable = "FOUNDRY_HOSTING_ENVIRONMENT";
+
+    /// <summary>
     /// Marker registered once per <see cref="IServiceCollection"/> so the Foundry listen-port
     /// configuration is applied at most once, even across multiple <c>AddFoundryResponses</c> calls.
     /// </summary>
@@ -266,11 +272,17 @@ public static class FoundryHostingExtensions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The binding is unconditional, which is what makes source (ZIP) deploy work: the .NET base
-    /// image sets <c>ASPNETCORE_URLS</c> to port 80, and a listener configured in code takes
-    /// precedence over that setting (Kestrel logs "Overriding address(es)"). Skipping the binding
-    /// whenever <c>ASPNETCORE_URLS</c> was set would therefore always leave the container on port
-    /// 80 and fail the readiness probe with HTTP 424.
+    /// Applied only when <see cref="FoundryEnvironment.IsHosted"/> reports a Foundry container,
+    /// which the platform signals with the <c>FOUNDRY_HOSTING_ENVIRONMENT</c> variable. A listener
+    /// configured in code overrides the addresses a host resolves from configuration, so applying
+    /// it everywhere would silently move any non-Foundry app off its configured address.
+    /// </para>
+    /// <para>
+    /// Inside a Foundry container the binding cannot be skipped based on <c>ASPNETCORE_URLS</c>:
+    /// the .NET base image always sets it to port 80, so such a guard would always trip and leave
+    /// the container failing the readiness probe with HTTP 424. It cannot key off the presence of
+    /// <c>PORT</c> either, because the platform sets that variable only when it needs a port other
+    /// than the default.
     /// </para>
     /// <para>
     /// To listen on a different port, set <c>PORT</c>, the same knob the Agent Server SDK uses.
@@ -283,6 +295,14 @@ public static class FoundryHostingExtensions
     /// </remarks>
     private static void ConfigureFoundryListenPort(IServiceCollection services)
     {
+        // FoundryEnvironment.IsHosted exposes the same signal, but it caches every value in a
+        // static constructor, so read the variable directly to keep this decision observable at
+        // call time. Matches how FoundryToolboxService reads the other FOUNDRY_* variables.
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(FoundryHostingEnvironmentVariable)))
+        {
+            return;
+        }
+
         if (services.Any(static d => d.ServiceType == typeof(FoundryListenPortMarker)))
         {
             return;

@@ -75,7 +75,7 @@ if (-not (Select-String -Path $projectFile.FullName -Pattern '<AgentFrameworkVer
 }
 
 $hostedRoot = Split-Path -Parent $PSScriptRoot
-$dotnetRoot = (Resolve-Path (Join-Path $hostedRoot '..\..\..')).Path
+$dotnetRoot = (Resolve-Path (Join-Path $hostedRoot '..' '..' '..')).Path
 $srcRoot = Join-Path $dotnetRoot 'src'
 
 # Derive the package version from the repo so the packages track the current release line.
@@ -83,8 +83,13 @@ $srcRoot = Join-Path $dotnetRoot 'src'
 # silently restore the previously packed bits instead of the build you just made. It also changes
 # the ZIP contents on every run, which matters because Foundry mints a new agent version only when
 # the uploaded ZIP changes.
-$packagePropsPath = Join-Path $dotnetRoot 'nuget\nuget-package.props'
-$versionPrefix = (Select-String -Path $packagePropsPath -Pattern '<VersionPrefix>(.+?)</VersionPrefix>').Matches[0].Groups[1].Value
+$packagePropsPath = Join-Path $dotnetRoot 'nuget' 'nuget-package.props'
+$versionMatch = Select-String -Path $packagePropsPath -Pattern '<VersionPrefix>(.+?)</VersionPrefix>' | Select-Object -First 1
+if (-not $versionMatch) {
+    throw "Could not read <VersionPrefix> from $packagePropsPath."
+}
+
+$versionPrefix = $versionMatch.Matches[0].Groups[1].Value
 $version = "$versionPrefix-preview-local.$(Get-Date -Format 'yyyyMMddHHmmss')"
 
 $feedPath = Join-Path $target 'local-feed'
@@ -96,7 +101,7 @@ Write-Host "  version: $version"
 Write-Host ''
 
 foreach ($project in $frameworkProjects) {
-    $projectPath = Join-Path $srcRoot "$project\$project.csproj"
+    $projectPath = Join-Path $srcRoot $project "$project.csproj"
     Write-Host "Packing $project..."
 
     # Debug, not Release: the Release configuration runs the repo's formatting and analyzer passes,
