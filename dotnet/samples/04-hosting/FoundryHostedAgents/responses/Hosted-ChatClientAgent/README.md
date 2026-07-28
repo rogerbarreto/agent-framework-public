@@ -125,10 +125,11 @@ after `azd ai agent init` and before `azd provision`:
 ```
 
 The script packs the local Agent Framework source into a `local-feed` folder inside the scaffolded
-agent folder and writes the `nuget.config` and `local-feed.props` that point the build at those
-packages. All three travel inside the ZIP, so the server-side restore resolves the framework from
-the upload. Everything else, including `azd provision`, `azd deploy`, and `azd ai agent invoke`,
-is unchanged.
+agent folder, writes the `nuget.config` that points the build at those packages, and repoints the
+project file's `AgentFrameworkVersion` at the version it just packed. Both generated files travel
+inside the ZIP, so the server-side restore resolves the framework from the upload. The scaffolded
+folder is a throwaway copy, so the repository is left untouched. Everything else, including
+`azd provision`, `azd deploy`, and `azd ai agent invoke`, is unchanged.
 
 ## Troubleshooting
 
