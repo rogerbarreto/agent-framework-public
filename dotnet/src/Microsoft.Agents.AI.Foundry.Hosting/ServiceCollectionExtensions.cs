@@ -5,7 +5,6 @@ using System.ClientModel.Primitives;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using Azure.AI.AgentServer.Core;
 using Azure.AI.AgentServer.Responses;
 using Azure.Core;
 using Microsoft.AspNetCore.Builder;
