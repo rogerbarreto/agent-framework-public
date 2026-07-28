@@ -20,8 +20,8 @@ The sibling [`Hosted-ChatClientAgent`](../Hosted-ChatClientAgent/) sample is the
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - An **existing** Foundry project with an **existing** model deployment (for example `gpt-4o`).
   This sample's `azure.yaml` declares no `deployments:` block, so `azd` connects to a project and
-  a deployment you already have rather than creating them. `azd ai agent init` takes both as
-  arguments (`-p` and `-d`) and prompts for them when they are omitted.
+  a deployment you already have rather than creating them. `azd ai agent init` prompts you to pick
+  the project, and takes the deployment name as the `-d` argument.
 - Azure CLI logged in (`az login`)
 - Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`
 - Docker Desktop **only** if you switch to local image builds by setting `remoteBuild: false` under
@@ -150,8 +150,14 @@ defaults to `code` for .NET, which ignores the `Dockerfile` and deploys the sour
 `azure.yaml`, which is `hosted-chat-client-agent-docker`. It also writes the adopted `azure.yaml`
 and the `azd` environment there.
 
-`-p` is the resource ID of an existing Foundry project and `-d` the name of an existing model
-deployment in it. Omit either one and `azd` prompts for it.
+`azd ai agent init` prompts you to pick the Foundry project, so no project argument is needed.
+`-d` is the name of an existing model deployment in that project; omit it and `azd` prompts for
+that too.
+
+> Pick an **existing** project at the prompt. The prompt needs an interactive terminal: run
+> non-interactively (in CI, for example) and `azd` skips it and provisions a brand new Foundry
+> project and resource group instead. Pass `-p <project-resource-id>` when you need that to be
+> unattended.
 
 `azure.yaml` passes the model deployment to the container by reading it from the `azd` environment.
 Confirm it landed there, and set it yourself if it did not:
@@ -165,28 +171,26 @@ PowerShell:
 
 ```powershell
 $sample = "<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent-Dockerfile/azure.yaml"
-$projectId = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>"
 
 azd auth login
-azd ai agent init -m $sample -p $projectId -d <model-deployment> --deploy-mode container
+azd ai agent init -m $sample -d <model-deployment> --deploy-mode container
 ```
 
 Bash:
 
 ```bash
 SAMPLE="<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-ChatClientAgent-Dockerfile/azure.yaml"
-PROJECT_ID="/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>"
 
 azd auth login
-azd ai agent init -m "$SAMPLE" -p "$PROJECT_ID" -d <model-deployment> --deploy-mode container
+azd ai agent init -m "$SAMPLE" -d <model-deployment> --deploy-mode container
 ```
 
 ### Step 3: provision and deploy
 
-Contributors: to run the agent against your **local** Agent Framework build instead of the
-published packages, those packages have to be built and packed into the build context first. Do
-that now, before the commands below, following
-[Deploy your local framework changes](#deploy-your-local-framework-changes-contributors).
+Contributors: if you are changing the Agent Framework source in this repository and want the
+deployed agent to run **your** build rather than the published packages, do the extra step in
+[Deploy your local framework changes](#deploy-your-local-framework-changes-contributors) now,
+before the commands below. Everyone else can ignore it.
 
 ```
 cd hosted-chat-client-agent-docker
@@ -239,14 +243,24 @@ Then delete the working directory.
 
 ## Deploy your local framework changes (contributors)
 
-By default the project restores the **published** Agent Framework packages, so local changes to the
-framework are never exercised: the `dotnet restore` inside the image build pulls them from
+**Skip this section unless you are changing the Agent Framework itself.** Everything above is the
+complete flow for using the sample. This section only applies when you are working on the framework
+source in this repository, or when you otherwise need a build of it that is not published on
 nuget.org.
 
-To deploy your local build instead, run one extra step in the flow above, **between step 2 and
-step 3**. Everything else is unchanged, and it is the same script the source-deploy sample uses:
-the `Dockerfile` copies the whole folder before restoring, so a feed dropped in this folder is
-picked up by the restore inside the image build with no change to the `Dockerfile`.
+The reason it exists: the project restores the **published** Agent Framework packages, and the
+`dotnet restore` inside the image build pulls them from nuget.org. So editing framework source in
+this repository changes nothing about the deployed agent, no matter how many times you rebuild
+locally. The image build context is self-contained and knows nothing about your working tree.
+
+The extra step packs your local framework source into NuGet packages and puts them **inside the
+build context**, together with a `nuget.config` that points the restore at them. The restore inside
+the image build then resolves the framework from the packages you shipped instead of from
+nuget.org.
+
+Run it in the flow above, **between step 2 and step 3**. Nothing else changes, and it is the same
+script the source-deploy sample uses: the `Dockerfile` copies the whole folder before restoring, so
+a feed dropped in this folder is picked up with no change to the `Dockerfile`.
 
 Run it from `$work`, the working directory created in step 1, which now holds the
 `hosted-chat-client-agent-docker` folder that `azd ai agent init` scaffolded:
