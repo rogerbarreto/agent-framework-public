@@ -164,6 +164,11 @@ azd ai agent init -m "$SAMPLE" -p "$PROJECT_ID" -d <model-deployment>
 
 ### Step 3: provision and deploy
 
+Contributors: to run the agent against your **local** Agent Framework build instead of the
+published packages, those packages have to be built and packed into the upload first. Do that now,
+before the commands below, following
+[Deploy your local framework changes](#deploy-your-local-framework-changes-contributors).
+
 ```
 cd hosted-chat-client-agent
 azd provision
@@ -211,17 +216,25 @@ framework are never exercised: Foundry restores from nuget.org when it builds th
 To deploy your local build instead, run one extra step in the flow above, **between step 2 and
 step 3**. Everything else is unchanged.
 
+Run it from `$work`, the working directory created in step 1, which now holds the
+`hosted-chat-client-agent` folder that `azd ai agent init` scaffolded:
+
 PowerShell:
 
 ```powershell
+cd $work
 <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 -Path ./hosted-chat-client-agent
 ```
 
 Bash:
 
 ```bash
+cd "$WORK"
 <repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/add-local-framework-feed.sh ./hosted-chat-client-agent
 ```
+
+Then continue with step 3. The path argument is optional: called without it, the script uses the
+current directory, so you can also run it from inside `hosted-chat-client-agent`.
 
 The script changes three things in the scaffolded folder:
 
@@ -246,11 +259,8 @@ Before spending a deploy, build the scaffolded folder locally. A restore problem
 seconds instead of after the server-side build:
 
 ```
+cd hosted-chat-client-agent
 dotnet build -c Debug --tl:off
 ```
-
-Reaching `active` is itself proof that the upload was used: the packed version does not exist on
-nuget.org, so a restore that ignored the bundled `nuget.config` would have failed with a missing
-package.
 
 For the full hosted-agent deployment guide, see the [official source-code deployment doc](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent-code).
