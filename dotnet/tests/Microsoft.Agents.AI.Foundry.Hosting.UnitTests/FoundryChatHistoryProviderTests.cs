@@ -169,6 +169,55 @@ public class FoundryChatHistoryProviderTests
     }
 
     [Fact]
+    public async Task InvokingAsync_ServedPartFollowsTheProviderAndKeptPartFollowsTheSessionAsync()
+    {
+        // Arrange: one session holding a turn the service was not asked to store.
+        var session = new FakeSession();
+        await new FoundryChatHistoryProvider(CreateContext([]), serviceStoresThisTurn: false).InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(
+                CreateAgent(), session, [new ChatMessage(ChatRole.User, "kept turn")], []),
+            CancellationToken.None);
+
+        // Act: two providers read that same session, each built for a request of a different conversation,
+        // so each is served different turns by the service.
+        var readByFirst = await new FoundryChatHistoryProvider(
+            CreateContext([NewMessageItem("msg_a", "served to the first")]), serviceStoresThisTurn: false)
+            .InvokingAsync(new ChatHistoryProvider.InvokingContext(CreateAgent(), session, []), CancellationToken.None);
+
+        var readBySecond = await new FoundryChatHistoryProvider(
+            CreateContext([NewMessageItem("msg_b", "served to the second")]), serviceStoresThisTurn: false)
+            .InvokingAsync(new ChatHistoryProvider.InvokingContext(CreateAgent(), session, []), CancellationToken.None);
+
+        // Assert: the conversation each one returns is made of two halves that come from different
+        // places. What the service serves is decided by the request the provider was built for, so it
+        // differs between the two; the kept turn is decided by the session, so it is the same in both.
+        Assert.Equal(["served to the first", "kept turn"], readByFirst.Select(m => m.Text).ToArray());
+        Assert.Equal(["served to the second", "kept turn"], readBySecond.Select(m => m.Text).ToArray());
+    }
+
+    [Fact]
+    public async Task InvokedAsync_WhetherATurnIsKeptFollowsTheProviderNotTheSessionAsync()
+    {
+        // Arrange: one session used for two turns, the first stored by the service and the second not.
+        var session = new FakeSession();
+        var agent = CreateAgent();
+
+        // Act
+        await new FoundryChatHistoryProvider(CreateContext([]), serviceStoresThisTurn: true).InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(agent, session, [new ChatMessage(ChatRole.User, "stored turn")], []),
+            CancellationToken.None);
+        await new FoundryChatHistoryProvider(CreateContext([]), serviceStoresThisTurn: false).InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(agent, session, [new ChatMessage(ChatRole.User, "unstored turn")], []),
+            CancellationToken.None);
+
+        // Assert: the same session ends up holding only the turn the service was not asked to store, so
+        // the decision belongs to the request the provider was built for, not to the session.
+        var kept = await new FoundryChatHistoryProvider(CreateContext([]), serviceStoresThisTurn: false)
+            .InvokingAsync(new ChatHistoryProvider.InvokingContext(agent, session, []), CancellationToken.None);
+        Assert.Equal(["unstored turn"], kept.Select(m => m.Text).ToArray());
+    }
+
+    [Fact]
     public async Task ConversationAcrossSessionsAndStoreModesAsync()
     {
         // Arrange: one service-side conversation and three separate sessions. A fresh provider is built
