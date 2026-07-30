@@ -61,9 +61,21 @@ internal sealed class FoundryChatHistoryProvider : ChatHistoryProvider
 
     /// <inheritdoc />
     /// <remarks>
-    /// Nothing is stored here. The platform persists the items of a response as part of serving the
-    /// request, so writing them again from inside the container would keep a second, diverging copy
-    /// of the same conversation.
+    /// <para>
+    /// Nothing is stored here, because the same turn is already persisted by the server that hosts
+    /// this handler. When a request is made with <c>store</c> set to true, the response orchestrator
+    /// hands the finished response to its responses provider, which writes the input items and the
+    /// output items and links them to the conversation. Those are the very items a later turn reads
+    /// back through <see cref="ResponseContext.GetHistoryAsync"/>. Writing them again from inside the
+    /// container would keep a second copy of the same conversation in the agent session, which then
+    /// diverges from the one the service serves.
+    /// </para>
+    /// <para>
+    /// When <c>store</c> is false the service persists nothing, and there is also nothing for a later
+    /// turn to read: history is resolved from <c>previous_response_id</c> or the conversation, both of
+    /// which only exist for stored responses. Such a request is therefore self-contained, and storing
+    /// its messages here would not make them reachable by any later turn either.
+    /// </para>
     /// </remarks>
     protected override ValueTask StoreChatHistoryAsync(InvokedContext context, CancellationToken cancellationToken = default) => default;
 }

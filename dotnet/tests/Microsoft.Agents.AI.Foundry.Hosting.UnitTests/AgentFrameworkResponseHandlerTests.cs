@@ -713,6 +713,14 @@ public class AgentFrameworkResponseHandlerTests
 
     #region Chat history source routing
 
+    // These tests pin down who supplies the conversation history to a hosted agent. Three of them are
+    // regression tests for the behaviour this region replaced: the handler used to fetch the platform
+    // history and prepend it to the input of every turn, while a ChatClientAgent independently ran its
+    // own ChatHistoryProvider. Against that older handler these three fail:
+    //   - DoesNotCopyPlatformHistoryIntoTheSession        (the service's turns ended up in the session)
+    //   - DoesNotAskItToStorePlatformHistory              (and in a custom provider's own database)
+    //   - UsesThatProviderInsteadOfThePlatform            (both sources reached the model at once)
+
     [Fact]
     public async Task CreateAsync_AgentWithoutProviderPipeline_ReceivesPlatformHistoryInInputAsync()
     {
@@ -747,9 +755,54 @@ public class AgentFrameworkResponseHandlerTests
         // Act
         await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
 
-        // Assert: the history reaches the model, and only once. Twice would mean the handler added it
-        // to the input as well as the provider supplying it.
+        // Assert: the earlier turn still reaches the model, and only one copy of it does.
         Assert.Single(captured, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_DoesNotAskItToStorePlatformHistoryAsync()
+    {
+        // Arrange: an agent whose own provider records everything it is asked to store, and a platform
+        // that already holds an earlier turn of this conversation.
+        var recordingProvider = new RecordingChatHistoryProvider();
+        var agent = new ChatClientAgent(
+            CreateCapturingChatClient([]),
+            new ChatClientAgentOptions { ChatHistoryProvider = recordingProvider });
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        var (request, ctx) = BuildChainRequest("resp_" + new string('5', 46), callId: null);
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "already kept by the service")]);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert: the agent's own store must not be told to write a turn the service already holds. The
+        // older handler passed that turn in as ordinary input, and since platform items carry no
+        // chat-history source marker the provider took it for newly written content and stored it,
+        // duplicating into the agent's own database a conversation the service was already keeping.
+        Assert.DoesNotContain(recordingProvider.Stored, m => m.Text.Contains("already kept by the service", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithoutHistoryProvider_DoesNotCopyPlatformHistoryIntoTheSessionAsync()
+    {
+        // Arrange: the platform reports one earlier turn for this conversation.
+        const string ResponseId = "resp_" + "4444444444444444444444444444444444444444444444";
+        var store = new InMemoryAgentSessionStore();
+        var agent = new ChatClientAgent(CreateCapturingChatClient([]));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
+        var (request, ctx) = BuildChainRequest(ResponseId, callId: null);
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "already kept by the service")]);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert: the turn the service already keeps must not be written into the persisted session as
+        // well. The older handler fed that history to the agent as ordinary input, and because platform
+        // items carry no chat-history source marker the agent's default in-memory provider stored it as
+        // if this turn had produced it, leaving a second copy on disk that then drifts from the service.
+        Assert.DoesNotContain("already kept by the service", await SerializedSessionOfAsync(agent, store, ResponseId), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -769,9 +822,19 @@ public class AgentFrameworkResponseHandlerTests
         // Act
         await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
 
-        // Assert
+        // Assert: one source only. The older handler sent both, so the model received the agent's own
+        // history and the platform's interleaved as a single conversation.
         Assert.Contains(captured, m => m.Text.Contains("from my own store", StringComparison.Ordinal));
         Assert.DoesNotContain(captured, m => m.Text.Contains("from the platform", StringComparison.Ordinal));
+    }
+
+    /// <summary>Reads back the session the handler persisted for a response and returns it as JSON text.</summary>
+    private static async Task<string> SerializedSessionOfAsync(AIAgent agent, InMemoryAgentSessionStore store, string responseId)
+    {
+        var sessionKey = HostedConversationKey.Resolve(conversationId: null, previousResponseId: null, responseId);
+        var session = await store.GetSessionAsync(agent, sessionKey!, FakeHostedSessionIsolationKeyProvider.DefaultUserId, CancellationToken.None);
+        var serialized = await agent.SerializeSessionAsync(session, cancellationToken: CancellationToken.None);
+        return serialized.GetRawText();
     }
 
     private static OutputItemMessage NewHistoryMessageItem(string id, string text) =>
@@ -814,6 +877,26 @@ public class AgentFrameworkResponseHandlerTests
             => new([new ChatMessage(ChatRole.User, text)]);
 
         protected override ValueTask StoreChatHistoryAsync(InvokedContext context, CancellationToken cancellationToken = default) => default;
+    }
+
+    /// <summary>A chat history provider that records everything it is asked to write, standing in for one backed by a database.</summary>
+    private sealed class RecordingChatHistoryProvider : ChatHistoryProvider
+    {
+        public List<ChatMessage> Stored { get; } = [];
+
+        protected override ValueTask<IEnumerable<ChatMessage>> ProvideChatHistoryAsync(InvokingContext context, CancellationToken cancellationToken = default)
+            => new([]);
+
+        protected override ValueTask StoreChatHistoryAsync(InvokedContext context, CancellationToken cancellationToken = default)
+        {
+            this.Stored.AddRange(context.RequestMessages);
+            if (context.ResponseMessages is not null)
+            {
+                this.Stored.AddRange(context.ResponseMessages);
+            }
+
+            return default;
+        }
     }
 
     #endregion
