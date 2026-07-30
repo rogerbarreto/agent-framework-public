@@ -23,7 +23,7 @@ public class FoundryChatHistoryProviderTests
     {
         // Arrange
         var context = CreateContext([NewMessageItem("msg_1", "earlier turn")]);
-        var provider = new FoundryChatHistoryProvider(context);
+        var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: true);
         var agent = CreateAgent();
         var session = new FakeSession();
         var input = new ChatMessage(ChatRole.User, "new input");
@@ -45,7 +45,7 @@ public class FoundryChatHistoryProviderTests
     {
         // Arrange
         var context = CreateContext([NewMessageItem("msg_1", "earlier turn")]);
-        var provider = new FoundryChatHistoryProvider(context);
+        var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: true);
 
         // Act
         var result = await provider.InvokingAsync(
@@ -63,7 +63,7 @@ public class FoundryChatHistoryProviderTests
     {
         // Arrange
         var context = CreateContext([]);
-        var provider = new FoundryChatHistoryProvider(context);
+        var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: true);
         var input = new ChatMessage(ChatRole.User, "new input");
 
         // Act
@@ -76,11 +76,11 @@ public class FoundryChatHistoryProviderTests
     }
 
     [Fact]
-    public async Task InvokedAsync_StoresNothingInTheSessionAsync()
+    public async Task InvokedAsync_WhenTheServiceStoresTheTurn_KeepsNothingInTheSessionAsync()
     {
         // Arrange
         var context = CreateContext([]);
-        var provider = new FoundryChatHistoryProvider(context);
+        var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: true);
         var session = new FakeSession();
 
         // Act: a completed turn is reported to the provider.
@@ -92,9 +92,55 @@ public class FoundryChatHistoryProviderTests
                 [new ChatMessage(ChatRole.Assistant, "answer")]),
             CancellationToken.None);
 
-        // Assert: the platform already persists the response items, so nothing is copied into the
-        // session state. A copy there would grow the persisted session and diverge from the platform.
+        // Assert: the service already persists the items of a stored response, so nothing is copied into
+        // the session. A copy there would grow the persisted session and drift from what the service serves.
         Assert.Empty(session.StateBag.Serialize().EnumerateObject());
+    }
+
+    [Fact]
+    public async Task InvokedAsync_WhenTheServiceDoesNotStoreTheTurn_KeepsItInTheSessionAsync()
+    {
+        // Arrange: a turn the service was not asked to store.
+        var context = CreateContext([]);
+        var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false);
+        var session = new FakeSession();
+
+        // Act
+        await provider.InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(
+                CreateAgent(),
+                session,
+                [new ChatMessage(ChatRole.User, "unstored input")],
+                [new ChatMessage(ChatRole.Assistant, "unstored answer")]),
+            CancellationToken.None);
+
+        // Assert: the session is the only memory this turn can have, so it is kept there.
+        var state = session.StateBag.Serialize().GetRawText();
+        Assert.Contains("unstored input", state, StringComparison.Ordinal);
+        Assert.Contains("unstored answer", state, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InvokingAsync_ReturnsServedHistoryThenTurnsTheServiceDidNotStoreAsync()
+    {
+        // Arrange: a conversation whose earlier turn the service holds, plus a later turn it was not
+        // asked to store, which a previous request kept in the session.
+        var context = CreateContext([NewMessageItem("msg_1", "stored turn")]);
+        var session = new FakeSession();
+        await new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false).InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(
+                CreateAgent(), session, [new ChatMessage(ChatRole.User, "unstored turn")], []),
+            CancellationToken.None);
+
+        // Act: a later request reads the conversation back.
+        var result = await new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false).InvokingAsync(
+            new ChatHistoryProvider.InvokingContext(CreateAgent(), session, [new ChatMessage(ChatRole.User, "new input")]),
+            CancellationToken.None);
+
+        // Assert: the conversation is whole and in order, with each turn appearing once.
+        Assert.Equal(
+            ["stored turn", "unstored turn", "new input"],
+            result.Select(m => m.Text).ToArray());
     }
 
     private static ResponseContext CreateContext(IReadOnlyList<OutputItem> history)

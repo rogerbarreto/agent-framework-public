@@ -828,6 +828,118 @@ public class AgentFrameworkResponseHandlerTests
         Assert.DoesNotContain(captured, m => m.Text.Contains("from the platform", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithoutHistoryProvider_KeepsContainerSideMemoryWhenTheRequestIsNotStoredAsync()
+    {
+        // Arrange: two turns of one conversation, and a service that holds no history for it. That is
+        // what a store=false request looks like: nothing was persisted, so GetHistoryItemIdsAsync finds
+        // no record and the service can serve nothing back.
+        var captured = new List<ChatMessage>();
+        var store = new InMemoryAgentSessionStore();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewUnstoredRequest("conv-unstored", "first question"),
+            NewEmptyHistoryContext("resp_" + new string('6', 46)),
+            CancellationToken.None));
+        captured.Clear();
+
+        // Act: a second turn of the same conversation.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewUnstoredRequest("conv-unstored", "second question"),
+            NewEmptyHistoryContext("resp_" + new string('7', 46)),
+            CancellationToken.None));
+
+        // Assert: the agent still remembers the first turn. When the service stores nothing there is no
+        // second copy to worry about, and the container's own session is the only memory the
+        // conversation can have, so the default in-memory provider must keep carrying it.
+        Assert.Contains(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+    }
+
+    private static CreateResponse NewUnstoredRequest(string conversationId, string text)
+    {
+        var request = new CreateResponse { Model = "test", Store = false };
+        request.Conversation = BinaryData.FromString($"\"{conversationId}\"");
+        request.Input = BinaryData.FromObjectAsJson(new[]
+        {
+            new { type = "message", id = "msg_" + Guid.NewGuid().ToString("N")[..8], status = "completed", role = "user",
+                  content = new[] { new { type = "input_text", text } } }
+        });
+        return request;
+    }
+
+    private static ResponseContext NewEmptyHistoryContext(string responseId)
+    {
+        var ctx = new Mock<ResponseContext>(responseId) { CallBase = true };
+        ctx.Setup(x => x.PlatformContext).Returns(new PlatformContext("alice", null));
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<OutputItem>());
+        ctx.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Item>());
+        return ctx.Object;
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithoutHistoryProvider_KeepsMixedStoredAndUnstoredConversationWholeAsync()
+    {
+        // Arrange: one conversation whose first turn is stored by the service and whose later turns are
+        // not. From turn 2 on, the service keeps serving turn 1 and nothing else, because it was never
+        // asked to store the rest.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        OutputItem[] servedByTheService =
+        [
+            NewHistoryMessageItem("msg_hist_1", "first question"),
+            NewHistoryMessageItem("msg_hist_2", "first answer"),
+        ];
+
+        // Turn 1 is stored, so the service records it.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-mixed", "first question", store: true),
+            NewContextServing("resp_" + new string('6', 46), []),
+            CancellationToken.None));
+
+        // Turn 2 is not stored: the service still serves turn 1, and this turn is only kept in the session.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-mixed", "second question", store: false),
+            NewContextServing("resp_" + new string('7', 46), servedByTheService),
+            CancellationToken.None));
+        captured.Clear();
+
+        // Act: a third turn, also not stored.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-mixed", "third question", store: false),
+            NewContextServing("resp_" + new string('8', 46), servedByTheService),
+            CancellationToken.None));
+
+        // Assert: the conversation is whole and each turn appears once. The stored turn comes from the
+        // service and the unstored one from the session, and neither is counted twice.
+        Assert.Single(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+        Assert.Single(captured, m => m.Text.Contains("second question", StringComparison.Ordinal));
+        Assert.Single(captured, m => m.Text.Contains("third question", StringComparison.Ordinal));
+    }
+
+    private static CreateResponse NewConversationRequest(string conversationId, string text, bool store)
+    {
+        var request = new CreateResponse { Model = "test", Store = store };
+        request.Conversation = BinaryData.FromString($"\"{conversationId}\"");
+        request.Input = BinaryData.FromObjectAsJson(new[]
+        {
+            new { type = "message", id = "msg_" + Guid.NewGuid().ToString("N")[..8], status = "completed", role = "user",
+                  content = new[] { new { type = "input_text", text } } }
+        });
+        return request;
+    }
+
+    private static ResponseContext NewContextServing(string responseId, IReadOnlyList<OutputItem> history)
+    {
+        var ctx = new Mock<ResponseContext>(responseId) { CallBase = true };
+        ctx.Setup(x => x.PlatformContext).Returns(new PlatformContext("alice", null));
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(history);
+        ctx.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Item>());
+        return ctx.Object;
+    }
+
     /// <summary>Reads back the session the handler persisted for a response and returns it as JSON text.</summary>
     private static async Task<string> SerializedSessionOfAsync(AIAgent agent, InMemoryAgentSessionStore store, string responseId)
     {

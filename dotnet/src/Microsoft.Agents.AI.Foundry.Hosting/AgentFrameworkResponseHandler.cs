@@ -121,14 +121,15 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         //
         // A ChatClientAgent always runs its history through a ChatHistoryProvider. When the agent was
         // created with one, that provider owns the conversation and loads it from its own store inside
-        // the container. When it was not, the handler registers FoundryChatHistoryProvider below so the
-        // platform stays the source. Either way the provider delivers the prior turns, so the handler
-        // must not add them to the input as well: that would send the same conversation twice, and
-        // platform items carry no chat-history marker, so the agent's provider would then store them
-        // as if they were newly written by this turn.
+        // the container. When it was not, the handler registers FoundryChatHistoryProvider below, which
+        // reads what the service holds and keeps in the session only the turns the service was not
+        // asked to store. Either way the provider delivers the prior turns, so the handler must not add
+        // them to the input as well: that would send the same conversation twice, and service items
+        // carry no chat-history marker, so the agent's provider would then store them as if they were
+        // newly written by this turn.
         //
         // A workflow hosted as an agent is not a ChatClientAgent and has no such pipeline, so it keeps
-        // receiving the platform history from the handler exactly as before.
+        // receiving the history from the handler exactly as before.
         var agentSuppliedHistoryProvider = agent.GetService<ChatClientAgentOptions>()?.ChatHistoryProvider is not null;
         var historyComesFromProvider = chatClientAgent is not null;
 
@@ -217,7 +218,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         if (historyComesFromProvider && !agentSuppliedHistoryProvider)
         {
             chatOptions.AdditionalProperties ??= [];
-            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new FoundryChatHistoryProvider(context));
+            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new FoundryChatHistoryProvider(context, serviceStoresThisTurn: request.Store != false));
         }
 
         // Inject Foundry Toolbox tools when the toolbox service is available.
