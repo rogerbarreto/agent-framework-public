@@ -117,6 +117,21 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
         var chatClientAgent = agent.GetService<ChatClientAgent>();
 
+        // Decide who supplies the conversation history for this turn.
+        //
+        // A ChatClientAgent always runs its history through a ChatHistoryProvider. When the agent was
+        // created with one, that provider owns the conversation and loads it from its own store inside
+        // the container. When it was not, the handler registers FoundryChatHistoryProvider below so the
+        // platform stays the source. Either way the provider delivers the prior turns, so the handler
+        // must not add them to the input as well: that would send the same conversation twice, and
+        // platform items carry no chat-history marker, so the agent's provider would then store them
+        // as if they were newly written by this turn.
+        //
+        // A workflow hosted as an agent is not a ChatClientAgent and has no such pipeline, so it keeps
+        // receiving the platform history from the handler exactly as before.
+        var agentSuppliedHistoryProvider = agent.GetService<ChatClientAgentOptions>()?.ChatHistoryProvider is not null;
+        var historyComesFromProvider = chatClientAgent is not null;
+
         AgentSession? session = !string.IsNullOrWhiteSpace(sessionConversationId)
             ? await sessionStore.GetSessionAsync(agent, sessionConversationId, resolvedUserId, cancellationToken).ConfigureAwait(false)
                 : chatClientAgent is not null
@@ -169,7 +184,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // would re-drive completed actions and break HITL resume semantics.
         var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
             && session?.StateBag?.Count > 0;
-        if (!isResume)
+        if (!isResume && !historyComesFromProvider)
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
             if (history.Count > 0)
@@ -193,6 +208,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 5. Build chat options
         var chatOptions = InputConverter.ConvertToChatOptions(request);
         chatOptions.Instructions = request.Instructions;
+
+        // Register the platform-backed chat history provider for agents that did not bring their own.
+        // It is supplied per request because it reads through this request's ResponseContext, and it is
+        // passed as a run-scoped override so the agent uses it for this turn without the host having to
+        // mutate the agent. FoundryChatHistoryProvider reads the prior turns from the platform and
+        // stores nothing, so the conversation is not copied into the container's session state.
+        if (historyComesFromProvider && !agentSuppliedHistoryProvider)
+        {
+            chatOptions.AdditionalProperties ??= [];
+            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new FoundryChatHistoryProvider(context));
+        }
 
         // Inject Foundry Toolbox tools when the toolbox service is available.
         //

@@ -711,6 +711,113 @@ public class AgentFrameworkResponseHandlerTests
         Assert.IsType<ResponseInProgressEvent>(events[1]);
     }
 
+    #region Chat history source routing
+
+    [Fact]
+    public async Task CreateAsync_AgentWithoutProviderPipeline_ReceivesPlatformHistoryInInputAsync()
+    {
+        // Arrange: a plain AIAgent (a hosted workflow, for example) has no ChatHistoryProvider
+        // pipeline, so the handler is the only thing that can hand it the platform history.
+        var agent = new CapturingAgent();
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        var (request, ctx) = BuildChainRequest("resp_" + new string('1', 46), callId: null);
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "earlier turn")]);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert
+        Assert.NotNull(agent.CapturedMessages);
+        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithoutHistoryProvider_SendsPlatformHistoryExactlyOnceAsync()
+    {
+        // Arrange: no chat history provider was supplied, so the platform stays the source and the
+        // handler registers FoundryChatHistoryProvider for the turn.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        var (request, ctx) = BuildChainRequest("resp_" + new string('2', 46), callId: null);
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "earlier turn")]);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert: the history reaches the model, and only once. Twice would mean the handler added it
+        // to the input as well as the provider supplying it.
+        Assert.Single(captured, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_UsesThatProviderInsteadOfThePlatformAsync()
+    {
+        // Arrange: the agent was created with its own chat history provider, so that provider owns the
+        // conversation and the platform history must not be used at all.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(
+            CreateCapturingChatClient(captured),
+            new ChatClientAgentOptions { ChatHistoryProvider = new FixedChatHistoryProvider("from my own store") });
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        var (request, ctx) = BuildChainRequest("resp_" + new string('3', 46), callId: null);
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "from the platform")]);
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert
+        Assert.Contains(captured, m => m.Text.Contains("from my own store", StringComparison.Ordinal));
+        Assert.DoesNotContain(captured, m => m.Text.Contains("from the platform", StringComparison.Ordinal));
+    }
+
+    private static OutputItemMessage NewHistoryMessageItem(string id, string text) =>
+        new(
+            id: id,
+            role: MessageRole.Assistant,
+            content: [new MessageContentOutputTextContent(text, Array.Empty<Annotation>(), Array.Empty<LogProb>())],
+            status: MessageStatus.Completed);
+
+    private static IChatClient CreateCapturingChatClient(List<ChatMessage> captured)
+    {
+        var mock = new Mock<IChatClient>();
+        mock.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> messages, ChatOptions? _, CancellationToken _) =>
+            {
+                captured.AddRange(messages);
+                return ToAsyncEnumerableUpdatesAsync(
+                    new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+            });
+        return mock.Object;
+    }
+
+    private static async IAsyncEnumerable<ChatResponseUpdate> ToAsyncEnumerableUpdatesAsync(params ChatResponseUpdate[] updates)
+    {
+        foreach (var update in updates)
+        {
+            yield return update;
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>A chat history provider that always returns the same message, standing in for one backed by a store.</summary>
+    private sealed class FixedChatHistoryProvider(string text) : ChatHistoryProvider
+    {
+        protected override ValueTask<IEnumerable<ChatMessage>> ProvideChatHistoryAsync(InvokingContext context, CancellationToken cancellationToken = default)
+            => new([new ChatMessage(ChatRole.User, text)]);
+
+        protected override ValueTask StoreChatHistoryAsync(InvokedContext context, CancellationToken cancellationToken = default) => default;
+    }
+
+    #endregion
+
     private static TestAgent CreateTestAgent(string responseText)
     {
         return new TestAgent(responseText);
