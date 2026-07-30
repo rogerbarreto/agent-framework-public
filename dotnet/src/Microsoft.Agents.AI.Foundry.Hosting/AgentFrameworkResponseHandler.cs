@@ -128,8 +128,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // carry no chat-history marker, so the agent's provider would then store them as if they were
         // newly written by this turn.
         //
-        // A workflow hosted as an agent is not a ChatClientAgent and has no such pipeline, so it keeps
-        // receiving the history from the handler exactly as before.
+        // A workflow hosted as an agent derives from AIAgent directly: it never calls a
+        // ChatHistoryProvider and does not read the run options' additional properties, so there is no
+        // pipeline to route it through and the handler stays its only source of history.
         var agentSuppliedHistoryProvider = agent.GetService<ChatClientAgentOptions>()?.ChatHistoryProvider is not null;
         var historyComesFromProvider = chatClientAgent is not null;
 
