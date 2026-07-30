@@ -144,89 +144,116 @@ public class FoundryChatHistoryProviderTests
     }
 
     [Fact]
-    public async Task ConversationAcrossInstancesAndStoreModesAsync()
+    public async Task InvokingAsync_WhatIsKeptBelongsToTheSessionNotToTheProviderObjectAsync()
     {
-        // Arrange: one service-side conversation and three separate provider instances, each with its
-        // own session. An instance only builds a local buffer once it is used for an unstored turn, and
-        // an instance that has never done so starts from whatever the service last saved.
+        // Arrange: one unstored turn kept through one provider object.
+        var context = CreateContext([]);
+        var session = new FakeSession();
+        await new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false).InvokedAsync(
+            new ChatHistoryProvider.InvokedContext(
+                CreateAgent(), session, [new ChatMessage(ChatRole.User, "kept turn")], []),
+            CancellationToken.None);
+
+        // Act: a brand new provider object reads that session, and another one reads a different session.
+        var sameSession = await new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false).InvokingAsync(
+            new ChatHistoryProvider.InvokingContext(CreateAgent(), session, []),
+            CancellationToken.None);
+        var otherSession = await new FoundryChatHistoryProvider(context, serviceStoresThisTurn: false).InvokingAsync(
+            new ChatHistoryProvider.InvokingContext(CreateAgent(), new FakeSession(), []),
+            CancellationToken.None);
+
+        // Assert: the turn follows the session it was kept in, not the object that kept it. A host builds
+        // a new provider for every request, so anything held on the object itself would be lost at once.
+        Assert.Equal(["kept turn"], sameSession.Select(m => m.Text).ToArray());
+        Assert.Empty(otherSession);
+    }
+
+    [Fact]
+    public async Task ConversationAcrossSessionsAndStoreModesAsync()
+    {
+        // Arrange: one service-side conversation and three separate sessions. A fresh provider is built
+        // for every call, the way the host does, so anything remembered between calls belongs to the
+        // session and not to the provider object. A session only starts holding turns of its own once it
+        // is used for an unstored one, and a session that never did starts from what the service saved.
         var service = new FakeStoredResponses();
-        var instance1 = new Instance();
+        var sessionA = new ConversationSession();
 
-        // 1. Stored turn on instance 1: nothing precedes it, and the service records it.
-        Assert.Equal(["call 1"], await CallAsync(service, instance1, store: true, "call 1"));
+        // 1. Stored turn on session A: nothing precedes it, and the service records it.
+        Assert.Equal(["call 1"], await CallAsync(service, sessionA, store: true, "call 1"));
 
-        // The other two instances join the same conversation, so they start from the turn the service
+        // The other two sessions join the same conversation, so they start from the turn the service
         // last saved for it. Neither holds anything of its own yet.
-        var instance2 = new Instance { LastStoredResponseId = instance1.LastStoredResponseId };
-        var instance3 = new Instance { LastStoredResponseId = instance1.LastStoredResponseId };
+        var sessionB = new ConversationSession { LastStoredResponseId = sessionA.LastStoredResponseId };
+        var sessionC = new ConversationSession { LastStoredResponseId = sessionA.LastStoredResponseId };
 
-        // 2. Unstored turn on instance 1: it reads the stored turn back and keeps its own turn locally.
-        Assert.Equal(["call 1", "reply 1", "call 2"], await CallAsync(service, instance1, store: false, "call 2"));
+        // 2. Unstored turn on session A: it reads the stored turn back and keeps its own turn in the session.
+        Assert.Equal(["call 1", "reply 1", "call 2"], await CallAsync(service, sessionA, store: false, "call 2"));
 
-        // 3. A different instance starts from the last saved turn only: instance 1's unstored turn is
-        //    held in instance 1's own session and is invisible here.
-        Assert.Equal(["call 1", "reply 1", "call 3"], await CallAsync(service, instance2, store: false, "call 3"));
+        // 3. A different session starts from the last saved turn only: session A's unstored turn is held
+        //    in session A and is invisible here.
+        Assert.Equal(["call 1", "reply 1", "call 3"], await CallAsync(service, sessionB, store: false, "call 3"));
 
-        // 4. Asking the service to store a turn on an instance that is already holding unstored ones is
+        // 4. Asking the service to store a turn in a session that is already holding unstored ones is
         //    refused: the service would record this turn without the turns that came before it.
         var refused = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => CallAsync(service, instance2, store: true, "call 4"));
+            () => CallAsync(service, sessionB, store: true, "call 4"));
         Assert.Contains("were not stored", refused.Message, StringComparison.Ordinal);
 
-        // 5. Continuing unstored on the same instance is fine, and it keeps growing its local turns.
+        // 5. Continuing unstored in the same session is fine, and it keeps growing its own turns.
         Assert.Equal(
             ["call 1", "reply 1", "call 3", "reply 3", "call 5"],
-            await CallAsync(service, instance2, store: false, "call 5"));
+            await CallAsync(service, sessionB, store: false, "call 5"));
 
         // 6. Still refused, for the same reason.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => CallAsync(service, instance2, store: true, "call 6"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => CallAsync(service, sessionB, store: true, "call 6"));
 
-        // 7. A fresh instance holds nothing locally, so it may store. It branches off the last turn the
-        //    service saved, which is still the first one.
-        Assert.Equal(["call 1", "reply 1", "call 7"], await CallAsync(service, instance3, store: true, "call 7"));
+        // 7. A session holding nothing of its own may store. It branches off the last turn the service
+        //    saved, which is still the first one.
+        Assert.Equal(["call 1", "reply 1", "call 7"], await CallAsync(service, sessionC, store: true, "call 7"));
 
-        // 8. Instance 2 is unaffected by instance 3's stored turn: that turn sits on another branch of
-        //    the conversation, so it is not among the turns leading to instance 2's last saved one.
+        // 8. Session B is unaffected by the turn stored from session C: that turn sits on another branch
+        //    of the conversation, so it is not among the turns leading to session B's last saved one.
         Assert.Equal(
             ["call 1", "reply 1", "call 3", "reply 3", "call 5", "reply 5", "call 8"],
-            await CallAsync(service, instance2, store: false, "call 8"));
+            await CallAsync(service, sessionB, store: false, "call 8"));
 
-        // 9. And instance 1 still sees its own thread of the conversation.
+        // 9. And session A still sees its own thread of the conversation.
         Assert.Equal(
             ["call 1", "reply 1", "call 2", "reply 2", "call 9"],
-            await CallAsync(service, instance1, store: false, "call 9"));
+            await CallAsync(service, sessionA, store: false, "call 9"));
     }
 
     /// <summary>
-    /// Runs one turn through a new provider, the way the host does: a provider is built for the request,
-    /// asked for the messages to send, and then told what the turn produced. Returns the message texts
-    /// the model would have received.
+    /// Runs one turn the way the host does: a new provider is built for the request, asked for the
+    /// messages to send, and then told what the turn produced. Because the provider is new every time,
+    /// whatever carries over between calls is held by the session it was given. Returns the message
+    /// texts the model would have received.
     /// </summary>
-    private static async Task<string[]> CallAsync(FakeStoredResponses service, Instance instance, bool store, string text)
+    private static async Task<string[]> CallAsync(FakeStoredResponses service, ConversationSession session, bool store, string text)
     {
-        var context = CreateContext(service.TurnsLeadingTo(instance.LastStoredResponseId));
+        var context = CreateContext(service.TurnsLeadingTo(session.LastStoredResponseId));
         var provider = new FoundryChatHistoryProvider(context, serviceStoresThisTurn: store);
         var agent = CreateAgent();
 
         var sent = (await provider.InvokingAsync(
-            new ChatHistoryProvider.InvokingContext(agent, instance.Session, [new ChatMessage(ChatRole.User, text)]),
+            new ChatHistoryProvider.InvokingContext(agent, session.Session, [new ChatMessage(ChatRole.User, text)]),
             CancellationToken.None)).ToList();
 
         var reply = new ChatMessage(ChatRole.Assistant, text.Replace("call", "reply", StringComparison.Ordinal));
         await provider.InvokedAsync(
-            new ChatHistoryProvider.InvokedContext(agent, instance.Session, sent, [reply]),
+            new ChatHistoryProvider.InvokedContext(agent, session.Session, sent, [reply]),
             CancellationToken.None);
 
         if (store)
         {
-            instance.LastStoredResponseId = service.Store(instance.LastStoredResponseId, [new ChatMessage(ChatRole.User, text), reply]);
+            session.LastStoredResponseId = service.Store(session.LastStoredResponseId, [new ChatMessage(ChatRole.User, text), reply]);
         }
 
         return [.. sent.Select(m => m.Text)];
     }
 
-    /// <summary>A provider instance's own session, plus the last turn the service saved for it.</summary>
-    private sealed class Instance
+    /// <summary>An agent session, plus the last turn the service saved for the conversation it follows.</summary>
+    private sealed class ConversationSession
     {
         public FakeSession Session { get; } = new();
 

@@ -51,6 +51,12 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// from it. The refusal happens before the model is called.
 /// </para>
 /// <para>
+/// What is kept belongs to the <see cref="AgentSession"/>, not to this object: a new provider is built
+/// for every request, and the turns it keeps are written into the session's state bag under this
+/// provider's own state key. Two sessions following the same service-side conversation therefore keep
+/// their unstored turns apart, and each still reads the stored ones from the service.
+/// </para>
+/// <para>
 /// When an agent is created with its own chat history provider, that provider is used instead and
 /// this one is never registered, so the agent's own store stays the single source.
 /// </para>
