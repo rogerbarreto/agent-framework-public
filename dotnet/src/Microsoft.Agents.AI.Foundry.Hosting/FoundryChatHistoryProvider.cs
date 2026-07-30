@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -45,6 +46,11 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// </description></item>
 /// </list>
 /// <para>
+/// Once a conversation holds turns the service never saw, a stored turn is refused: the service would
+/// record it on top of turns it does not have, leaving a gap for anyone reading the conversation back
+/// from it. The refusal happens before the model is called.
+/// </para>
+/// <para>
 /// When an agent is created with its own chat history provider, that provider is used instead and
 /// this one is never registered, so the agent's own store stays the single source.
 /// </para>
@@ -80,6 +86,22 @@ internal sealed class FoundryChatHistoryProvider : ChatHistoryProvider
     {
         _ = Throw.IfNull(context);
 
+        var unstored = this._sessionState.GetOrInitializeState(context.Session).Messages;
+
+        // Once a conversation has turns the service never saw, it cannot go back to being stored by the
+        // service: the service would record this turn on top of turns it does not have, so anyone
+        // reading the conversation back from it would get an answer with no question. Refuse up front
+        // rather than let that gap be written.
+        if (this._serviceStoresThisTurn && unstored.Count > 0)
+        {
+            throw new InvalidOperationException(
+                """
+                This conversation has turns that were not stored by the service, so a stored turn cannot be added to it.
+                The service would record this turn without the turns that came before it, leaving a gap in the stored conversation.
+                Either keep using store=false for this conversation, or start a new one for stored turns.
+                """);
+        }
+
         var served = await this._context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
 
         // The service's turns come first: they are the earlier part of the conversation, and anything
@@ -87,8 +109,6 @@ internal sealed class FoundryChatHistoryProvider : ChatHistoryProvider
         IEnumerable<ChatMessage> history = served.Count > 0
             ? InputConverter.ConvertOutputItemsToMessages(served, context.Session?.StateBag)
             : [];
-
-        var unstored = this._sessionState.GetOrInitializeState(context.Session).Messages;
 
         return unstored.Count > 0 ? history.Concat(unstored) : history;
     }
