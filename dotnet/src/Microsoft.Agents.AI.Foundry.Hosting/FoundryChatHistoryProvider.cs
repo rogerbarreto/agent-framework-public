@@ -2,14 +2,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.AI.AgentServer.Responses;
 using Microsoft.Extensions.AI;
-using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
@@ -61,7 +59,6 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// this one is never registered, so the agent's own store stays the single source.
 /// </para>
 /// </remarks>
-[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 internal sealed class FoundryChatHistoryProvider : ChatHistoryProvider
 {
     private readonly ResponseContext _context;
