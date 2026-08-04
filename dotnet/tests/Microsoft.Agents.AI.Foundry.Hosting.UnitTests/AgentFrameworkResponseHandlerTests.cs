@@ -772,6 +772,44 @@ public class AgentFrameworkResponseHandlerTests
         Assert.DoesNotContain(agent.CapturedMessages!, m => m.Text.Contains("first question", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task CreateAsync_WhenTheModelReportsAConversationId_TurnsStillCompleteAsync()
+    {
+        // Arrange: a container whose model call reports a conversation id, which is what happens when
+        // the container's chat client lets the model keep the conversation. The agent records that id on
+        // the session, and from then on its own conflict policy would reject the provider the host
+        // registers, failing the turn.
+        var agent = new ChatClientAgent(
+            CreateCapturingChatClient([], conversationId: "conv-from-the-model"),
+            new ChatClientAgentOptions { Name = "hosted" });
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        // Act
+        var first = await CollectEventNamesAsync(handler, "conv-model", "resp_" + new string('9', 46), "first question");
+        var second = await CollectEventNamesAsync(handler, "conv-model", "resp_" + new string('a', 46), "second question");
+
+        // Assert: both turns run to completion. The host owns history for this agent, so the agent's
+        // policy of refusing a second history manager must not be left to fire on the host's own
+        // registration.
+        Assert.Contains("ResponseCompletedEvent", first);
+        Assert.DoesNotContain("ResponseFailedEvent", first);
+        Assert.Contains("ResponseCompletedEvent", second);
+        Assert.DoesNotContain("ResponseFailedEvent", second);
+    }
+
+    private static async Task<List<string>> CollectEventNamesAsync(
+        AgentFrameworkResponseHandler handler, string conversationId, string responseId, string text)
+    {
+        var names = new List<string>();
+        await foreach (var evt in handler.CreateAsync(
+            NewConversationTurn(conversationId, text), NewServingContext(responseId, []), CancellationToken.None))
+        {
+            names.Add(evt.GetType().Name);
+        }
+
+        return names;
+    }
+
     private static CreateResponse NewConversationTurn(string conversationId, string text)
     {
         var request = new CreateResponse { Model = "test" };
@@ -1045,7 +1083,7 @@ public class AgentFrameworkResponseHandlerTests
             content: [new MessageContentOutputTextContent(text, Array.Empty<Annotation>(), Array.Empty<LogProb>())],
             status: MessageStatus.Completed);
 
-    private static IChatClient CreateCapturingChatClient(List<ChatMessage> captured)
+    private static IChatClient CreateCapturingChatClient(List<ChatMessage> captured, string? conversationId = null)
     {
         var mock = new Mock<IChatClient>();
         mock.Setup(c => c.GetStreamingResponseAsync(
@@ -1056,7 +1094,7 @@ public class AgentFrameworkResponseHandlerTests
             {
                 captured.AddRange(messages);
                 return ToAsyncEnumerableUpdatesAsync(
-                    new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+                    new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1", ConversationId = conversationId });
             });
         return mock.Object;
     }

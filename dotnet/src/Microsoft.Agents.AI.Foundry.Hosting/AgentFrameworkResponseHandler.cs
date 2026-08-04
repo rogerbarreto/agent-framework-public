@@ -131,7 +131,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // A workflow hosted as an agent derives from AIAgent directly: it never calls a
         // ChatHistoryProvider and does not read the run options' additional properties, so there is no
         // pipeline to route it through and the handler stays its only source of history.
-        var agentSuppliedHistoryProvider = agent.GetService<ChatClientAgentOptions>()?.ChatHistoryProvider is not null;
+        var agentOptions = agent.GetService<ChatClientAgentOptions>();
+        var agentSuppliedHistoryProvider = agentOptions?.ChatHistoryProvider is not null;
         var historyComesFromProvider = chatClientAgent is not null;
 
         // Load an existing session when there is a conversation key. The store returns null when
@@ -224,10 +225,23 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Register the platform-backed chat history provider for agents that did not bring their own.
         // It is supplied per request because it reads through this request's ResponseContext, and it is
         // passed as a run-scoped override so the agent uses it for this turn without the host having to
-        // mutate the agent. FoundryChatHistoryProvider reads the prior turns from the platform and
-        // stores nothing, so the conversation is not copied into the container's session state.
+        // mutate the agent. FoundryChatHistoryProvider reads the prior turns from the service and keeps
+        // in the session only the turns the service was not asked to store.
         if (historyComesFromProvider && !agentSuppliedHistoryProvider)
         {
+            // An agent refuses a second history manager once the model reports a conversation id of its
+            // own, which happens as soon as the container lets the model keep the conversation. That
+            // guard is meant for an application that configured a provider by hand and would otherwise
+            // end up with two of them; here the host is the one supplying it, deliberately and for every
+            // turn, so the guard would only reject the arrangement it is hosting. Stand it down and let
+            // this provider decide what reaches the model.
+            if (agentOptions is not null)
+            {
+                agentOptions.ThrowOnChatHistoryProviderConflict = false;
+                agentOptions.WarnOnChatHistoryProviderConflict = false;
+                agentOptions.ClearOnChatHistoryProviderConflict = false;
+            }
+
             chatOptions.AdditionalProperties ??= [];
             chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new FoundryChatHistoryProvider(context, serviceStoresThisTurn: request.Store != false));
         }
