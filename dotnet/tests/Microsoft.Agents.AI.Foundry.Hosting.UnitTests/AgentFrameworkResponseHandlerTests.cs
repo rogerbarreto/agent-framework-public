@@ -711,6 +711,90 @@ public class AgentFrameworkResponseHandlerTests
         Assert.IsType<ResponseInProgressEvent>(events[1]);
     }
 
+    #region Resume detection
+
+    [Fact]
+    public async Task CreateAsync_FirstTurnOfAKnownConversation_StillReceivesTheServiceHistoryAsync()
+    {
+        // Arrange: the first turn this container serves for a conversation the service already holds
+        // history for. Nothing has been persisted for it yet, so this is not a resume: the history has
+        // to be handed to the agent, otherwise it answers knowing nothing of the conversation.
+        var agent = new CapturingAgent();
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+        var request = new CreateResponse { Model = "test" };
+        request.Conversation = BinaryData.FromString("\"conv-known\"");
+        request.Input = BinaryData.FromObjectAsJson(new[]
+        {
+            new { type = "message", id = "msg_1", status = "completed", role = "user",
+                  content = new[] { new { type = "input_text", text = "new question" } } }
+        });
+        var ctx = new Mock<ResponseContext>("resp_" + new string('4', 46)) { CallBase = true };
+        ctx.Setup(x => x.PlatformContext).Returns(new PlatformContext("alice", null));
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+           .ReturnsAsync([NewHistoryMessageItem("msg_hist_1", "earlier turn")]);
+        ctx.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Item>());
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
+
+        // Assert: whether this is a resume is answered by the session store, not by looking for state on
+        // the session. The handler writes the caller's identity onto a session before this point, so a
+        // freshly created session already carries state and reading that as "it has run before" made the
+        // first turn of every conversation look like a resume, dropping its history. It only showed up
+        // when hosted, because there is no identity to write locally.
+        Assert.NotNull(agent.CapturedMessages);
+        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_SecondTurnOfAConversation_DoesNotReplayTheServiceHistoryAsync()
+    {
+        // Arrange: a first turn that persists a session for the conversation.
+        const string ConversationId = "conv-resumed";
+        var agent = new CapturingAgent();
+        var store = new InMemoryAgentSessionStore();
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationTurn(ConversationId, "first question"),
+            NewServingContext("resp_" + new string('5', 46), []),
+            CancellationToken.None));
+
+        // Act: a second turn of the same conversation, for which the service now reports history.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationTurn(ConversationId, "second question"),
+            NewServingContext("resp_" + new string('6', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: a session was stored by the first turn, so this one resumes it. Replaying the history
+        // here would re-drive work the session already carries, which is what breaks a workflow that was
+        // paused waiting for input.
+        Assert.NotNull(agent.CapturedMessages);
+        Assert.DoesNotContain(agent.CapturedMessages!, m => m.Text.Contains("first question", StringComparison.Ordinal));
+    }
+
+    private static CreateResponse NewConversationTurn(string conversationId, string text)
+    {
+        var request = new CreateResponse { Model = "test" };
+        request.Conversation = BinaryData.FromString($"\"{conversationId}\"");
+        request.Input = BinaryData.FromObjectAsJson(new[]
+        {
+            new { type = "message", id = "msg_" + Guid.NewGuid().ToString("N")[..8], status = "completed", role = "user",
+                  content = new[] { new { type = "input_text", text } } }
+        });
+        return request;
+    }
+
+    private static ResponseContext NewServingContext(string responseId, IReadOnlyList<OutputItem> history)
+    {
+        var ctx = new Mock<ResponseContext>(responseId) { CallBase = true };
+        ctx.Setup(x => x.PlatformContext).Returns(new PlatformContext("alice", null));
+        ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(history);
+        ctx.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Item>());
+        return ctx.Object;
+    }
+
+    #endregion
+
     #region Chat history source routing
 
     // These tests pin down who supplies the conversation history to a hosted agent. Three of them are
@@ -945,6 +1029,11 @@ public class AgentFrameworkResponseHandlerTests
     {
         var sessionKey = HostedConversationKey.Resolve(conversationId: null, previousResponseId: null, responseId);
         var session = await store.GetSessionAsync(agent, sessionKey!, FakeHostedSessionIsolationKeyProvider.DefaultUserId, CancellationToken.None);
+
+        // The handler persists the session at the end of every turn, so a missing one means the turn did
+        // not get that far and the assertions below would otherwise pass without proving anything.
+        Assert.NotNull(session);
+
         var serialized = await agent.SerializeSessionAsync(session, cancellationToken: CancellationToken.None);
         return serialized.GetRawText();
     }

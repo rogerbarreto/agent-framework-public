@@ -134,11 +134,20 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var agentSuppliedHistoryProvider = agent.GetService<ChatClientAgentOptions>()?.ChatHistoryProvider is not null;
         var historyComesFromProvider = chatClientAgent is not null;
 
-        AgentSession? session = !string.IsNullOrWhiteSpace(sessionConversationId)
+        // Load an existing session when there is a conversation key. The store returns null when
+        // nothing is persisted for it, which is the authoritative "this is a resume" signal: a
+        // non-null result means a prior turn saved this session. Whether loaded or created, the
+        // handler owns creating a fresh session when none exists, so the resume signal does not
+        // depend on inspecting the session for state the handler itself also writes to.
+        AgentSession? loadedSession = !string.IsNullOrWhiteSpace(sessionConversationId)
             ? await sessionStore.GetSessionAsync(agent, sessionConversationId, resolvedUserId, cancellationToken).ConfigureAwait(false)
-                : chatClientAgent is not null
+            : null;
+        var sessionLoadedFromStore = loadedSession is not null;
+
+        AgentSession? session = loadedSession
+            ?? (chatClientAgent is not null
                 ? await chatClientAgent.CreateSessionAsync(cancellationToken).ConfigureAwait(false)
-                : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+                : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false));
 
         // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
         // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
@@ -180,12 +189,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: history + current input → ChatMessage[]
         var messages = new List<ChatMessage>();
 
-        // Load conversation history only for fresh sessions. When a session already exists
-        // (e.g. resuming a workflow paused at an external-input port), the workflow's
-        // checkpointed state already contains the prior turns' messages — replaying history
-        // would re-drive completed actions and break HITL resume semantics.
+        // Load conversation history only for fresh sessions. When a session was already established by
+        // a prior turn (e.g. resuming a workflow paused at an external-input port), its state already
+        // contains those messages — replaying history would re-drive completed actions and break HITL
+        // resume semantics. The signal is whether the store actually loaded a persisted session, which
+        // is authoritative in both local and hosted runs.
         var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
-            && session?.StateBag?.Count > 0;
+            && sessionLoadedFromStore;
         if (!isResume && !historyComesFromProvider)
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
