@@ -1187,6 +1187,46 @@ public class AgentFrameworkResponseHandlerTests
         Assert.Contains("second question", persisted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task CreateAsync_UnstoredRequestAndAgentWithARawRepresentationFactory_KeepsBothAsync()
+    {
+        // Arrange: an agent whose own ChatOptions carry a raw representation factory, the way a container
+        // adds settings the chat client only understands in its own request type. The caller asks for a
+        // turn the service must not store.
+        ChatOptions? sentToTheClient = null;
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> _, ChatOptions? options, CancellationToken _) =>
+            {
+                sentToTheClient = options;
+                return ToAsyncEnumerableUpdatesAsync(new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+            });
+
+        var agent = new ChatClientAgent(client.Object, new ChatClientAgentOptions
+        {
+            ChatOptions = new ChatOptions
+            {
+                RawRepresentationFactory = _ => new CreateResponseOptions { EndUserId = "set by the container" },
+            },
+        });
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-raw", "a question", store: false),
+            NewContextServing("resp_" + new string('7', 46), []),
+            CancellationToken.None));
+
+        // Assert: the agent chains a request factory with its own by taking the agent's only when the
+        // request's returns null, so a request factory that always answers would silently drop whatever
+        // the container configured. Both settings have to survive on the way to the client.
+        Assert.NotNull(sentToTheClient?.RawRepresentationFactory);
+        var raw = Assert.IsType<CreateResponseOptions>(sentToTheClient!.RawRepresentationFactory!(client.Object));
+        Assert.False(raw.StoredOutputEnabled);
+        Assert.Equal("set by the container", raw.EndUserId);
+    }
+
     private static CreateResponse NewConversationRequest(string conversationId, string text, bool store)
     {
         var request = new CreateResponse { Model = "test", Store = store };

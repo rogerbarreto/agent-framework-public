@@ -239,7 +239,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         // 5. Build chat options
-        var chatOptions = InputConverter.ConvertToChatOptions(request);
+        var chatOptions = InputConverter.ConvertToChatOptions(request, agentOptions?.ChatOptions?.RawRepresentationFactory);
         chatOptions.Instructions = request.Instructions;
 
         // Inject Foundry Toolbox tools when the toolbox service is available.

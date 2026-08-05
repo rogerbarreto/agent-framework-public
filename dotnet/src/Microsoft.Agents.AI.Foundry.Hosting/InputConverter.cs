@@ -88,8 +88,12 @@ internal static class InputConverter
     /// Creates <see cref="ChatOptions"/> from the SDK request properties.
     /// </summary>
     /// <param name="request">The create response request.</param>
+    /// <param name="agentRawRepresentationFactory">
+    /// The factory the agent carries on its own <see cref="ChatOptions"/>, if any, so a request that has
+    /// to set one of its own can run it rather than replace it.
+    /// </param>
     /// <returns>A configured <see cref="ChatOptions"/> instance.</returns>
-    public static ChatOptions ConvertToChatOptions(CreateResponse request)
+    public static ChatOptions ConvertToChatOptions(CreateResponse request, Func<IChatClient, object?>? agentRawRepresentationFactory = null)
     {
         var options = new ChatOptions
         {
@@ -105,13 +109,25 @@ internal static class InputConverter
         // Only store=false travels to the service behind the chat client: a caller opting out of storage
         // gets nothing recorded anywhere, while carrying store=true across would either force storage on
         // a container whose author turned it off on purpose or change nothing, since storing is already
-        // the default. Any factory the container configured is chained, so its own choice still wins.
+        // the default.
+        //
+        // The agent's own factory is invoked here and its result is what gets the setting, because
+        // ChatClientAgent chains the two by taking the agent's only when the request's returns null
+        // (ChatClientAgent.PrepareChatOptions). A request factory that always answers would otherwise
+        // drop whatever the container configured.
         if (request.Store == false)
         {
-            var containerFactory = options.RawRepresentationFactory;
             options.RawRepresentationFactory = chatClient =>
             {
-                var responseOptions = containerFactory?.Invoke(chatClient) as CreateResponseOptions ?? new CreateResponseOptions();
+                var configuredByTheAgent = agentRawRepresentationFactory?.Invoke(chatClient);
+                if (configuredByTheAgent is not null and not CreateResponseOptions)
+                {
+                    // Some other chat client's request type, which has no notion of storing a response.
+                    // Hand it back untouched rather than discard what the container asked for.
+                    return configuredByTheAgent;
+                }
+
+                var responseOptions = configuredByTheAgent as CreateResponseOptions ?? new CreateResponseOptions();
                 responseOptions.StoredOutputEnabled = false;
                 return responseOptions;
             };
