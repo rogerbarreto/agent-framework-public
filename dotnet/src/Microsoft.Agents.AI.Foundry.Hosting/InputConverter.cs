@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
+using CreateResponseOptions = OpenAI.Responses.CreateResponseOptions;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 using SdkTextContent = Azure.AI.AgentServer.Responses.Models.TextContent;
 
@@ -90,7 +91,7 @@ internal static class InputConverter
     /// <returns>A configured <see cref="ChatOptions"/> instance.</returns>
     public static ChatOptions ConvertToChatOptions(CreateResponse request)
     {
-        return new ChatOptions
+        var options = new ChatOptions
         {
             Temperature = (float?)request.Temperature,
             TopP = (float?)request.TopP,
@@ -100,6 +101,23 @@ internal static class InputConverter
             // the client-provided model would override it (causing failures when
             // clients send placeholder values like "hosted-agent").
         };
+
+        // Only store=false travels to the service behind the chat client: a caller opting out of storage
+        // gets nothing recorded anywhere, while carrying store=true across would either force storage on
+        // a container whose author turned it off on purpose or change nothing, since storing is already
+        // the default. Any factory the container configured is chained, so its own choice still wins.
+        if (request.Store == false)
+        {
+            var containerFactory = options.RawRepresentationFactory;
+            options.RawRepresentationFactory = chatClient =>
+            {
+                var responseOptions = containerFactory?.Invoke(chatClient) as CreateResponseOptions ?? new CreateResponseOptions();
+                responseOptions.StoredOutputEnabled = false;
+                return responseOptions;
+            };
+        }
+
+        return options;
     }
 
     /// <summary>
