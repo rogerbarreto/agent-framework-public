@@ -1146,6 +1146,36 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
+    public async Task CreateAsync_StoredThenUnstoredConversation_StillRefusesToStoreItAgainAsync()
+    {
+        // Arrange: turn one is stored and the Responses API behind the chat client reports a conversation
+        // of its own, so turn two both rebuilds the session without that conversation id and marks it.
+        const string ConversationId = "conv-there-and-back";
+        var agent = new ChatClientAgent(CreateCapturingChatClient([], conversationId: "conv-model"));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "first question", store: true),
+            NewContextServing("resp_" + new string('2', 45) + "0", []),
+            CancellationToken.None));
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "second question", store: false),
+            NewContextServing("resp_" + new string('2', 45) + "1", [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Act + Assert: the service holds turn one and nothing after it, so recording this turn would
+        // leave the stored conversation jumping straight from turn one to turn three. The mark that says
+        // so is written into the session state, which has to survive turn two rebuilding the session.
+        var failure = await Assert.ThrowsAsync<ResponsesApiException>(() => DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "third question", store: true),
+            NewContextServing("resp_" + new string('2', 45) + "2", [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None)));
+
+        Assert.Equal("conversation_not_stored", failure.Error.Code);
+    }
+
+    [Fact]
     public async Task CreateAsync_ConversationStoppedBeingStored_KeepsAnsweringFromTheSessionAsync()
     {
         // Arrange: turn one is stored and the Responses API behind the chat client reports a conversation
