@@ -3,9 +3,12 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
@@ -32,6 +35,15 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// Avoids a per-request allocation on the request hot path.
     /// </summary>
     private static readonly HostedSessionIsolationKeyProvider s_defaultIsolationKeyProvider = new PlatformHostedSessionIsolationKeyProvider();
+
+    /// <summary>
+    /// Written into the session the first time the caller asks the service not to store a turn. Only its
+    /// presence matters: from that point on the conversation lives in the session and nowhere else.
+    /// </summary>
+    private const string InMemoryConversationActivationKey = "FoundryHostedInMemoryConversation";
+
+    /// <summary>Identifies the handler as the source of chat history messages it passes as input.</summary>
+    private const string HistorySourceId = "Microsoft.Agents.AI.Foundry.Hosting.AgentFrameworkResponseHandler";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
@@ -112,43 +124,42 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // (resolvedUserId is null) there is no user to partition on, so the session is unscoped/shared
         // by design — per-user isolation applies only when a user identity was resolved (hosted).
         var conversationId = request.GetConversationId();
-        var sessionConversationId = HostedConversationKey.Resolve(
+        var agentSessionId = HostedConversationKey.Resolve(
             conversationId, request.PreviousResponseId, context.ResponseId);
 
         var chatClientAgent = agent.GetService<ChatClientAgent>();
 
-        // Decide who supplies the conversation history for this turn.
+        // Work out where this turn's conversation is kept, because it must be kept in exactly one place.
         //
-        // A ChatClientAgent always runs its history through a ChatHistoryProvider. When the agent was
-        // created with one, that provider owns the conversation and loads it from its own store inside
-        // the container. When it was not, the handler registers FoundryChatHistoryProvider below, which
-        // reads what the service holds and keeps in the session only the turns the service was not
-        // asked to store. Either way the provider delivers the prior turns, so the handler must not add
-        // them to the input as well: that would send the same conversation twice, and service items
-        // carry no chat-history marker, so the agent's provider would then store them as if they were
-        // newly written by this turn.
+        // The test is whether the agent is a ChatClientAgent, which is the only kind in the framework
+        // that drives a ChatHistoryProvider through ChatHistoryProvider.InvokingAsync and InvokedAsync:
+        // AIAgent itself has no provider, and a hosted workflow keeps its own messages by hand inside its
+        // session rather than through that protocol. For a ChatClientAgent the handler never puts prior
+        // turns into the input, or the model would receive the conversation twice; it writes into the
+        // provider instead, and only when that provider is the stock in-memory one the agent created for
+        // itself. An agent that was given a provider owns its own storage and the host does not touch it.
         //
-        // A workflow hosted as an agent derives from AIAgent directly: it never calls a
-        // ChatHistoryProvider and does not read the run options' additional properties, so there is no
-        // pipeline to route it through and the handler stays its only source of history.
+        // Every other agent is fed its prior turns as input, marked as chat history. That is a judgement
+        // rather than a certainty: the provider protocol is public, so someone could write an agent that
+        // drives one and would then see the conversation twice. Erring the other way is worse, because an
+        // agent that keeps nothing of its own would start every turn with no memory at all, and the
+        // marking already stops a provider from writing these messages down as if they were new.
+        var agentReadsHistoryFromAProvider = chatClientAgent is not null;
         var agentOptions = agent.GetService<ChatClientAgentOptions>();
-        var agentSuppliedHistoryProvider = agentOptions?.ChatHistoryProvider is not null;
-        var historyComesFromProvider = chatClientAgent is not null;
-
+        var inMemoryChatHistoryProvider = agentOptions?.ChatHistoryProvider is null
+            ? chatClientAgent?.ChatHistoryProvider as InMemoryChatHistoryProvider
+            : null;
         // Load an existing session when there is a conversation key. The store returns null when
         // nothing is persisted for it, which is the authoritative "this is a resume" signal: a
         // non-null result means a prior turn saved this session. Whether loaded or created, the
         // handler owns creating a fresh session when none exists, so the resume signal does not
         // depend on inspecting the session for state the handler itself also writes to.
-        AgentSession? loadedSession = !string.IsNullOrWhiteSpace(sessionConversationId)
-            ? await sessionStore.GetSessionAsync(agent, sessionConversationId, resolvedUserId, cancellationToken).ConfigureAwait(false)
+        AgentSession? loadedSession = !string.IsNullOrWhiteSpace(agentSessionId)
+            ? await sessionStore.GetSessionAsync(agent, agentSessionId, resolvedUserId, cancellationToken).ConfigureAwait(false)
             : null;
         var sessionLoadedFromStore = loadedSession is not null;
 
-        AgentSession? session = loadedSession
-            ?? (chatClientAgent is not null
-                ? await chatClientAgent.CreateSessionAsync(cancellationToken).ConfigureAwait(false)
-                : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false));
+        AgentSession? session = loadedSession ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
         // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
         // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
@@ -190,19 +201,28 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: history + current input → ChatMessage[]
         var messages = new List<ChatMessage>();
 
-        // Load conversation history only for fresh sessions. When a session was already established by
-        // a prior turn (e.g. resuming a workflow paused at an external-input port), its state already
-        // contains those messages — replaying history would re-drive completed actions and break HITL
-        // resume semantics. The signal is whether the store actually loaded a persisted session, which
-        // is authoritative in both local and hosted runs.
+        // Hand the conversation to whoever is keeping it for this turn, before the agent runs.
+        if (session is not null)
+        {
+            session = await PrepareSessionConversationAsync(
+                agent, session, inMemoryChatHistoryProvider, context, serviceStoresThisTurn: request.Store != false, cancellationToken).ConfigureAwait(false);
+        }
+
+        // An agent that does not read from a provider has nowhere to find prior turns, so the handler
+        // passes them as input and marks them as chat history: a provider anywhere along the way would
+        // otherwise take them for content this turn produced and write them down a second time. Only for
+        // a session no prior turn saved, since a saved one already carries them, and replaying history
+        // into a workflow resuming at an external-input port would re-drive actions it already completed.
         var isResume = (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId))
             && sessionLoadedFromStore;
-        if (!isResume && !historyComesFromProvider)
+        if (!isResume && !agentReadsHistoryFromAProvider)
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
             if (history.Count > 0)
             {
-                messages.AddRange(InputConverter.ConvertOutputItemsToMessages(history, session?.StateBag));
+                messages.AddRange(InputConverter
+                    .ConvertOutputItemsToMessages(history, session?.StateBag)
+                    .Select(m => m.WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory, HistorySourceId)));
             }
         }
 
@@ -221,30 +241,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 5. Build chat options
         var chatOptions = InputConverter.ConvertToChatOptions(request);
         chatOptions.Instructions = request.Instructions;
-
-        // Register the platform-backed chat history provider for agents that did not bring their own.
-        // It is supplied per request because it reads through this request's ResponseContext, and it is
-        // passed as a run-scoped override so the agent uses it for this turn without the host having to
-        // mutate the agent. FoundryChatHistoryProvider reads the prior turns from the service and keeps
-        // in the session only the turns the service was not asked to store.
-        if (historyComesFromProvider && !agentSuppliedHistoryProvider)
-        {
-            // An agent refuses a second history manager once the model reports a conversation id of its
-            // own, which happens as soon as the container lets the model keep the conversation. That
-            // guard is meant for an application that configured a provider by hand and would otherwise
-            // end up with two of them; here the host is the one supplying it, deliberately and for every
-            // turn, so the guard would only reject the arrangement it is hosting. Stand it down and let
-            // this provider decide what reaches the model.
-            if (agentOptions is not null)
-            {
-                agentOptions.ThrowOnChatHistoryProviderConflict = false;
-                agentOptions.WarnOnChatHistoryProviderConflict = false;
-                agentOptions.ClearOnChatHistoryProviderConflict = false;
-            }
-
-            chatOptions.AdditionalProperties ??= [];
-            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new FoundryChatHistoryProvider(context, serviceStoresThisTurn: request.Store != false));
-        }
 
         // Inject Foundry Toolbox tools when the toolbox service is available.
         //
@@ -497,9 +493,21 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
             // Persist session after streaming completes (successful or not). The user id partitions the
             // persisted session per end user, mirroring the load above so multi-turn continuity is preserved.
-            if (session is not null && !string.IsNullOrWhiteSpace(sessionConversationId))
+            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId))
             {
-                await sessionStore.SaveSessionAsync(agent, sessionConversationId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+                // A turn can end with the Responses API behind the chat client reporting that it is
+                // storing the conversation, which is only known once the answer comes back and lands on
+                // ChatClientAgentSession.ConversationId. Anything read out of the hosting service earlier
+                // in this turn was read on the assumption that nothing else held the conversation, so it
+                // is dropped rather than persisted: leaving it behind would put a copy in the session
+                // that stops being extended from here on, and a later turn would serve that stale copy
+                // back as if it were the whole conversation.
+                if (inMemoryChatHistoryProvider is not null && session is ChatClientAgentSession { ConversationId: not null })
+                {
+                    inMemoryChatHistoryProvider.SetMessages(session, []);
+                }
+
+                await sessionStore.SaveSessionAsync(agent, agentSessionId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -529,6 +537,116 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var builder = stream.AddOutputItem<OAuthConsentRequestOutputItem>(item.Id);
         yield return builder.EmitAdded(item);
         yield return builder.EmitDone(item);
+    }
+
+    /// <summary>
+    /// Puts the conversation where this turn expects to find it, and returns the session to run with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Exactly one place holds the conversation. When <see cref="ChatClientAgentSession.ConversationId"/>
+    /// is set, the Responses API behind the agent's chat client is storing the conversation, and
+    /// <see cref="ChatClientAgent"/> resolves its <see cref="ChatHistoryProvider"/> to
+    /// <see langword="null"/> for the turn, so there is nothing to prepare. When it is not set, the
+    /// <see cref="InMemoryChatHistoryProvider"/> is what will serve the conversation, out of
+    /// <see cref="AgentSession.StateBag"/>; when it holds nothing, the items from
+    /// <see cref="ResponseContext.GetHistoryAsync"/> are written into it, which is how a restarted
+    /// container or a second replica picks up a conversation it has never served.
+    /// </para>
+    /// <para>
+    /// <c>store=false</c> on the <see cref="CreateResponse"/> means the hosting service records nothing
+    /// for this turn, so from then on <see cref="AgentSession.StateBag"/> holds the only copy and
+    /// <see cref="ChatClientAgentSession.ConversationId"/> no longer corresponds to it. A later
+    /// <c>store=true</c> is rejected, because the hosting service would record a turn whose predecessors
+    /// it does not hold.
+    /// </para>
+    /// </remarks>
+    private static async ValueTask<AgentSession> PrepareSessionConversationAsync(
+        AIAgent agent,
+        AgentSession session,
+        InMemoryChatHistoryProvider? inMemoryChatHistoryProvider,
+        ResponseContext context,
+        bool serviceStoresThisTurn,
+        CancellationToken cancellationToken)
+    {
+        var inMemoryConversationActive = session.StateBag.TryGetValue<string>(InMemoryConversationActivationKey, out _);
+
+        if (serviceStoresThisTurn && inMemoryConversationActive)
+        {
+            throw new ResponsesApiException(
+                new Error(
+                    "conversation_not_stored",
+                    "This conversation has turns the service was not asked to store, so a stored turn cannot be added to it. Keep using store=false for this conversation, or start a new one."),
+                400);
+        }
+
+        if (inMemoryChatHistoryProvider is null)
+        {
+            // The agent has a dedicated provider, so the original session is returned as is, without the
+            // transformations needed to handle the in-memory one.
+            return session;
+        }
+
+        if (!serviceStoresThisTurn && !inMemoryConversationActive)
+        {
+            // Only the presence of the key matters; the value is written so the entry reads plainly in
+            // a persisted session.
+            session.StateBag.SetValue(InMemoryConversationActivationKey, "activated");
+
+            if (session is ChatClientAgentSession { ConversationId: not null })
+            {
+                session = await CloneSessionWithoutConversationIdAsync(agent, session, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // Either the Responses API behind the chat client is storing the conversation, in which case the
+        // provider will not be consulted at all, or the provider already holds the conversation for this
+        // session. Both are ready to run as they are.
+        if (session is not ChatClientAgentSession { ConversationId: null }
+            || inMemoryChatHistoryProvider.GetMessages(session).Count > 0)
+        {
+            return session;
+        }
+
+        var serviceConversationHistory = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
+        if (serviceConversationHistory.Count > 0)
+        {
+            // The provider holds nothing for this session, so the hosting service's items become its
+            // starting point. They are the earlier part of the conversation, so they go in first and
+            // anything the provider stores from this turn on lands after them.
+            inMemoryChatHistoryProvider.SetMessages(
+                session, InputConverter.ConvertOutputItemsToMessages(serviceConversationHistory, session.StateBag));
+        }
+
+        return session;
+    }
+
+    /// <summary>
+    /// Returns a copy of the session carrying the same <see cref="AgentSession.StateBag"/> and no
+    /// <see cref="ChatClientAgentSession.ConversationId"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A session whose conversation moved into <see cref="AgentSession.StateBag"/> no longer matches the
+    /// conversation state on the service, so the <see cref="ChatClientAgentSession.ConversationId"/>
+    /// pointing at it no longer applies.
+    /// </para>
+    /// <para>
+    /// <see cref="ChatClientAgentSession.ConversationId"/> cannot be cleared once set, so the replacement
+    /// is built from the state the session carries. That costs one serialization, which is why this runs
+    /// on the single turn where a conversation stops being stored and never on the ordinary path.
+    /// </para>
+    /// </remarks>
+    private static ValueTask<AgentSession> CloneSessionWithoutConversationIdAsync(
+        AIAgent agent,
+        AgentSession session,
+        CancellationToken cancellationToken)
+    {
+        var serializedConversation = JsonSerializer.SerializeToElement(
+            new InMemorySessionStateConversation { StateBag = session.StateBag },
+            HostedSessionJsonContext.Default.InMemorySessionStateConversation);
+
+        return agent.DeserializeSessionAsync(serializedConversation, cancellationToken: cancellationToken);
     }
 
     /// <summary>

@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using CreateResponseOptions = OpenAI.Responses.CreateResponseOptions;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
@@ -908,10 +909,11 @@ public class AgentFrameworkResponseHandlerTests
     [Fact]
     public async Task CreateAsync_ChatClientAgentWithoutHistoryProvider_DoesNotCopyPlatformHistoryIntoTheSessionAsync()
     {
-        // Arrange: the platform reports one earlier turn for this conversation.
+        // Arrange: the model inside the container keeps the conversation, so it reports a conversation
+        // id of its own, and the platform reports one earlier turn for the same conversation.
         const string ResponseId = "resp_" + "4444444444444444444444444444444444444444444444";
         var store = new InMemoryAgentSessionStore();
-        var agent = new ChatClientAgent(CreateCapturingChatClient([]));
+        var agent = new ChatClientAgent(CreateCapturingChatClient([], conversationId: "conv-model"));
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
         var (request, ctx) = BuildChainRequest(ResponseId, callId: null);
         ctx.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
@@ -920,10 +922,11 @@ public class AgentFrameworkResponseHandlerTests
         // Act
         await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
 
-        // Assert: the turn the service already keeps must not be written into the persisted session as
-        // well. The older handler fed that history to the agent as ordinary input, and because platform
-        // items carry no chat-history source marker the agent's default in-memory provider stored it as
-        // if this turn had produced it, leaving a second copy on disk that then drifts from the service.
+        // Assert: the model and the service are both keeping this conversation, so the container keeps
+        // none of it. The older handler fed the service's history to the agent as ordinary input, and
+        // because platform items carry no chat-history source marker the agent's default in-memory
+        // provider stored it as if this turn had produced it, leaving a third copy on disk that then
+        // drifts from the other two.
         Assert.DoesNotContain("already kept by the service", await SerializedSessionOfAsync(agent, store, ResponseId), StringComparison.Ordinal);
     }
 
@@ -1041,6 +1044,149 @@ public class AgentFrameworkResponseHandlerTests
         Assert.Single(captured, m => m.Text.Contains("third question", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task CreateAsync_ModelKeepsTheConversationAndTheSessionIsGone_RecoversTheHistoryFromTheServiceAsync()
+    {
+        // Arrange: the model inside the container keeps the conversation itself, so it reports a
+        // conversation id of its own. A later turn then lands on a container that has no session for it,
+        // which is what a restart or a second replica looks like.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured, conversationId: "conv-model"));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-cold", "second question", store: true),
+            NewContextServing("resp_" + new string('9', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: with no session there is no container-side memory, and a conversation id the model
+        // minted on an earlier turn was lost with it, so the model is no longer being handed the thread
+        // it was keeping. The service holds the only surviving copy and it must reach the model, exactly
+        // once.
+        Assert.Single(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ModelKeepsTheConversation_DoesNotSendTheServiceHistoryAsWellAsync()
+    {
+        // Arrange: same agent whose model keeps the conversation, but here the container already holds
+        // the session from turn one, so the model is handed its own conversation id again.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured, conversationId: "conv-model"));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-warm", "first question", store: true),
+            NewContextServing("resp_" + new string('a', 46), []),
+            CancellationToken.None));
+        captured.Clear();
+
+        // Act: a second turn, with the service now serving the first one back.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-warm", "second question", store: true),
+            NewContextServing("resp_" + new string('b', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: the model already holds the earlier turn under its own conversation id, so sending the
+        // service's copy as well would deliver the same conversation twice.
+        Assert.DoesNotContain(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConversationStopsBeingStored_TakesItOverFromTheModelAsync()
+    {
+        // Arrange: the model inside the container kept the first turn and reported a conversation id of
+        // its own. The caller then stops asking the service to store the conversation.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured, conversationId: "conv-model"));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-handover", "first question", store: true),
+            NewContextServing("resp_" + new string('c', 46), []),
+            CancellationToken.None));
+        captured.Clear();
+
+        // Act: the same conversation, now unstored, with the service still serving the first turn.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-handover", "second question", store: false),
+            NewContextServing("resp_" + new string('d', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: the conversation moves into the container whole. The session has to give up the id the
+        // model reported, or the agent would keep handing the model a thread the service is no longer
+        // extending, and the agent refuses to run at all once the model stops answering with an id for a
+        // session that has one.
+        Assert.Single(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+        Assert.Single(captured, m => m.Text.Contains("second question", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConversationStoppedBeingStored_RefusesToStoreItAgainAsync()
+    {
+        // Arrange: a conversation whose turns the service was not asked to store.
+        var agent = new ChatClientAgent(CreateCapturingChatClient([]));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-back", "first question", store: false),
+            NewContextServing("resp_" + new string('e', 46), []),
+            CancellationToken.None));
+
+        // Act + Assert: the service would record this turn on top of turns it does not have, so anyone
+        // reading the conversation back from it would get an answer with no question. Refuse up front
+        // rather than write that gap.
+        var failure = await Assert.ThrowsAsync<ResponsesApiException>(() => DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-back", "second question", store: true),
+            NewContextServing("resp_" + new string('f', 46), []),
+            CancellationToken.None)));
+
+        Assert.Equal("conversation_not_stored", failure.Error.Code);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConversationStoppedBeingStored_KeepsAnsweringFromTheSessionAsync()
+    {
+        // Arrange: turn one is stored and the Responses API behind the chat client reports a conversation
+        // of its own. From turn two the caller stops asking the hosting service to store anything, so the
+        // service keeps serving turn one and nothing else for the rest of the conversation.
+        const string ConversationId = "conv-continuity";
+        var captured = new List<ChatMessage>();
+        var store = new InMemoryAgentSessionStore();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured, conversationId: "conv-model"));
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
+        OutputItem[] servedByTheService = [NewHistoryMessageItem("msg_hist_1", "first question")];
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "first question", store: true),
+            NewContextServing("resp_" + new string('1', 45) + "0", []),
+            CancellationToken.None));
+
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "second question", store: false),
+            NewContextServing("resp_" + new string('1', 45) + "1", servedByTheService),
+            CancellationToken.None));
+        captured.Clear();
+
+        // Act: a third turn, still unstored.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest(ConversationId, "third question", store: false),
+            NewContextServing("resp_" + new string('1', 45) + "2", servedByTheService),
+            CancellationToken.None));
+
+        // Assert: the whole conversation reaches the model, each turn once. Turn one comes from the
+        // hosting service, turn two exists only in the session, and the answers must be there too or the
+        // model is being asked to continue a conversation it can only see one side of.
+        Assert.Single(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+        Assert.Single(captured, m => m.Text.Contains("second question", StringComparison.Ordinal));
+        Assert.Single(captured, m => m.Text.Contains("third question", StringComparison.Ordinal));
+
+        // And the session is where turn two survives, since nothing else recorded it.
+        var persisted = await SerializedSessionOfAsync(agent, store, ConversationId);
+        Assert.Contains("second question", persisted, StringComparison.Ordinal);
+    }
+
     private static CreateResponse NewConversationRequest(string conversationId, string text, bool store)
     {
         var request = new CreateResponse { Model = "test", Store = store };
@@ -1090,11 +1236,23 @@ public class AgentFrameworkResponseHandlerTests
                 It.IsAny<IEnumerable<ChatMessage>>(),
                 It.IsAny<ChatOptions>(),
                 It.IsAny<CancellationToken>()))
-            .Returns((IEnumerable<ChatMessage> messages, ChatOptions? _, CancellationToken _) =>
+            .Returns((IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken _) =>
             {
                 captured.AddRange(messages);
+
+                // Mirror the MEAI OpenAI adapter, which reports no conversation id for a response the
+                // service was not asked to store: OpenAIResponsesChatClient sets ChatResponse.ConversationId
+                // to null whenever CreateResponseOptions.StoredOutputEnabled is false. Without that rule
+                // here a fake would keep handing back a stored thread the caller opted out of.
+                var storedOutputDisabled =
+                    options?.RawRepresentationFactory?.Invoke(mock.Object) is CreateResponseOptions { StoredOutputEnabled: false };
+
                 return ToAsyncEnumerableUpdatesAsync(
-                    new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1", ConversationId = conversationId });
+                    new ChatResponseUpdate(ChatRole.Assistant, "ok")
+                    {
+                        MessageId = "resp_msg_1",
+                        ConversationId = storedOutputDisabled ? null : conversationId,
+                    });
             });
         return mock.Object;
     }
