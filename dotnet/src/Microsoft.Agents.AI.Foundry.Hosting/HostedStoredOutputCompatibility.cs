@@ -41,23 +41,14 @@ internal static class HostedStoredOutputCompatibility
     internal const string MisconfiguredAgentErrorCode = "agent_stored_output_not_disabled";
 
     /// <summary>
-    /// What goes wrong and how to fix it, shared by the readiness probe and the per-request check so
-    /// both name the same cause and the same two ways out.
-    /// </summary>
-    internal const string MisconfiguredAgentExplanation =
-        "Server-side storage must be off for a hosted agent. With it on, the agent's own service records a separate conversation and response that nothing tracks, while the hosted agent service records its own conversation for the same request, so one exchange is written twice into two places nobody reconciles. Build the agent's chat client so it does not store responses (for example with AsIChatClientWithStoredOutputDisabled), or set FoundryResponsesOptions.AllowStoredOutputEnabled to true to keep that second recording on purpose.";
-
-    /// <summary>
-    /// Message carried by the error raised when a turn was stored by the agent's own service.
-    /// </summary>
-    internal const string MisconfiguredAgentMessage =
-        "The service behind the agent's chat client stored this response. " + MisconfiguredAgentExplanation;
-
-    /// <summary>
     /// Returns the error to throw when the agent's own service kept the turn.
     /// </summary>
     internal static ResponsesApiException CreateMisconfiguredAgentError() =>
-        new(new Error(MisconfiguredAgentErrorCode, MisconfiguredAgentMessage), MisconfiguredAgentStatusCode);
+        new(
+            new Error(
+                MisconfiguredAgentErrorCode,
+                "The agent should not have server side storage enabled. This produced a new untracked conversation/response in the server while the hosted agent also generated a conversation for the request of the agent. This setting is only allowed when enabling the FoundryResponsesOptions.AllowStoredOutputEnabled flag, which leaves the agent's own storage setting untouched and keeps that second recording on purpose."),
+            MisconfiguredAgentStatusCode);
 
     /// <summary>
     /// Installs a factory on <paramref name="options"/> that turns storage off on the request the agent's

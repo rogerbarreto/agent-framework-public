@@ -88,7 +88,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
                 status: context.Registration.FailureStatus,
                 description: string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Stored output: {storingAgents.Count} registered agent(s) have server-side storage enabled. {HostedStoredOutputCompatibility.MisconfiguredAgentExplanation}"),
+                    $"Stored output: {storingAgents.Count} registered agent(s) should not have server side storage enabled. This will produce a new untracked conversation/response in the server while the hosted agent will also generate a conversation for the request of the agent. This setting is only allowed when enabling the FoundryResponsesOptions.AllowStoredOutputEnabled flag, which leaves the agent's own storage setting untouched and keeps that second recording on purpose."),
                 data: new Dictionary<string, object>(StringComparer.Ordinal) { ["storingAgents"] = storingAgents });
         }
 
