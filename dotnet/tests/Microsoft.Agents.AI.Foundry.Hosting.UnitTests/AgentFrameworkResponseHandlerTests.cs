@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using ChatCompletionOptions = OpenAI.Chat.ChatCompletionOptions;
 using CreateResponseOptions = OpenAI.Responses.CreateResponseOptions;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 
@@ -748,11 +749,12 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
-    public async Task CreateAsync_SecondTurnOfAConversation_DoesNotReplayTheServiceHistoryAsync()
+    public async Task CreateAsync_SecondTurnOfAWorkflow_DoesNotReplayTheServiceHistoryAsync()
     {
-        // Arrange: a first turn that persists a session for the conversation.
+        // Arrange: a hosted workflow, whose session carries the conversation in its own state, and a
+        // first turn that persists it.
         const string ConversationId = "conv-resumed";
-        var agent = new CapturingAgent();
+        var agent = new WorkflowLikeAgent();
         var store = new InMemoryAgentSessionStore();
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
         await DrainEventsAsync(handler.CreateAsync(
@@ -766,11 +768,37 @@ public class AgentFrameworkResponseHandlerTests
             NewServingContext("resp_" + new string('6', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
             CancellationToken.None));
 
-        // Assert: a session was stored by the first turn, so this one resumes it. Replaying the history
-        // here would re-drive work the session already carries, which is what breaks a workflow that was
-        // paused waiting for input.
+        // Assert: a workflow takes everything handed to it as newly arrived input, and its session
+        // already holds these turns, so handing them over again would re-drive work it has already done.
         Assert.NotNull(agent.CapturedMessages);
         Assert.DoesNotContain(agent.CapturedMessages!, m => m.Text.Contains("first question", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_SecondTurnOfAnAgentThatKeepsNothing_StillReceivesTheServiceHistoryAsync()
+    {
+        // Arrange: an agent written outside this repo that runs no chat history provider and keeps
+        // nothing in its session, with a first turn that persists one anyway.
+        const string ConversationId = "conv-keeps-nothing";
+        var agent = new CapturingAgent();
+        var store = new InMemoryAgentSessionStore();
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationTurn(ConversationId, "first question"),
+            NewServingContext("resp_" + new string('7', 46), []),
+            CancellationToken.None));
+
+        // Act: a second turn of the same conversation, for which the service now reports history.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationTurn(ConversationId, "second question"),
+            NewServingContext("resp_" + new string('8', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: a persisted session says a prior turn ran here, not that the conversation is inside it.
+        // Only a workflow keeps its messages that way; anything else starts each turn with nothing, so
+        // withholding the history would leave it answering blind.
+        Assert.NotNull(agent.CapturedMessages);
+        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("first question", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1104,6 +1132,44 @@ public class AgentFrameworkResponseHandlerTests
         Assert.False(raw.StoredOutputEnabled);
     }
 
+    [Fact]
+    public async Task CreateAsync_AgentSpeakingChatCompletions_AlsoAsksItNotToStoreAsync()
+    {
+        // Arrange: a container whose chat client speaks Chat Completions rather than Responses, so the
+        // request it understands is a ChatCompletionOptions.
+        ChatOptions? sentToTheClient = null;
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> _, ChatOptions? options, CancellationToken _) =>
+            {
+                sentToTheClient = options;
+                return ToAsyncEnumerableUpdatesAsync(new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+            });
+
+        var agent = new ChatClientAgent(client.Object, new ChatClientAgentOptions
+        {
+            ChatOptions = new ChatOptions
+            {
+                RawRepresentationFactory = _ => new ChatCompletionOptions { EndUserId = "set by the container" },
+            },
+        });
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-completions", "a question", store: true),
+            NewContextServing("resp_" + new string('6', 45) + "0", []),
+            CancellationToken.None));
+
+        // Assert: the setting has the same name on both OpenAI request shapes, so a chat client speaking
+        // either protocol is covered, and what the container configured survives alongside it.
+        Assert.NotNull(sentToTheClient?.RawRepresentationFactory);
+        var raw = Assert.IsType<ChatCompletionOptions>(sentToTheClient!.RawRepresentationFactory!(client.Object));
+        Assert.False(raw.StoredOutputEnabled);
+        Assert.Equal("set by the container", raw.EndUserId);
+    }
+
     private static CreateResponse NewConversationRequest(string conversationId, string text, bool store)
     {
         var request = new CreateResponse { Model = "test", Store = store };
@@ -1342,6 +1408,57 @@ public class AgentFrameworkResponseHandlerTests
             JsonSerializerOptions? jsonSerializerOptions,
             CancellationToken cancellationToken = default) =>
             new(new SimpleAgentSession());
+    }
+
+    /// <summary>
+    /// Stands in for a hosted workflow: an <see cref="AIAgent"/> whose session type is named the way the
+    /// real one is, which is how the handler recognises a session that already carries the conversation.
+    /// </summary>
+    private sealed class WorkflowLikeAgent : AIAgent
+    {
+        public IEnumerable<ChatMessage>? CapturedMessages { get; private set; }
+
+        protected override IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            CancellationToken cancellationToken = default)
+        {
+            this.CapturedMessages = messages.ToList();
+            return ToAsyncEnumerableAsync(new AgentResponseUpdate
+            {
+                MessageId = "resp_msg_1",
+                Contents = [new MeaiTextContent("captured")]
+            });
+        }
+
+        protected override Task<AgentResponse> RunCoreAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        protected override ValueTask<AgentSession> CreateSessionCoreAsync(
+            CancellationToken cancellationToken = default) =>
+            new(new WorkflowSession());
+
+        protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+            AgentSession session,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(JsonDocument.Parse("{}").RootElement);
+
+        protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+            JsonElement serializedState,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(new WorkflowSession());
+    }
+
+    /// <summary>Carries the name the handler looks for; the real one is internal to its own package.</summary>
+    private sealed class WorkflowSession : AgentSession
+    {
     }
 
     private sealed class CancellationCheckingAgent : AIAgent

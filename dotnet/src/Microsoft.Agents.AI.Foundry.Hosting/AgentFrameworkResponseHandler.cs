@@ -38,6 +38,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private const string HistorySourceId = "Microsoft.Agents.AI.Foundry.Hosting.AgentFrameworkResponseHandler";
 
     /// <summary>
+    /// The session type a hosted workflow runs with. It is internal to <c>Microsoft.Agents.AI.Workflows</c>,
+    /// so it is recognised by name: taking a reference to it would mean opening that package's internals,
+    /// which cannot be done here because both packages compile the same shared source files.
+    /// </summary>
+    private const string WorkflowSessionTypeName = "WorkflowSession";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
     /// that resolves agents from keyed DI services.
     /// </summary>
@@ -119,7 +126,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var agentSessionId = HostedConversationKey.Resolve(
             conversationId, request.PreviousResponseId, context.ResponseId);
 
-        var chatClientAgent = agent.GetService<ChatClientAgent>();
         var agentOptions = agent.GetService<ChatClientAgentOptions>();
 
         // Load an existing session when there is a conversation key. The store returns null when
@@ -127,12 +133,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // non-null result means a prior turn saved this session. Whether loaded or created, the
         // handler owns creating a fresh session when none exists, so the resume signal does not
         // depend on inspecting the session for state the handler itself also writes to.
-        AgentSession? loadedSession = !string.IsNullOrWhiteSpace(agentSessionId)
+        AgentSession? sessionLoadedFromStore = !string.IsNullOrWhiteSpace(agentSessionId)
             ? await sessionStore.GetSessionAsync(agent, agentSessionId, resolvedUserId, cancellationToken).ConfigureAwait(false)
             : null;
-        var sessionLoadedFromStore = loadedSession is not null;
 
-        AgentSession? session = loadedSession ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        AgentSession? session = sessionLoadedFromStore ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
         // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
         // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
@@ -187,21 +192,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: history + current input → ChatMessage[]
         var messages = new List<ChatMessage>();
 
-        // The AgentServer SDK's storage provider records this turn around the handler and serves the
-        // conversation back here, so it is the only source for it. Its turns go in first, marked as chat
-        // history so nothing along the way mistakes them for content this turn produced, followed by
-        // this turn's input.
-        //
-        // The exception is an agent that carries the conversation in its own session state, a hosted
-        // workflow being the one in the box: when a prior turn saved that state and the request
-        // continues the conversation, those messages are already inside it, and replaying them would
-        // re-drive actions a workflow resuming at an external-input port has already completed.
-        var resumingAnAgentThatCarriesItsOwnHistory =
-            chatClientAgent is null
-            && sessionLoadedFromStore
-            && (!string.IsNullOrWhiteSpace(conversationId) || !string.IsNullOrWhiteSpace(request.PreviousResponseId));
-
-        if (!resumingAnAgentThatCarriesItsOwnHistory)
+        // Add the chat history to the request. Workflow sessions accumulate previous turns and must not
+        // get the full history again; their types are internal, hence the check on the type name.
+        if (sessionLoadedFromStore is null
+            || !string.Equals(sessionLoadedFromStore.GetType().Name, WorkflowSessionTypeName, StringComparison.Ordinal))
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
             if (history.Count > 0)

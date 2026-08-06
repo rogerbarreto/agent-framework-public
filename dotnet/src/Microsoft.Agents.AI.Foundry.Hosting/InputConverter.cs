@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
+using ChatCompletionOptions = OpenAI.Chat.ChatCompletionOptions;
 using CreateResponseOptions = OpenAI.Responses.CreateResponseOptions;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 using SdkTextContent = Azure.AI.AgentServer.Responses.Models.TextContent;
@@ -106,11 +107,16 @@ internal static class InputConverter
             // clients send placeholder values like "hosted-agent").
         };
 
-        // Storing a hosted agent's conversation is the AgentServer SDK's job: its storage provider
-        // records every turn the caller asked it to store, around this handler. Letting the service
-        // behind the chat client store as well writes the same conversation a second time, in a place
-        // nothing here reads and no one reconciles, so it is switched off for every turn regardless of
-        // what the caller asked for.
+        // The service behind the agent's chat client is never asked to store a response. Recording a
+        // hosted turn is the AgentServer SDK's job, done by its storage provider around this handler,
+        // and a second recording downstream is a conversation nothing here reads and no one reconciles.
+        // The caller's own store flag is not carried across: it says what the hosting service should
+        // record, which is a separate question and one this handler has no say in.
+        //
+        // Both OpenAI request shapes carry the setting, so a chat client speaking either protocol is
+        // covered. Anything else is a request type with no notion of storing a response, and is handed
+        // back untouched; such a client keeping a conversation of its own is caught later by the
+        // conversation id check in the handler.
         //
         // The agent's own factory is invoked here and its result is what gets the setting, because
         // ChatClientAgent chains the two by taking the agent's only when the request's returns null
@@ -118,17 +124,22 @@ internal static class InputConverter
         // drop whatever the container configured.
         options.RawRepresentationFactory = chatClient =>
         {
-            var configuredByTheAgent = agentRawRepresentationFactory?.Invoke(chatClient);
-            if (configuredByTheAgent is not null and not CreateResponseOptions)
+            switch (agentRawRepresentationFactory?.Invoke(chatClient))
             {
-                // Some other chat client's request type, which has no notion of storing a response.
-                // Hand it back untouched rather than discard what the container asked for.
-                return configuredByTheAgent;
-            }
+                case CreateResponseOptions responseOptions:
+                    responseOptions.StoredOutputEnabled = false;
+                    return responseOptions;
 
-            var responseOptions = configuredByTheAgent as CreateResponseOptions ?? new CreateResponseOptions();
-            responseOptions.StoredOutputEnabled = false;
-            return responseOptions;
+                case ChatCompletionOptions completionOptions:
+                    completionOptions.StoredOutputEnabled = false;
+                    return completionOptions;
+
+                case { } configuredByTheAgent:
+                    return configuredByTheAgent;
+
+                default:
+                    return new CreateResponseOptions { StoredOutputEnabled = false };
+            }
         };
 
         return options;
