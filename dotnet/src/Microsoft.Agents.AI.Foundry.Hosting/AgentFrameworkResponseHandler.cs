@@ -385,11 +385,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
         bool emittedTerminal = false;
-        bool agentKeptItsOwnConversation = false;
+        bool notAllowedAgentSessionStoredInTheService = false;
 
         // The session picks up the id of any conversation the agent's own service kept, at the end of
         // the run and before the agent reports anything else about it.
-        bool AgentKeptItsOwnConversation() =>
+        bool NotAllowedAgentSessionStoredInTheService() =>
             !allowStoredOutputEnabled && session is ChatClientAgentSession { ConversationId: not null };
 
         var enumerator = OutputConverter.ConvertUpdatesToEventsAsync(
@@ -464,9 +464,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     // conversation: the session picks up that id before the agent goes on to complain
                     // about having two history managers. Report the deployment problem that caused it
                     // rather than the confusing symptom.
-                    if (AgentKeptItsOwnConversation())
+                    if (NotAllowedAgentSessionStoredInTheService())
                     {
-                        agentKeptItsOwnConversation = true;
+                        notAllowedAgentSessionStoredInTheService = true;
                         throw HostedStoredOutputCompatibility.CreateMisconfiguredAgentError();
                     }
 
@@ -498,19 +498,19 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             // The run is over, so the session now carries whatever the agent's own service handed back.
             // A conversation id there means that service kept this turn, which is a second recording of
             // a conversation the hosting service already recorded.
-            agentKeptItsOwnConversation |= AgentKeptItsOwnConversation();
+            notAllowedAgentSessionStoredInTheService |= NotAllowedAgentSessionStoredInTheService();
 
             // Persist session after streaming completes (successful or not). The user id partitions the
             // persisted session per end user, mirroring the load above so multi-turn continuity is preserved.
             // A session pointing at a conversation the agent's own service kept is never persisted: every
             // later turn would resume onto that conversation and keep the double recording going.
-            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId) && !agentKeptItsOwnConversation)
+            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId) && !notAllowedAgentSessionStoredInTheService)
             {
                 await sessionStore.SaveSessionAsync(agent, agentSessionId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        if (agentKeptItsOwnConversation)
+        if (notAllowedAgentSessionStoredInTheService)
         {
             this._logger.LogError(
                 "Agent '{AgentName}' had this response stored by the service behind its chat client, so the conversation is being recorded twice.",
