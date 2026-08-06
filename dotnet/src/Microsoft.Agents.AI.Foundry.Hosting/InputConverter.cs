@@ -106,32 +106,30 @@ internal static class InputConverter
             // clients send placeholder values like "hosted-agent").
         };
 
-        // Only store=false travels to the service behind the chat client: a caller opting out of storage
-        // gets nothing recorded anywhere, while carrying store=true across would either force storage on
-        // a container whose author turned it off on purpose or change nothing, since storing is already
-        // the default.
+        // Storing a hosted agent's conversation is the AgentServer SDK's job: its storage provider
+        // records every turn the caller asked it to store, around this handler. Letting the service
+        // behind the chat client store as well writes the same conversation a second time, in a place
+        // nothing here reads and no one reconciles, so it is switched off for every turn regardless of
+        // what the caller asked for.
         //
         // The agent's own factory is invoked here and its result is what gets the setting, because
         // ChatClientAgent chains the two by taking the agent's only when the request's returns null
         // (ChatClientAgent.PrepareChatOptions). A request factory that always answers would otherwise
         // drop whatever the container configured.
-        if (request.Store == false)
+        options.RawRepresentationFactory = chatClient =>
         {
-            options.RawRepresentationFactory = chatClient =>
+            var configuredByTheAgent = agentRawRepresentationFactory?.Invoke(chatClient);
+            if (configuredByTheAgent is not null and not CreateResponseOptions)
             {
-                var configuredByTheAgent = agentRawRepresentationFactory?.Invoke(chatClient);
-                if (configuredByTheAgent is not null and not CreateResponseOptions)
-                {
-                    // Some other chat client's request type, which has no notion of storing a response.
-                    // Hand it back untouched rather than discard what the container asked for.
-                    return configuredByTheAgent;
-                }
+                // Some other chat client's request type, which has no notion of storing a response.
+                // Hand it back untouched rather than discard what the container asked for.
+                return configuredByTheAgent;
+            }
 
-                var responseOptions = configuredByTheAgent as CreateResponseOptions ?? new CreateResponseOptions();
-                responseOptions.StoredOutputEnabled = false;
-                return responseOptions;
-            };
-        }
+            var responseOptions = configuredByTheAgent as CreateResponseOptions ?? new CreateResponseOptions();
+            responseOptions.StoredOutputEnabled = false;
+            return responseOptions;
+        };
 
         return options;
     }

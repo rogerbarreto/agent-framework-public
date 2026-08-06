@@ -26,18 +26,6 @@ internal static class HostedSessionJsonUtilities
 }
 
 /// <summary>
-/// The persisted shape of a <see cref="ChatClientAgentSession"/> whose conversation lives in
-/// <see cref="AgentSession.StateBag"/> alone, with no <c>conversationId</c> because no conversation on
-/// the service corresponds to it.
-/// </summary>
-internal sealed class InMemorySessionStateConversation
-{
-    /// <summary>Gets or sets the state the session carries.</summary>
-    [JsonPropertyName("stateBag")]
-    public AgentSessionStateBag? StateBag { get; set; }
-}
-
-/// <summary>
 /// Source-generated JSON serialization context for hosted session identity types.
 /// </summary>
 [JsonSourceGenerationOptions(
@@ -47,6 +35,5 @@ internal sealed class InMemorySessionStateConversation
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false)]
 [JsonSerializable(typeof(HostedSessionContext))]
-[JsonSerializable(typeof(InMemorySessionStateConversation))]
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 internal partial class HostedSessionJsonContext : JsonSerializerContext;
