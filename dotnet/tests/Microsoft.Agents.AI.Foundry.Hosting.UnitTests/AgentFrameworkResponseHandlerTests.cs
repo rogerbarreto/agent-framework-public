@@ -14,9 +14,11 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using ChatCompletionOptions = OpenAI.Chat.ChatCompletionOptions;
 using CreateResponseOptions = OpenAI.Responses.CreateResponseOptions;
+using IncludedResponseProperty = OpenAI.Responses.IncludedResponseProperty;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
@@ -1044,7 +1046,7 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
-    public async Task CreateAsync_AgentWhoseChatClientReportsAConversationId_IsRejectedAsync()
+    public async Task CreateAsync_AgentWhoseChatClientStoredTheTurn_FailsTheRequestAsync()
     {
         // Arrange: a chat client whose underlying service keeps the conversation and says so on every
         // answer, whatever the host asks of it.
@@ -1057,22 +1059,49 @@ public class AgentFrameworkResponseHandlerTests
         var agent = new ChatClientAgent(client.Object);
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
 
-        await DrainEventsAsync(handler.CreateAsync(
+        // Act + Assert: the hosting service already recorded this turn, so a second recording held by
+        // the service behind the chat client has no owner and no way to stay in step. The container was
+        // deployed wrong, which is nothing the caller can fix, so the very first turn fails as a server
+        // error rather than quietly building a conversation nobody can reconcile.
+        var failure = await Assert.ThrowsAsync<ResponsesApiException>(() => DrainEventsAsync(handler.CreateAsync(
             NewConversationRequest("conv-rejected", "first question", store: true),
             NewContextServing("resp_" + new string('3', 45) + "0", []),
-            CancellationToken.None));
-
-        // Act + Assert: a hosted agent's conversation is recorded by the AgentServer SDK's storage
-        // provider, so a second one held by the service behind the chat client has no owner and no way
-        // to stay in step. The next turn is refused as a plain bad request rather than run against a
-        // conversation nobody can reconcile.
-        var failure = await Assert.ThrowsAsync<ResponsesApiException>(() => DrainEventsAsync(handler.CreateAsync(
-            NewConversationRequest("conv-rejected", "second question", store: true),
-            NewContextServing("resp_" + new string('3', 45) + "1", []),
             CancellationToken.None)));
 
-        Assert.Equal("service_managed_chat_history_not_supported", failure.Error.Code);
-        Assert.Equal(400, failure.StatusCode);
+        Assert.Equal("agent_stored_output_not_disabled", failure.Error.Code);
+        Assert.Equal(501, failure.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_AgentWhoseChatClientStoredTheTurn_AndStoringIsAllowed_SucceedsAsync()
+    {
+        // Arrange: the same agent, in a container that opted into keeping its own recording.
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns(() => ToAsyncEnumerableUpdatesAsync(
+                new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1", ConversationId = "conv-downstream" }));
+
+        var agent = new ChatClientAgent(client.Object);
+        var handler = BuildHandlerWith(
+            agent,
+            new FakeHostedSessionIsolationKeyProvider(),
+            new InMemoryAgentSessionStore(),
+            hostingOptions: new FoundryResponsesOptions { AllowStoredOutputEnabled = true });
+
+        // Act
+        var names = new List<string>();
+        await foreach (var evt in handler.CreateAsync(
+            NewConversationRequest("conv-allowed", "first question", store: true),
+            NewContextServing("resp_" + new string('4', 45) + "0", []),
+            CancellationToken.None))
+        {
+            names.Add(evt.GetType().Name);
+        }
+
+        // Assert: nothing is checked and nothing is refused. The agent is left to run against its own
+        // service exactly as the container built it.
+        Assert.DoesNotContain("ResponseFailedEvent", names);
     }
 
     [Fact]
@@ -1130,6 +1159,83 @@ public class AgentFrameworkResponseHandlerTests
         Assert.NotNull(sentToTheClient?.RawRepresentationFactory);
         var raw = Assert.IsType<CreateResponseOptions>(sentToTheClient!.RawRepresentationFactory!(client.Object));
         Assert.False(raw.StoredOutputEnabled);
+
+        // And because nothing is stored, reasoning would be lost between turns unless its encrypted
+        // form is asked for, which is what AsIChatClientWithStoredOutputDisabled does too.
+        Assert.Contains(IncludedResponseProperty.ReasoningEncryptedContent, raw.IncludedProperties);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ReasoningEncryptedContentTurnedOff_IsNotAskedForAsync()
+    {
+        // Arrange: a container that does not want the encrypted reasoning tokens asked for.
+        ChatOptions? sentToTheClient = null;
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> _, ChatOptions? options, CancellationToken _) =>
+            {
+                sentToTheClient = options;
+                return ToAsyncEnumerableUpdatesAsync(new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+            });
+
+        var agent = new ChatClientAgent(client.Object);
+        var handler = BuildHandlerWith(
+            agent,
+            new FakeHostedSessionIsolationKeyProvider(),
+            new InMemoryAgentSessionStore(),
+            hostingOptions: new FoundryResponsesOptions { IncludeReasoningEncryptedContent = false });
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-no-reasoning", "a question", store: true),
+            NewContextServing("resp_" + new string('6', 45) + "0", []),
+            CancellationToken.None));
+
+        // Assert: storing is still turned off, but nothing else is added to the request.
+        var raw = Assert.IsType<CreateResponseOptions>(sentToTheClient!.RawRepresentationFactory!(client.Object));
+        Assert.False(raw.StoredOutputEnabled);
+        Assert.DoesNotContain(IncludedResponseProperty.ReasoningEncryptedContent, raw.IncludedProperties);
+    }
+
+    [Fact]
+    public async Task CreateAsync_StoringIsAllowed_LeavesTheAgentsOwnSettingAloneAsync()
+    {
+        // Arrange: a container that opted into keeping its own recording, with an agent that asks for
+        // its responses to be stored.
+        ChatOptions? sentToTheClient = null;
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> _, ChatOptions? options, CancellationToken _) =>
+            {
+                sentToTheClient = options;
+                return ToAsyncEnumerableUpdatesAsync(new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1" });
+            });
+
+        var agent = new ChatClientAgent(client.Object, new ChatClientAgentOptions
+        {
+            ChatOptions = new ChatOptions
+            {
+                RawRepresentationFactory = _ => new CreateResponseOptions { StoredOutputEnabled = true },
+            },
+        });
+
+        var handler = BuildHandlerWith(
+            agent,
+            new FakeHostedSessionIsolationKeyProvider(),
+            new InMemoryAgentSessionStore(),
+            hostingOptions: new FoundryResponsesOptions { AllowStoredOutputEnabled = true });
+
+        // Act
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-allowed-setting", "a question", store: true),
+            NewContextServing("resp_" + new string('8', 45) + "0", []),
+            CancellationToken.None));
+
+        // Assert: what the container configured is what goes out, untouched.
+        var raw = Assert.IsType<CreateResponseOptions>(sentToTheClient!.RawRepresentationFactory!(client.Object));
+        Assert.True(raw.StoredOutputEnabled);
     }
 
     [Fact]
@@ -1767,12 +1873,21 @@ public class AgentFrameworkResponseHandlerTests
         return (request, ctx);
     }
 
-    private static AgentFrameworkResponseHandler BuildHandlerWith(AIAgent agent, HostedSessionIsolationKeyProvider provider, AgentSessionStore store)
+    private static AgentFrameworkResponseHandler BuildHandlerWith(
+        AIAgent agent,
+        HostedSessionIsolationKeyProvider provider,
+        AgentSessionStore store,
+        FoundryResponsesOptions? hostingOptions = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(store);
         services.AddSingleton(agent);
         services.AddSingleton(provider);
+        if (hostingOptions is not null)
+        {
+            services.AddSingleton(Options.Create(hostingOptions));
+        }
+
         return new AgentFrameworkResponseHandler(services.BuildServiceProvider(), NullLogger<AgentFrameworkResponseHandler>.Instance);
     }
 

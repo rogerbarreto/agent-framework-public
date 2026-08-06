@@ -12,6 +12,7 @@ using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
@@ -169,19 +170,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
-        // A hosted agent's conversation is recorded by the AgentServer SDK's own storage provider. A
-        // conversation id on the session means the service behind the agent's chat client is recording
-        // a second one, which nothing here reads and which no one reconciles with the first. Refuse
-        // before any work is done, as a plain bad request rather than a failure part way through.
-        if (session is ChatClientAgentSession { ConversationId: not null })
-        {
-            throw new ResponsesApiException(
-                new Error(
-                    "service_managed_chat_history_not_supported",
-                    "Chat history is managed by the hosted agent service, therefore using a ChatClientAgent with its own service storage is not supported. Configure the agent's chat client so the underlying service does not store responses."),
-                400);
-        }
-
         // 3. Create the SDK event stream builder
         var stream = new ResponseEventStream(context, request);
 
@@ -219,15 +207,27 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         // 5. Build chat options
-        var chatOptions = InputConverter.ConvertToChatOptions(request, agentOptions?.ChatOptions?.RawRepresentationFactory);
+        var hostingOptions = this._serviceProvider.GetService<IOptions<FoundryResponsesOptions>>()?.Value;
+        var allowStoredOutputEnabled = hostingOptions?.AllowStoredOutputEnabled ?? false;
+        var chatOptions = InputConverter.ConvertToChatOptions(
+            request,
+            agentOptions?.ChatOptions?.RawRepresentationFactory,
+            hostingOptions);
         chatOptions.Instructions = request.Instructions;
 
         // Everything the agent needs for this turn is already in the input, so the provider it would
         // otherwise run is replaced for the duration by one that keeps its messages in memory and is
         // dropped when the run ends. Serving from a longer-lived one would deliver the conversation
         // twice, and storing into it would leave a copy the hosting service never sees.
-        chatOptions.AdditionalProperties ??= [];
-        chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
+        //
+        // A container that allows its own service to keep the conversation has taken history over, so
+        // nothing is put in its way: the agent already stands its own provider down when that service
+        // hands back a conversation id, and an override here would only collide with it.
+        if (!allowStoredOutputEnabled)
+        {
+            chatOptions.AdditionalProperties ??= [];
+            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
+        }
 
         // Inject Foundry Toolbox tools when the toolbox service is available.
         //
@@ -385,6 +385,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
         bool emittedTerminal = false;
+        bool agentKeptItsOwnConversation = false;
+
+        // The session picks up the id of any conversation the agent's own service kept, at the end of
+        // the run and before the agent reports anything else about it.
+        bool AgentKeptItsOwnConversation() =>
+            !allowStoredOutputEnabled && session is ChatClientAgentSession { ConversationId: not null };
+
         var enumerator = OutputConverter.ConvertUpdatesToEventsAsync(
             agent.RunStreamingAsync(messages, session, options: options, cancellationToken: consentCts.Token),
             stream,
@@ -453,6 +460,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (failedEvent is not null)
                 {
+                    // The run may have failed precisely because the agent's own service kept the
+                    // conversation: the session picks up that id before the agent goes on to complain
+                    // about having two history managers. Report the deployment problem that caused it
+                    // rather than the confusing symptom.
+                    if (AgentKeptItsOwnConversation())
+                    {
+                        agentKeptItsOwnConversation = true;
+                        throw HostedStoredOutputCompatibility.CreateMisconfiguredAgentError();
+                    }
+
                     yield return failedEvent;
                     yield break;
                 }
@@ -478,12 +495,28 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             await enumerator.DisposeAsync().ConfigureAwait(false);
 
+            // The run is over, so the session now carries whatever the agent's own service handed back.
+            // A conversation id there means that service kept this turn, which is a second recording of
+            // a conversation the hosting service already recorded.
+            agentKeptItsOwnConversation |= AgentKeptItsOwnConversation();
+
             // Persist session after streaming completes (successful or not). The user id partitions the
             // persisted session per end user, mirroring the load above so multi-turn continuity is preserved.
-            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId))
+            // A session pointing at a conversation the agent's own service kept is never persisted: every
+            // later turn would resume onto that conversation and keep the double recording going.
+            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId) && !agentKeptItsOwnConversation)
             {
                 await sessionStore.SaveSessionAsync(agent, agentSessionId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        if (agentKeptItsOwnConversation)
+        {
+            this._logger.LogError(
+                "Agent '{AgentName}' had this response stored by the service behind its chat client, so the conversation is being recorded twice.",
+                agent.Name);
+
+            throw HostedStoredOutputCompatibility.CreateMisconfiguredAgentError();
         }
     }
 
