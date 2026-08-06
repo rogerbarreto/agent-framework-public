@@ -41,10 +41,17 @@ internal static class HostedStoredOutputCompatibility
     internal const string MisconfiguredAgentErrorCode = "agent_stored_output_not_disabled";
 
     /// <summary>
-    /// Message shared by the readiness probe and the per-request check, naming both the cause and the fix.
+    /// What goes wrong and how to fix it, shared by the readiness probe and the per-request check so
+    /// both name the same cause and the same two ways out.
+    /// </summary>
+    internal const string MisconfiguredAgentExplanation =
+        "Server-side storage must be off for a hosted agent. With it on, the agent's own service records a separate conversation and response that nothing tracks, while the hosted agent service records its own conversation for the same request, so one exchange is written twice into two places nobody reconciles. Build the agent's chat client so it does not store responses (for example with AsIChatClientWithStoredOutputDisabled), or set FoundryResponsesOptions.AllowStoredOutputEnabled to true to keep that second recording on purpose.";
+
+    /// <summary>
+    /// Message carried by the error raised when a turn was stored by the agent's own service.
     /// </summary>
     internal const string MisconfiguredAgentMessage =
-        "The service behind the agent's chat client stored this response, so the conversation is being recorded twice: once by the hosted agent service and once by that service. Build the agent's chat client so it does not store responses (for example with AsIChatClientWithStoredOutputDisabled), or set FoundryResponsesOptions.AllowStoredOutputEnabled to true to keep the second recording on purpose.";
+        "The service behind the agent's chat client stored this response. " + MisconfiguredAgentExplanation;
 
     /// <summary>
     /// Returns the error to throw when the agent's own service kept the turn.

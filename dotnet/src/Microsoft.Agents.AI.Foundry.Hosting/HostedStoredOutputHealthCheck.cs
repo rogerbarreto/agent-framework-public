@@ -88,7 +88,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
                 status: context.Registration.FailureStatus,
                 description: string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Stored output: {storingAgents.Count} registered agent(s) ask their own service to store the responses they produce. {HostedStoredOutputCompatibility.MisconfiguredAgentMessage}"),
+                    $"Stored output: {storingAgents.Count} registered agent(s) have server-side storage enabled. {HostedStoredOutputCompatibility.MisconfiguredAgentExplanation}"),
                 data: new Dictionary<string, object>(StringComparer.Ordinal) { ["storingAgents"] = storingAgents });
         }
 
