@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
@@ -41,17 +40,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// Avoids a per-request allocation on the request hot path.
     /// </summary>
     private static readonly HostedSessionIsolationKeyProvider s_defaultIsolationKeyProvider = new PlatformHostedSessionIsolationKeyProvider();
-
-    /// <summary>Identifies the handler as the source of chat history messages it passes as input.</summary>
-    private const string HistorySourceId = "Microsoft.Agents.AI.Foundry.Hosting.AgentFrameworkResponseHandler";
-
-    /// <summary>
-    /// The session type a hosted workflow runs with. It is internal to <c>Microsoft.Agents.AI.Workflows</c>,
-    /// so it is recognised by name: taking a reference to it would mean opening that package's internals,
-    /// which cannot be done here because both packages compile the same shared source files. The full name
-    /// is matched so a session of the same short name from another namespace is not mistaken for it.
-    /// </summary>
-    private const string WorkflowSessionTypeName = "Microsoft.Agents.AI.Workflows.WorkflowSession";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
@@ -139,16 +127,12 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var hostingOptions = this._serviceProvider.GetService<IOptions<FoundryResponsesOptions>>()?.Value;
         var allowStoredOutputEnabled = hostingOptions?.AllowStoredOutputEnabled ?? false;
 
-        // Load an existing session when there is a conversation key. The store returns null when
-        // nothing is persisted for it, which is the authoritative "this is a resume" signal: a
-        // non-null result means a prior turn saved this session. Whether loaded or created, the
-        // handler owns creating a fresh session when none exists, so the resume signal does not
-        // depend on inspecting the session for state the handler itself also writes to.
-        AgentSession? sessionLoadedFromStore = !string.IsNullOrWhiteSpace(agentSessionId)
-            ? await sessionStore.GetSessionAsync(agent, agentSessionId, resolvedUserId, cancellationToken).ConfigureAwait(false)
-            : null;
-
-        AgentSession? session = sessionLoadedFromStore ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        // Load the session for this conversation, or start a new one. The store returns null when
+        // nothing is persisted for the key, so a fresh conversation and a resumed one both end up with
+        // a session to run against.
+        AgentSession? session = !string.IsNullOrWhiteSpace(agentSessionId)
+            ? await sessionStore.GetOrCreateSessionAsync(agent, agentSessionId, resolvedUserId, cancellationToken).ConfigureAwait(false)
+            : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
         // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
         // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
@@ -187,33 +171,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         yield return stream.EmitCreated();
         yield return stream.EmitInProgress();
 
-        // 4. Convert input: history + current input → ChatMessage[]
+        // 4. Convert input: the current input items become the run's messages. Earlier turns are not
+        // added here; whatever holds the history for this agent supplies them, see step 5.
         var messages = new List<ChatMessage>();
-
-        // Add the chat history to the request, unless something else already holds it.
-        //
-        // A workflow session accumulates previous turns of its own, so handing it the full history
-        // again would replay them; its type is internal, hence the check on the type name.
-        //
-        // A session carrying a conversation id means the service behind the agent's chat client is
-        // holding the conversation, which only happens when the container allows it. That service adds
-        // its own history to the run, so adding the platform's as well would send every earlier turn
-        // twice. The first turn of such a conversation has no id yet, so it still gets the history and
-        // the service picks it up from there.
-        var somethingElseHoldsTheHistory =
-            string.Equals(sessionLoadedFromStore?.GetType().FullName, WorkflowSessionTypeName, StringComparison.Ordinal)
-            || (allowStoredOutputEnabled && session is ChatClientAgentSession { ConversationId: not null });
-
-        if (!somethingElseHoldsTheHistory)
-        {
-            var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
-            if (history.Count > 0)
-            {
-                messages.AddRange(InputConverter
-                    .ConvertOutputItemsToMessages(history, session?.StateBag)
-                    .Select(m => m.WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory, HistorySourceId)));
-            }
-        }
 
         // Load and convert current input items
         var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -376,19 +336,30 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
-        // Everything the agent needs for this turn is already in the input, so the provider it would
-        // otherwise run is replaced for the duration by one that keeps its messages in memory and is
-        // dropped when the run ends. Serving from a longer-lived one would deliver the conversation
-        // twice, and storing into it would leave a copy the hosting service never sees.
+        // 5b. Decide who supplies the earlier turns of this conversation.
         //
-        // A container that allows its own service to keep the conversation has taken history over, so
-        // nothing is put in its way: the agent already stands its own provider down when that service
-        // hands back a conversation id, and an override here would only collide with it.
+        // A ChatClientAgent with no provider of its own has nothing to remember the conversation with,
+        // so the hosting service's own record is handed to it, through a provider that lives for this
+        // run and is dropped at the end. Passing those turns as input instead would have the agent
+        // store them again as if they were new.
+        //
+        // Everything else is left alone and supplies its own history: an agent given a provider uses
+        // it, an agent whose service keeps the conversation gets it from there, and an agent that is
+        // not a ChatClientAgent, a hosted workflow for instance, carries the conversation in its own
+        // session state and only wants the new input.
         var options = new ChatClientAgentRunOptions(chatOptions);
-        if (!allowStoredOutputEnabled)
+        var useVolatileChatHistoryProvider =
+            !allowStoredOutputEnabled
+            && agent.GetService<ChatClientAgent>() is not null
+            && agentOptions?.ChatHistoryProvider is null;
+
+        if (useVolatileChatHistoryProvider)
         {
+            var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
+
             options.AdditionalProperties ??= [];
-            options.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
+            options.AdditionalProperties.Add<ChatHistoryProvider>(
+                new VolatileChatHistoryProvider(InputConverter.ConvertOutputItemsToMessages(history, session?.StateBag)));
         }
 
         // 6. Set up consent context for -32006 OAuth consent interception.
@@ -533,10 +504,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             allowAgentSessionStoreInTheService &= !NotAllowedAgentSessionStoredInTheService();
 
             // Persist session after streaming completes (successful or not). The user id partitions the
-            // persisted session per end user, mirroring the load above so multi-turn continuity is preserved.
-            // A session pointing at a conversation the agent's own service kept is never persisted: every
-            // later turn would resume onto that conversation and keep the double recording going.
-            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId) && allowAgentSessionStoreInTheService)
+            // persisted session per end user, mirroring the load above so multi-turn continuity is
+            // preserved. Nothing this handler adds for the turn reaches the session: the provider it
+            // supplies keeps its messages in a field and is dropped when the run ends.
+            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId))
             {
                 await sessionStore.SaveSessionAsync(agent, agentSessionId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
             }

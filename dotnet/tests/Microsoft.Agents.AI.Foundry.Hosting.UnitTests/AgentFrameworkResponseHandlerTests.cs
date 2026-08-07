@@ -383,7 +383,7 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
-    public async Task CreateAsync_WithHistory_PrependsHistoryToMessagesAsync()
+    public async Task CreateAsync_WithHistory_LeavesTheNewInputAloneAsync()
     {
         // Arrange
         var agent = new CapturingAgent();
@@ -425,10 +425,11 @@ public class AgentFrameworkResponseHandlerTests
         }
 
         // Assert
+        // Assert: this agent supplies its own history, so only the new input reaches it.
         Assert.NotNull(agent.CapturedMessages);
         var messages = agent.CapturedMessages.ToList();
-        Assert.True(messages.Count >= 2);
-        Assert.Equal(ChatRole.Assistant, messages[0].Role);
+        Assert.Single(messages);
+        Assert.Equal(ChatRole.User, messages[0].Role);
     }
 
     [Fact]
@@ -723,7 +724,8 @@ public class AgentFrameworkResponseHandlerTests
         // Arrange: the first turn this container serves for a conversation the service already holds
         // history for. Nothing has been persisted for it yet, so this is not a resume: the history has
         // to be handed to the agent, otherwise it answers knowing nothing of the conversation.
-        var agent = new CapturingAgent();
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured), new ChatClientAgentOptions { Name = "keeps-nothing" });
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
         var request = new CreateResponse { Model = "test" };
         request.Conversation = BinaryData.FromString("\"conv-known\"");
@@ -746,8 +748,7 @@ public class AgentFrameworkResponseHandlerTests
         // freshly created session already carries state and reading that as "it has run before" made the
         // first turn of every conversation look like a resume, dropping its history. It only showed up
         // when hosted, because there is no identity to write locally.
-        Assert.NotNull(agent.CapturedMessages);
-        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+        Assert.Contains(captured, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -782,7 +783,8 @@ public class AgentFrameworkResponseHandlerTests
         // Arrange: an agent written outside this repo that runs no chat history provider and keeps
         // nothing in its session, with a first turn that persists one anyway.
         const string ConversationId = "conv-keeps-nothing";
-        var agent = new CapturingAgent();
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(CreateCapturingChatClient(captured), new ChatClientAgentOptions { Name = "keeps-nothing" });
         var store = new InMemoryAgentSessionStore();
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), store);
         await DrainEventsAsync(handler.CreateAsync(
@@ -791,16 +793,16 @@ public class AgentFrameworkResponseHandlerTests
             CancellationToken.None));
 
         // Act: a second turn of the same conversation, for which the service now reports history.
+        captured.Clear();
         await DrainEventsAsync(handler.CreateAsync(
             NewConversationTurn(ConversationId, "second question"),
             NewServingContext("resp_" + new string('8', 46), [NewHistoryMessageItem("msg_hist_1", "first question")]),
             CancellationToken.None));
 
         // Assert: a persisted session says a prior turn ran here, not that the conversation is inside it.
-        // Only a workflow keeps its messages that way; anything else starts each turn with nothing, so
-        // withholding the history would leave it answering blind.
-        Assert.NotNull(agent.CapturedMessages);
-        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("first question", StringComparison.Ordinal));
+        // An agent with nothing of its own to remember it with starts each turn empty, so withholding
+        // the history would leave it answering blind.
+        Assert.Contains(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -875,10 +877,10 @@ public class AgentFrameworkResponseHandlerTests
     //   - TakesThePlatformHistoryInsteadOfThatProvider       (both sources reached the model at once)
 
     [Fact]
-    public async Task CreateAsync_AgentWithoutProviderPipeline_ReceivesPlatformHistoryInInputAsync()
+    public async Task CreateAsync_AgentThatIsNotAChatClientAgent_ReceivesOnlyTheNewInputAsync()
     {
-        // Arrange: a plain AIAgent (a hosted workflow, for example) has no ChatHistoryProvider
-        // pipeline, so the handler is the only thing that can hand it the platform history.
+        // Arrange: a plain AIAgent, a hosted workflow for instance, carries the conversation in its own
+        // session state and picks up where it left off.
         var agent = new CapturingAgent();
         var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
         var (request, ctx) = BuildChainRequest("resp_" + new string('1', 46), callId: null);
@@ -888,9 +890,11 @@ public class AgentFrameworkResponseHandlerTests
         // Act
         await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
 
-        // Assert
+        // Assert: only this turn's input goes in. Replaying the earlier turns would re-drive steps such
+        // an agent has already run.
         Assert.NotNull(agent.CapturedMessages);
-        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+        Assert.DoesNotContain(agent.CapturedMessages!, m => m.Text.Contains("earlier turn", StringComparison.Ordinal));
+        Assert.Contains(agent.CapturedMessages!, m => m.Text.Contains("Hello", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -961,7 +965,7 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
-    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_TakesThePlatformHistoryInsteadOfThatProviderAsync()
+    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_LeavesThatProviderToSupplyTheHistoryAsync()
     {
         // Arrange: the agent was created with its own chat history provider.
         var captured = new List<ChatMessage>();
@@ -976,12 +980,11 @@ public class AgentFrameworkResponseHandlerTests
         // Act
         await DrainEventsAsync(handler.CreateAsync(request, ctx.Object, CancellationToken.None));
 
-        // Assert: one source only, and hosted it is the one the AgentServer SDK's storage provider
-        // records and serves back. A provider storing a second copy inside the container would add a
-        // conversation that storage provider never sees, so the agent's provider is stood down for the
-        // turn rather than mixed in.
-        Assert.Contains(captured, m => m.Text.Contains("from the platform", StringComparison.Ordinal));
-        Assert.DoesNotContain(captured, m => m.Text.Contains("from my own store", StringComparison.Ordinal));
+        // Assert: an agent given a provider keeps it, and hosting adds nothing of its own. Handing it
+        // the hosting service's copy as well would put the same conversation in front of the model
+        // twice and leave the provider's own store holding turns it never took.
+        Assert.Contains(captured, m => m.Text.Contains("from my own store", StringComparison.Ordinal));
+        Assert.DoesNotContain(captured, m => m.Text.Contains("from the platform", StringComparison.Ordinal));
     }
 
     [Fact]
