@@ -22,10 +22,8 @@
 using System.ClientModel;
 using Azure.AI.Projects;
 using Azure.AI.Projects.Agents;
-using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
-using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Extensions.AI;
@@ -33,10 +31,10 @@ using Microsoft.Extensions.AI;
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
 
-string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+string endpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
-string deploymentName = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
-string skillNames = Environment.GetEnvironmentVariable("SKILL_NAMES")
+string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
+string skillNames = System.Environment.GetEnvironmentVariable("SKILL_NAMES")
     ?? throw new InvalidOperationException("SKILL_NAMES is not set. Provide a comma-separated list of skill names (e.g., support-style,escalation-policy).");
 
 string[] requestedSkills = skillNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -60,9 +58,7 @@ foreach (string name in requestedSkills)
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 // Use a chained credential: try a temporary dev token first (for local Docker debugging),
 // then fall back to DefaultAzureCredential (for local dev via dotnet run / managed identity in production).
-TokenCredential credential = new ChainedTokenCredential(
-    new DevTemporaryTokenCredential(),
-    new DefaultAzureCredential());
+var credential = new DefaultAzureCredential();
 
 AIProjectClient projectClient = new(new Uri(endpoint), credential);
 ProjectAgentSkills skillsClient = projectClient.AgentAdministrationClient.GetAgentSkills();
@@ -73,7 +69,7 @@ ProjectAgentSkills skillsClient = projectClient.AgentAdministrationClient.GetAge
 // out of the box without a separate setup step. Set PROVISION_SAMPLE_SKILLS=true to enable.
 string sourceSkillsDir = Path.Combine(AppContext.BaseDirectory, "skills");
 bool provisionEnabled = string.Equals(
-    Environment.GetEnvironmentVariable("PROVISION_SAMPLE_SKILLS"), "true", StringComparison.OrdinalIgnoreCase);
+    System.Environment.GetEnvironmentVariable("PROVISION_SAMPLE_SKILLS"), "true", StringComparison.OrdinalIgnoreCase);
 if (provisionEnabled && Directory.Exists(sourceSkillsDir))
 {
     await EnsureSkillsProvisionedAsync(skillsClient, sourceSkillsDir, requestedSkills);
@@ -94,7 +90,7 @@ AgentSkillsProvider skillsProvider = new(downloadedSkillsDir);
 
 AIAgent agent = projectClient.AsAIAgent(new ChatClientAgentOptions
 {
-    Name = Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-agent-skills",
+    Name = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-agent-skills",
     ChatOptions = new ChatOptions
     {
         ModelId = deploymentName,
@@ -116,10 +112,6 @@ builder.Services.AddFoundryResponses(agent);
 var app = builder.Build();
 app.MapFoundryResponses();
 
-// Contributor-only: in Development, also map the per-agent OpenAI route shape that live Foundry uses
-// so a local REPL client can target this server via AIProjectClient.AsAIAgent(Uri agentEndpoint).
-// Do not use this in production. Hosted Foundry agents only support the agent-endpoint path.
-app.MapDevTemporaryLocalAgentEndpoint();
 
 app.Run();
 
