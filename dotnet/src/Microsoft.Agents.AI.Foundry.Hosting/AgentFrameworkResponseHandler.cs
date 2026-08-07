@@ -15,6 +15,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
 
+// The terminal stream events are named the same in two namespaces this file pulls in, and the short
+// name binds to the one the event objects are not. Naming them here keeps `is` checks against the
+// types the response stream actually produces.
+using ResponseCompletedEvent = Azure.AI.AgentServer.Responses.Models.ResponseCompletedEvent;
+using ResponseFailedEvent = Azure.AI.AgentServer.Responses.Models.ResponseFailedEvent;
+using ResponseIncompleteEvent = Azure.AI.AgentServer.Responses.Models.ResponseIncompleteEvent;
+
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
@@ -129,6 +136,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             conversationId, request.PreviousResponseId, context.ResponseId);
 
         var agentOptions = agent.GetService<ChatClientAgentOptions>();
+        var hostingOptions = this._serviceProvider.GetService<IOptions<FoundryResponsesOptions>>()?.Value;
+        var allowStoredOutputEnabled = hostingOptions?.AllowStoredOutputEnabled ?? false;
 
         // Load an existing session when there is a conversation key. The store returns null when
         // nothing is persisted for it, which is the authoritative "this is a resume" signal: a
@@ -181,10 +190,21 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: history + current input → ChatMessage[]
         var messages = new List<ChatMessage>();
 
-        // Add the chat history to the request. Workflow sessions accumulate previous turns and must not
-        // get the full history again; their types are internal, hence the check on the type name.
-        if (sessionLoadedFromStore is null
-            || !string.Equals(sessionLoadedFromStore.GetType().FullName, WorkflowSessionTypeName, StringComparison.Ordinal))
+        // Add the chat history to the request, unless something else already holds it.
+        //
+        // A workflow session accumulates previous turns of its own, so handing it the full history
+        // again would replay them; its type is internal, hence the check on the type name.
+        //
+        // A session carrying a conversation id means the service behind the agent's chat client is
+        // holding the conversation, which only happens when the container allows it. That service adds
+        // its own history to the run, so adding the platform's as well would send every earlier turn
+        // twice. The first turn of such a conversation has no id yet, so it still gets the history and
+        // the service picks it up from there.
+        var somethingElseHoldsTheHistory =
+            string.Equals(sessionLoadedFromStore?.GetType().FullName, WorkflowSessionTypeName, StringComparison.Ordinal)
+            || (allowStoredOutputEnabled && session is ChatClientAgentSession { ConversationId: not null });
+
+        if (!somethingElseHoldsTheHistory)
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
             if (history.Count > 0)
@@ -208,8 +228,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         // 5. Build chat options
-        var hostingOptions = this._serviceProvider.GetService<IOptions<FoundryResponsesOptions>>()?.Value;
-        var allowStoredOutputEnabled = hostingOptions?.AllowStoredOutputEnabled ?? false;
         var chatOptions = InputConverter.ConvertToChatOptions(
             request,
             agentOptions?.ChatOptions?.RawRepresentationFactory,
@@ -387,6 +405,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         bool emittedTerminal = false;
         bool allowAgentSessionStoreInTheService = true;
 
+        // A successful terminal event, held until the run is wound up and the session can be checked.
+        ResponseStreamEvent? completedEvent = null;
+
         // The session picks up the id of any conversation the agent's own service kept, at the end of
         // the run and before the agent reports anything else about it.
         bool NotAllowedAgentSessionStoredInTheService() =>
@@ -482,10 +503,21 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     yield break;
                 }
 
+                // A completed event is held back rather than sent straight out. The id of any
+                // conversation the agent's own service kept only lands on the session once the run is
+                // fully wound up, which is after this point, so sending the event now could tell the
+                // caller the turn finished and then hand them a failure for the very same turn.
+                if (evt is ResponseCompletedEvent)
+                {
+                    completedEvent = evt;
+                    emittedTerminal = true;
+                    continue;
+                }
+
                 // yield is in the outer try (finally-only) — allowed by C#
                 yield return evt!;
 
-                if (evt is ResponseCompletedEvent or ResponseFailedEvent or ResponseIncompleteEvent)
+                if (evt is ResponseFailedEvent or ResponseIncompleteEvent)
                 {
                     emittedTerminal = true;
                 }
@@ -517,6 +549,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 agent.Name);
 
             throw HostedStoredOutputCompatibility.CreateMisconfiguredAgentError();
+        }
+
+        if (completedEvent is not null)
+        {
+            yield return completedEvent;
         }
     }
 

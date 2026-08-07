@@ -104,20 +104,30 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
     /// The run carries no chat options of its own, so the agent's own configuration is what reaches the
     /// probe. Overriding the setting here, the way the request handler does per turn, would only show
     /// the override back.
+    /// <para>
+    /// The agent's chat history provider is stood down for this run, because it would otherwise read
+    /// and write its own store on every readiness probe. A provider backed by a database would then be
+    /// doing external calls, and adding this probe's empty turn to a real conversation, for a run that
+    /// asks the agent nothing.
+    /// </para>
     /// </remarks>
     private async Task<bool> StoresItsOwnResponsesAsync(AIAgent agent, CancellationToken cancellationToken)
     {
         var probe = new StoredOutputProbeChatClient();
         var runOptions = new ChatClientAgentRunOptions { ChatClientFactory = _ => probe };
+        runOptions.AdditionalProperties ??= [];
+        runOptions.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
 
         try
         {
             await agent.RunAsync([], options: runOptions, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            // The agent could not complete a run it was never really asked to answer. That says nothing
-            // about how it stores responses, so it is not held against it.
+            // The agent could not complete a run it was never really asked to answer, which says nothing
+            // about how it stores responses and is not held against it. A cancellation of its own, a
+            // timeout inside the agent for instance, lands here too; only the health check's own
+            // cancellation is left to propagate.
             if (this._logger?.IsEnabled(LogLevel.Debug) is true)
             {
                 this._logger.LogDebug(ex, "Could not probe the stored output setting for agent '{AgentName}'.", agent.Name);

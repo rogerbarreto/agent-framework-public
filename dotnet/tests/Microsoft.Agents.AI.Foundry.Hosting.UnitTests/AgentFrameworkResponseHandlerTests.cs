@@ -1073,6 +1073,45 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
+    public async Task CreateAsync_AgentWhoseChatClientStoredTheTurn_NeverReportsTheTurnCompletedAsync()
+    {
+        // Arrange: a chat client whose service keeps the conversation, on an agent that does not object
+        // to being handed a second history manager. Its run therefore succeeds and the session comes
+        // back carrying the id, which is the case where the turn looks fine right up to the end.
+        var client = new Mock<IChatClient>();
+        client.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns(() => ToAsyncEnumerableUpdatesAsync(
+                new ChatResponseUpdate(ChatRole.Assistant, "ok") { MessageId = "resp_msg_1", ConversationId = "conv-downstream" }));
+
+        var agent = new ChatClientAgent(client.Object, new ChatClientAgentOptions
+        {
+            ThrowOnChatHistoryProviderConflict = false,
+            WarnOnChatHistoryProviderConflict = false,
+        });
+
+        var handler = BuildHandlerWith(agent, new FakeHostedSessionIsolationKeyProvider(), new InMemoryAgentSessionStore());
+
+        // Act: collect whatever reaches the caller before the failure.
+        var seen = new List<string>();
+        await Assert.ThrowsAsync<ResponsesApiException>(async () =>
+        {
+            await foreach (var evt in handler.CreateAsync(
+                NewConversationRequest("conv-no-completed", "first question", store: true),
+                NewContextServing("resp_" + new string('7', 45) + "0", []),
+                CancellationToken.None))
+            {
+                seen.Add(evt.GetType().Name);
+            }
+        });
+
+        // Assert: a turn this container will not stand behind is never announced as completed first.
+        // Telling the caller it finished and then dropping the connection leaves two different answers
+        // for the same turn.
+        Assert.DoesNotContain("ResponseCompletedEvent", seen);
+    }
+
+    [Fact]
     public async Task CreateAsync_AgentWhoseChatClientStoredTheTurn_AndStoringIsAllowed_SucceedsAsync()
     {
         // Arrange: the same agent, in a container that opted into keeping its own recording.
@@ -1102,6 +1141,43 @@ public class AgentFrameworkResponseHandlerTests
         // Assert: nothing is checked and nothing is refused. The agent is left to run against its own
         // service exactly as the container built it.
         Assert.DoesNotContain("ResponseFailedEvent", names);
+    }
+
+    [Fact]
+    public async Task CreateAsync_StoringIsAllowed_ResumedTurnDoesNotAlsoGetThePlatformHistoryAsync()
+    {
+        // Arrange: a container that allows its own service to keep the conversation. Once that service
+        // holds it, it adds the earlier turns to the run itself.
+        var captured = new List<ChatMessage>();
+        var agent = new ChatClientAgent(
+            CreateCapturingChatClient(captured, conversationId: "conv-downstream"),
+            new ChatClientAgentOptions { Name = "keeps-its-own" });
+
+        var store = new InMemoryAgentSessionStore();
+        var handler = BuildHandlerWith(
+            agent,
+            new FakeHostedSessionIsolationKeyProvider(),
+            store,
+            hostingOptions: new FoundryResponsesOptions { AllowStoredOutputEnabled = true });
+
+        // First turn: nothing holds the conversation yet, so the platform history is what seeds it.
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-owned", "first question", store: true),
+            NewContextServing("resp_" + new string('b', 45) + "0", []),
+            CancellationToken.None));
+
+        // Act: a second turn, for which the platform now reports the first one as history.
+        captured.Clear();
+        await DrainEventsAsync(handler.CreateAsync(
+            NewConversationRequest("conv-owned", "second question", store: true),
+            NewContextServing("resp_" + new string('b', 45) + "1", [NewHistoryMessageItem("msg_hist_1", "first question")]),
+            CancellationToken.None));
+
+        // Assert: only this turn's input goes in. The service holding the conversation replays the
+        // earlier turns on its own, so sending the platform's copy as well would hand the model every
+        // earlier turn twice.
+        Assert.DoesNotContain(captured, m => m.Text.Contains("first question", StringComparison.Ordinal));
+        Assert.Contains(captured, m => m.Text.Contains("second question", StringComparison.Ordinal));
     }
 
     [Fact]
