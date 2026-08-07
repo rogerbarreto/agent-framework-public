@@ -60,7 +60,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
         if (this._hostingOptions.AllowStoredOutputEnabled)
         {
             return HealthCheckResult.Healthy(
-                "Stored output: the container allows the agent's own service to store responses, so its configuration is left alone.");
+                "The hosted agent backend storage usage was detected and the stored output enabled setting is explicitly allowing it.");
         }
 
         List<string> storingAgents = [];

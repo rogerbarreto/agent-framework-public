@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Linq;
@@ -200,6 +201,12 @@ public abstract class HostedAgentFixture : IAsyncLifetime
     /// are tried, because a response created inside the container is not necessarily reachable through
     /// the same endpoint as one created for the caller.
     /// </summary>
+    /// <remarks>
+    /// Only "not there, or not through this endpoint" is swallowed: 404 for a response that was never
+    /// stored, and 403 <c>session_not_accessible</c> for one the project-level client may not read.
+    /// Anything else, an expired token or a server fault for instance, is left to surface, because a
+    /// caller reading this as "nothing is stored" would turn a broken run into a passing test.
+    /// </remarks>
     public async Task<object?> TryReadResponseAsync(string responseId)
     {
         foreach (var responses in new[]
@@ -216,9 +223,9 @@ public abstract class HostedAgentFixture : IAsyncLifetime
                     return response.Value;
                 }
             }
-            catch
+            catch (ClientResultException ex) when (ex.Status is 404 or 403)
             {
-                // Not readable through this endpoint; try the next one.
+                // Not stored, or not readable through this endpoint; try the next one.
             }
         }
 

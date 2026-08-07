@@ -870,9 +870,9 @@ public class AgentFrameworkResponseHandlerTests
     // regression tests for the behaviour this region replaced: the handler used to fetch the platform
     // history and prepend it to the input of every turn, while a ChatClientAgent independently ran its
     // own ChatHistoryProvider. Against that older handler these three fail:
-    //   - DoesNotCopyPlatformHistoryIntoTheSession        (the service's turns ended up in the session)
-    //   - DoesNotAskItToStorePlatformHistory              (and in a custom provider's own database)
-    //   - UsesThatProviderInsteadOfThePlatform            (both sources reached the model at once)
+    //   - DoesNotCopyPlatformHistoryIntoTheSession           (the service's turns ended up in the session)
+    //   - DoesNotAskItToStorePlatformHistory                 (and in a custom provider's own database)
+    //   - TakesThePlatformHistoryInsteadOfThatProvider       (both sources reached the model at once)
 
     [Fact]
     public async Task CreateAsync_AgentWithoutProviderPipeline_ReceivesPlatformHistoryInInputAsync()
@@ -961,7 +961,7 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
-    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_UsesThatProviderInsteadOfThePlatformAsync()
+    public async Task CreateAsync_ChatClientAgentWithHistoryProvider_TakesThePlatformHistoryInsteadOfThatProviderAsync()
     {
         // Arrange: the agent was created with its own chat history provider.
         var captured = new List<ChatMessage>();
@@ -1547,7 +1547,7 @@ public class AgentFrameworkResponseHandlerTests
 
         protected override ValueTask<AgentSession> CreateSessionCoreAsync(
             CancellationToken cancellationToken = default) =>
-            new(new WorkflowSession());
+            new(new Workflows.WorkflowSession());
 
         protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
             AgentSession session,
@@ -1559,12 +1559,7 @@ public class AgentFrameworkResponseHandlerTests
             JsonElement serializedState,
             JsonSerializerOptions? jsonSerializerOptions,
             CancellationToken cancellationToken = default) =>
-            new(new WorkflowSession());
-    }
-
-    /// <summary>Carries the name the handler looks for; the real one is internal to its own package.</summary>
-    private sealed class WorkflowSession : AgentSession
-    {
+            new(new Workflows.WorkflowSession());
     }
 
     private sealed class CancellationCheckingAgent : AIAgent

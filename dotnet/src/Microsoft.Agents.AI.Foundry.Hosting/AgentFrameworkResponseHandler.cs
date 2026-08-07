@@ -41,9 +41,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// <summary>
     /// The session type a hosted workflow runs with. It is internal to <c>Microsoft.Agents.AI.Workflows</c>,
     /// so it is recognised by name: taking a reference to it would mean opening that package's internals,
-    /// which cannot be done here because both packages compile the same shared source files.
+    /// which cannot be done here because both packages compile the same shared source files. The full name
+    /// is matched so a session of the same short name from another namespace is not mistaken for it.
     /// </summary>
-    private const string WorkflowSessionTypeName = "WorkflowSession";
+    private const string WorkflowSessionTypeName = "Microsoft.Agents.AI.Workflows.WorkflowSession";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
@@ -183,7 +184,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Add the chat history to the request. Workflow sessions accumulate previous turns and must not
         // get the full history again; their types are internal, hence the check on the type name.
         if (sessionLoadedFromStore is null
-            || !string.Equals(sessionLoadedFromStore.GetType().Name, WorkflowSessionTypeName, StringComparison.Ordinal))
+            || !string.Equals(sessionLoadedFromStore.GetType().FullName, WorkflowSessionTypeName, StringComparison.Ordinal))
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
             if (history.Count > 0)
@@ -214,20 +215,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             agentOptions?.ChatOptions?.RawRepresentationFactory,
             hostingOptions);
         chatOptions.Instructions = request.Instructions;
-
-        // Everything the agent needs for this turn is already in the input, so the provider it would
-        // otherwise run is replaced for the duration by one that keeps its messages in memory and is
-        // dropped when the run ends. Serving from a longer-lived one would deliver the conversation
-        // twice, and storing into it would leave a copy the hosting service never sees.
-        //
-        // A container that allows its own service to keep the conversation has taken history over, so
-        // nothing is put in its way: the agent already stands its own provider down when that service
-        // hands back a conversation id, and an override here would only collide with it.
-        if (!allowStoredOutputEnabled)
-        {
-            chatOptions.AdditionalProperties ??= [];
-            chatOptions.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
-        }
 
         // Inject Foundry Toolbox tools when the toolbox service is available.
         //
@@ -371,7 +358,20 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
+        // Everything the agent needs for this turn is already in the input, so the provider it would
+        // otherwise run is replaced for the duration by one that keeps its messages in memory and is
+        // dropped when the run ends. Serving from a longer-lived one would deliver the conversation
+        // twice, and storing into it would leave a copy the hosting service never sees.
+        //
+        // A container that allows its own service to keep the conversation has taken history over, so
+        // nothing is put in its way: the agent already stands its own provider down when that service
+        // hands back a conversation id, and an override here would only collide with it.
         var options = new ChatClientAgentRunOptions(chatOptions);
+        if (!allowStoredOutputEnabled)
+        {
+            options.AdditionalProperties ??= [];
+            options.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
+        }
 
         // 6. Set up consent context for -32006 OAuth consent interception.
         //    We create a linked CTS so the consent-aware tool wrapper can cancel the agent
