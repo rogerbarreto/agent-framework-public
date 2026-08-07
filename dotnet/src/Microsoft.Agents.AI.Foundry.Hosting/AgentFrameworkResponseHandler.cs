@@ -336,23 +336,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
-        // 5b. Decide who supplies the earlier turns of this conversation.
-        //
-        // A ChatClientAgent with no provider of its own has nothing to remember the conversation with,
-        // so the hosting service's own record is handed to it, through a provider that lives for this
-        // run and is dropped at the end. Passing those turns as input instead would have the agent
-        // store them again as if they were new.
-        //
-        // Everything else is left alone and supplies its own history: an agent given a provider uses
-        // it, an agent whose service keeps the conversation gets it from there, and an agent that is
-        // not a ChatClientAgent, a hosted workflow for instance, carries the conversation in its own
-        // session state and only wants the new input.
         var options = new ChatClientAgentRunOptions(chatOptions);
+
+        // We only use a volatile provider for the conversation history if the agent is a ChatClientAgent and the allow setting is not intentionally set or not custom chat history provider is intentionally supplied.
         var useVolatileChatHistoryProvider =
             !allowStoredOutputEnabled
             && agent.GetService<ChatClientAgent>() is not null
             && agentOptions?.ChatHistoryProvider is null;
 
+        // This will create a temporary in-memory provider for the conversation history, which will be dropped at the end of this run.
+        // This is used to avoid storing the conversation history as the SDK will by default do the same via the (InMemory/Foundry)ResponsesProvider internal implementation.
         if (useVolatileChatHistoryProvider)
         {
             var history = await context.GetHistoryAsync(cancellationToken).ConfigureAwait(false);
@@ -374,14 +367,20 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
         bool emittedTerminal = false;
-        bool allowAgentSessionStoreInTheService = true;
+        bool notAllowedStoreUsageDetected = false;
+
+        // Set when this turn is being failed, so its session is not kept. A turn that ends incomplete,
+        // waiting on OAuth consent or interrupted by a shutdown, is not a failure: the caller comes back
+        // for it and needs the state that was built up, the tool approval ids among it.
+        bool turnFailed = false;
 
         // A successful terminal event, held until the run is wound up and the session can be checked.
         ResponseStreamEvent? completedEvent = null;
 
-        // The session picks up the id of any conversation the agent's own service kept, at the end of
-        // the run and before the agent reports anything else about it.
-        bool NotAllowedAgentSessionStoredInTheService() =>
+        // Check whenever the agent is storing messages when it should not.
+        bool CheckNotAllowedStoreUsage() =>
+            // For IChatClients implementations when the backend is set to not store (store = false) the returned responseMessage.ConversationId comes null.
+            // If for any reason this property is set it means that the storage setting was enabled when it shouldn't.
             !allowStoredOutputEnabled && session is ChatClientAgentSession { ConversationId: not null };
 
         var enumerator = OutputConverter.ConvertUpdatesToEventsAsync(
@@ -452,16 +451,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (failedEvent is not null)
                 {
-                    // The run may have failed precisely because the agent's own service kept the
-                    // conversation: the session picks up that id before the agent goes on to complain
-                    // about having two history managers. Report the deployment problem that caused it
-                    // rather than the confusing symptom.
-                    if (NotAllowedAgentSessionStoredInTheService())
+                    // The run may have failed precisely because the agent stored the turn: the session
+                    // picks up that conversation id before the agent goes on to complain about having
+                    // two history managers. Report the cause rather than the symptom.
+                    if (CheckNotAllowedStoreUsage())
                     {
-                        allowAgentSessionStoreInTheService = false;
+                        notAllowedStoreUsageDetected = true;
+                        turnFailed = true;
                         throw HostedStoredOutputCompatibility.CreateMisconfiguredAgentError();
                     }
 
+                    turnFailed = true;
                     yield return failedEvent;
                     yield break;
                 }
@@ -498,22 +498,21 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             await enumerator.DisposeAsync().ConfigureAwait(false);
 
-            // The run is over, so the session now carries whatever the agent's own service handed back.
-            // A conversation id there means that service kept this turn, which is a second recording of
-            // a conversation the hosting service already recorded.
-            allowAgentSessionStoreInTheService &= !NotAllowedAgentSessionStoredInTheService();
-
-            // Persist session after streaming completes (successful or not). The user id partitions the
-            // persisted session per end user, mirroring the load above so multi-turn continuity is
-            // preserved. Nothing this handler adds for the turn reaches the session: the provider it
-            // supplies keeps its messages in a field and is dropped when the run ends.
-            if (session is not null && !string.IsNullOrWhiteSpace(agentSessionId))
+            // Only after the the agent ran when can check precisely if the session had been used to store messages in the backend for validation.
+            if (CheckNotAllowedStoreUsage())
             {
-                await sessionStore.SaveSessionAsync(agent, agentSessionId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+                notAllowedStoreUsageDetected = true;
+                turnFailed = true;
+            }
+
+            // Persist the session for the next turn of this conversation, unless this one is being failed.
+            if (session is not null && !turnFailed)
+            {
+                await sessionStore.SaveSessionAsync(agent, agentSessionId!, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        if (!allowAgentSessionStoreInTheService)
+        if (notAllowedStoreUsageDetected)
         {
             this._logger.LogError(
                 "Agent '{AgentName}' should not have server side storage enabled. This produced a new untracked conversation/response in the server while the hosted agent also generated a conversation for the request of the agent.",
