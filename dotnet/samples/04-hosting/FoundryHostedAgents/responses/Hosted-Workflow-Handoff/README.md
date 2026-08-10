@@ -9,6 +9,15 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 > to Azure OpenAI directly. Set both to a resource your identity can call before running or
 > deploying.
 
+> **The deployed agent needs its own role on that Azure OpenAI resource.** Because the workflow
+> builds its own `AzureOpenAIClient` (a data-plane client) instead of using the Foundry project's
+> hosted model, `azd deploy` does **not** grant it access automatically. `azd` only grants the agent
+> identity the `Foundry User` role on the project; it does not touch a separate Azure OpenAI account.
+> After the first deploy, grant the agent's managed identity the **`Cognitive Services OpenAI User`**
+> role on the `AZURE_OPENAI_ENDPOINT` account, or the first model call fails with
+> `server_error: An error occurred while executing the workflow.` at the triage step. See
+> [Grant the agent access to Azure OpenAI](#grant-the-agent-access-to-azure-openai) below.
+
 ## Files
 
 | File | Purpose |
@@ -80,6 +89,45 @@ azd ai agent invoke "Write a haiku about the sea."
 `azd` packages the source into a ZIP (honoring `.agentignore`), uploads it, and Foundry runs
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`).
 No Dockerfile, no container registry. Clean up with `azd down`.
+
+> **`azd down` does not delete the hosted agent.** It reports success but leaves the deployed agent
+> in place. Delete it explicitly with a REST call:
+>
+> ```bash
+> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+> curl -X DELETE "<project-endpoint>/agents/hosted-workflow-handoff?api-version=v1&force=true" \
+>   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> ```
+
+## Grant the agent access to Azure OpenAI
+
+The deployed agent runs under a managed identity that Foundry creates. Because this sample calls
+Azure OpenAI directly (a data-plane call), that identity needs the `Cognitive Services OpenAI User`
+role on the Azure OpenAI account, and `azd` does not grant it. Do this once, after the first
+`azd deploy`, and before `azd ai agent invoke`:
+
+```bash
+# 1. Read the agent's managed-identity principal id from the deployed version.
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+PRINCIPAL=$(curl -s "<project-endpoint>/agents/hosted-workflow-handoff?api-version=v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview" \
+  | jq -r '.versions.latest.instance_identity.principal_id')
+
+# 2. Grant it the data-plane role on the Azure OpenAI account behind AZURE_OPENAI_ENDPOINT.
+az role assignment create \
+  --assignee-object-id "$PRINCIPAL" --assignee-principal-type ServicePrincipal \
+  --role "Cognitive Services OpenAI User" \
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<openai-account>"
+```
+
+Role assignments take up to a few minutes to propagate. Wait, then
+`azd ai agent invoke --new-conversation "Write a haiku about the sea."`. Until the role is in place,
+the workflow starts (`HandoffStart` runs) but fails at the triage agent's first model call with
+`server_error: An error occurred while executing the workflow.`
+
+> Creating the role assignment needs `Microsoft.Authorization/roleAssignments/write` on that
+> account (for example `Owner` or `User Access Administrator`). If you lack it, ask a resource owner
+> to grant the agent's principal id the `Cognitive Services OpenAI User` role.
 
 ## Deploy your local framework changes (contributors)
 

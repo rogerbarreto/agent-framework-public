@@ -151,11 +151,34 @@ azd ai agent invoke "List the tools you have available."
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
 in `azure.yaml`). No Dockerfile, no container registry.
 
+> **The toolbox must already exist in the project, and the agent identity must be able to read it.**
+> `TOOLBOX_NAME` is resolved at runtime against the project's toolboxes (list them with
+> `GET <project-endpoint>/toolboxes?api-version=v1`). The deployed agent runs under a managed
+> identity that `azd` grants `Foundry User` on the project, which is enough to read the toolbox.
+
+> **Toolboxes that contain OAuth-gated tools return a consent request, not an answer.** If the
+> toolbox includes MCP tools that require per-user OAuth (for example a GitHub or mail connection),
+> the first invoke streams an `oauth_consent_request` output item and finishes with
+> `response.incomplete` instead of a final message. That is expected: the caller is meant to
+> complete the consent and resume. The sibling [`Hosted-Toolbox-AuthPaths`](../Hosted-Toolbox-AuthPaths/)
+> sample and its client show that flow end to end. To see a plain tool answer instead, point
+> `TOOLBOX_NAME` at a toolbox whose tools need no consent (for example `web_search` /
+> `code_interpreter` only).
+
 ### Step 4: clean up
 
 ```
 azd down
 ```
+
+> **`azd down` does not delete the hosted agent.** It reports success but leaves the deployed agent
+> in place. Delete it explicitly with a REST call:
+>
+> ```bash
+> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+> curl -X DELETE "<project-endpoint>/agents/hosted-toolbox?api-version=v1&force=true" \
+>   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> ```
 
 Then delete the working directory.
 

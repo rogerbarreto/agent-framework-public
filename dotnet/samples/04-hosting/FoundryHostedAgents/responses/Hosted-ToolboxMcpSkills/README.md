@@ -151,11 +151,26 @@ azd ai agent invoke "List the MCP skills available from the toolbox."
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
 in `azure.yaml`). No Dockerfile, no container registry.
 
+> **The toolbox must already exist in the project, and the agent identity must be able to read it.**
+> `TOOLBOX_NAME` is resolved at runtime against the project's toolboxes (list them with
+> `GET <project-endpoint>/toolboxes?api-version=v1`). The deployed agent runs under a managed
+> identity that `azd` grants `Foundry User` on the project, which is enough to read the toolbox and
+> the MCP skills attached to it.
+
 ### Step 4: clean up
 
 ```
 azd down
 ```
+
+> **`azd down` does not delete the hosted agent.** It reports success but leaves the deployed agent
+> in place. Delete it explicitly with a REST call:
+>
+> ```bash
+> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+> curl -X DELETE "<project-endpoint>/agents/hosted-toolbox-mcp-skills?api-version=v1&force=true" \
+>   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> ```
 
 Then delete the working directory.
 

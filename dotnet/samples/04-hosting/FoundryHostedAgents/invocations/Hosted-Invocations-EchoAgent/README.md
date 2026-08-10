@@ -94,6 +94,15 @@ curl -X POST "<project-endpoint>/agents/hosted-invocations-echo-agent/endpoint/p
 
 Clean up with `azd down`, then delete the working directory.
 
+> **`azd down` does not delete the hosted agent.** It reports success but leaves the deployed agent
+> in place. Delete it explicitly with a REST call:
+>
+> ```bash
+> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+> curl -X DELETE "<project-endpoint>/agents/hosted-invocations-echo-agent?api-version=v1&force=true" \
+>   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> ```
+
 ## Deploy your local framework changes (contributors)
 
 **Skip this section unless you are changing the Agent Framework itself.** The project restores the
