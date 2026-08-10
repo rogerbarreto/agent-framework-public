@@ -6,6 +6,9 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
+using OpenAI.Chat;
+using OpenAI.Responses;
+using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -68,6 +71,20 @@ internal sealed class StoredOutputProbeChatClient : IChatClient
         // Building the request is what the agent's chat client would do next, so running the factory
         // here shows the very setting that would have gone out.
         var rawRepresentation = options?.RawRepresentationFactory?.Invoke(this);
-        this.StoredOutputEnabled = HostedStoredOutputCompatibility.ReadsAsStoringResponses(rawRepresentation);
+        this.StoredOutputEnabled = MapStoreSettingFromRawRepresentation(rawRepresentation);
     }
+
+    /// <summary>
+    /// Reads whether a request the agent's chat client would send asks for the response to be stored.
+    /// Returns <see langword="null"/> when the request shape could not be inferred, which is a request
+    /// type this package has nothing to say about.
+    /// </summary>
+    private static bool? MapStoreSettingFromRawRepresentation(object? rawRepresentation) => rawRepresentation switch
+    {
+        // by default when the stored output setting is not set, the service stores the response, and we need to make the distinction from null (different request type)
+        // so we can throw the right error in the health check
+        CreateResponseOptions responseOptions => responseOptions.StoredOutputEnabled ?? true,
+        ChatCompletionOptions completionOptions => completionOptions.StoredOutputEnabled ?? true,
+        _ => null,
+    };
 }

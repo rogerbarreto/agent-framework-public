@@ -1596,8 +1596,8 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     /// <summary>
-    /// Stands in for a hosted workflow: an <see cref="AIAgent"/> whose session type is named the way the
-    /// real one is, which is how the handler recognises a session that already carries the conversation.
+    /// Stands in for a hosted workflow: an <see cref="AIAgent"/> that is not a <see cref="ChatClientAgent"/>
+    /// and keeps the conversation in its own session, so the handler leaves its history alone.
     /// </summary>
     private sealed class WorkflowLikeAgent : AIAgent
     {
@@ -1626,7 +1626,7 @@ public class AgentFrameworkResponseHandlerTests
 
         protected override ValueTask<AgentSession> CreateSessionCoreAsync(
             CancellationToken cancellationToken = default) =>
-            new(new Workflows.WorkflowSession());
+            new(new SimpleAgentSession());
 
         protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
             AgentSession session,
@@ -1638,7 +1638,7 @@ public class AgentFrameworkResponseHandlerTests
             JsonElement serializedState,
             JsonSerializerOptions? jsonSerializerOptions,
             CancellationToken cancellationToken = default) =>
-            new(new Workflows.WorkflowSession());
+            new(new SimpleAgentSession());
     }
 
     private sealed class CancellationCheckingAgent : AIAgent
