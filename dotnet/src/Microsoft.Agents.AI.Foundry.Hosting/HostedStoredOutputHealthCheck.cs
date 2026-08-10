@@ -139,7 +139,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
         if (probe.StoredOutputEnabled is null && this._logger?.IsEnabled(LogLevel.Debug) is true)
         {
             this._logger.LogDebug(
-                "Agent '{AgentName}' builds a request that stored output setting could be determined.",
+                "Agent '{AgentName}' builds a request whose stored output setting could not be determined.",
                 agent.Name);
         }
 
