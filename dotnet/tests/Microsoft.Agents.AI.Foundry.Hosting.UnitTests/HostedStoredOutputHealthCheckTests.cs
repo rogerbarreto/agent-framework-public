@@ -124,6 +124,37 @@ public class HostedStoredOutputHealthCheckTests
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
 
+    [Fact]
+    public async Task CheckHealthAsync_AgentWithProviders_LeavesThemUntouchedAsync()
+    {
+        // Arrange: a context provider and a chat history provider are the parts most likely to call
+        // outside the container and to write state, so a readiness probe must not set them running.
+        var contextProvider = new RecordingContextProvider();
+        var historyProvider = new RecordingChatHistoryProvider();
+        var agent = new ChatClientAgent(
+            NewSilentChatClient(),
+            new ChatClientAgentOptions
+            {
+                Name = "has-providers",
+                ChatHistoryProvider = historyProvider,
+                AIContextProviders = [contextProvider],
+                ChatOptions = new ChatOptions
+                {
+                    RawRepresentationFactory = _ => new CreateResponseOptions { StoredOutputEnabled = true },
+                },
+            });
+
+        var check = BuildCheckFor(agent);
+
+        // Act
+        var result = await check.CheckHealthAsync(NewContext(), CancellationToken.None);
+
+        // Assert: the setting is still read, and neither provider was asked to do anything.
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.False(contextProvider.WasInvoked);
+        Assert.False(historyProvider.WasInvoked);
+    }
+
     private static HostedStoredOutputHealthCheck BuildCheckFor(AIAgent agent, FoundryResponsesOptions? hostingOptions = null)
     {
         var services = new ServiceCollection();
@@ -159,5 +190,41 @@ public class HostedStoredOutputHealthCheckTests
     {
         await Task.CompletedTask;
         yield return new ChatResponseUpdate(ChatRole.Assistant, "ok");
+    }
+
+    /// <summary>Records whether the agent ever set it running. Stands in for a memory or search provider.</summary>
+    private sealed class RecordingContextProvider : AIContextProvider
+    {
+        public bool WasInvoked { get; private set; }
+
+        protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
+        {
+            this.WasInvoked = true;
+            return new(new AIContext());
+        }
+
+        protected override ValueTask InvokedCoreAsync(InvokedContext context, CancellationToken cancellationToken = default)
+        {
+            this.WasInvoked = true;
+            return default;
+        }
+    }
+
+    /// <summary>Records whether the agent ever set it running. Stands in for a database-backed history store.</summary>
+    private sealed class RecordingChatHistoryProvider : ChatHistoryProvider
+    {
+        public bool WasInvoked { get; private set; }
+
+        protected override ValueTask<IEnumerable<ChatMessage>> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
+        {
+            this.WasInvoked = true;
+            return new([]);
+        }
+
+        protected override ValueTask InvokedCoreAsync(InvokedContext context, CancellationToken cancellationToken = default)
+        {
+            this.WasInvoked = true;
+            return default;
+        }
     }
 }

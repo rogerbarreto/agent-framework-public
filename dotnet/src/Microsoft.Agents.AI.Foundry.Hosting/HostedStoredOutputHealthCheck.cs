@@ -97,30 +97,40 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
     }
 
     /// <summary>
-    /// Runs the agent with its chat client replaced by one that calls nothing, and reports whether the
-    /// request the agent built asks for the response to be stored.
+    /// Runs a stand-in built from the agent's own configuration, with its chat client replaced by one
+    /// that calls nothing, and reports whether the request that configuration produces asks for the
+    /// response to be stored.
     /// </summary>
     /// <remarks>
     /// The run carries no chat options of its own, so the agent's own configuration is what reaches the
     /// probe. Overriding the setting here, the way the request handler does per turn, would only show
     /// the override back.
     /// <para>
-    /// The agent's chat history provider is stood down for this run, because it would otherwise read
-    /// and write its own store on every readiness probe. A provider backed by a database would then be
-    /// doing external calls, and adding this probe's empty turn to a real conversation, for a run that
-    /// asks the agent nothing.
+    /// A stand-in is built rather than running the registered agent because that agent's chat history
+    /// provider and context providers would run with it. Those are the parts most likely to reach
+    /// outside the container, a memory or search provider for instance, and to write state: a readiness
+    /// probe would then make external calls and add its own empty turn to real conversations, on every
+    /// probe, for a run that asks the agent nothing. The stand-in keeps everything that decides the
+    /// stored output setting, the chat options and the raw request factory among them, and drops both
+    /// kinds of provider, so the probe stays free of side effects.
+    /// </para>
+    /// <para>
+    /// What the stand-in cannot see is a decorator wrapped around the agent. One that changed this
+    /// setting would go unreported, which is accepted here: the check exists to catch how a container
+    /// configured its agent, and a silent probe is worth more than a complete one.
     /// </para>
     /// </remarks>
     private async Task<bool> StoresItsOwnResponsesAsync(AIAgent agent, CancellationToken cancellationToken)
     {
         var probe = new StoredOutputProbeChatClient();
-        var runOptions = new ChatClientAgentRunOptions { ChatClientFactory = _ => probe };
-        runOptions.AdditionalProperties ??= [];
-        runOptions.AdditionalProperties.Add<ChatHistoryProvider>(new VolatileChatHistoryProvider());
+        var probeOptions = agent.GetService<ChatClientAgentOptions>()?.Clone() ?? new ChatClientAgentOptions();
+        probeOptions.ChatHistoryProvider = null;
+        probeOptions.AIContextProviders = null;
 
         try
         {
-            await agent.RunAsync([], options: runOptions, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var probeAgent = new ChatClientAgent(probe, probeOptions);
+            await probeAgent.RunAsync([], cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
