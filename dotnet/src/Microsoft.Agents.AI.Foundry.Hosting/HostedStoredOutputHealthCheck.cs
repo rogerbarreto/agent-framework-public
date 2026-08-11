@@ -6,11 +6,11 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
+using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -46,7 +46,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
         IOptions<FoundryResponsesOptions>? hostingOptions = null,
         ILogger<HostedStoredOutputHealthCheck>? logger = null)
     {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
+        _ = Throw.IfNull(serviceProvider);
 
         this._serviceProvider = serviceProvider;
         this._hostingOptions = hostingOptions?.Value ?? new FoundryResponsesOptions();
@@ -55,7 +55,7 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        _ = Throw.IfNull(context);
 
         if (this._hostingOptions.AllowStoredOutputEnabled)
         {
@@ -149,15 +149,5 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
     /// <summary>
     /// Every agent this container can serve: the ones registered under a name, plus the default.
     /// </summary>
-    private List<AIAgent> ResolveAgents()
-    {
-        var agents = new List<AIAgent>(this._serviceProvider.GetKeyedServices<AIAgent>(KeyedService.AnyKey));
-
-        if (this._serviceProvider.GetService<AIAgent>() is { } defaultAgent && !agents.Contains(defaultAgent))
-        {
-            agents.Add(defaultAgent);
-        }
-
-        return agents;
-    }
+    private List<AIAgent> ResolveAgents() => FoundryHostingExtensions.ResolveRegisteredAgents(this._serviceProvider);
 }

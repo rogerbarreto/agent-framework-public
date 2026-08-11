@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Shared.DiagnosticIds;
+using Microsoft.Shared.Diagnostics;
 
 // The terminal stream events are named the same in two namespaces this file pulls in, and the short
 // name binds to the one the event objects are not. Naming them here keeps `is` checks against the
@@ -53,8 +54,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         ILogger<AgentFrameworkResponseHandler> logger,
         FoundryToolboxService? toolboxService = null)
     {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
-        ArgumentNullException.ThrowIfNull(logger);
+        _ = Throw.IfNull(serviceProvider);
+        _ = Throw.IfNull(logger);
 
         this._serviceProvider = serviceProvider;
         this._logger = logger;
@@ -581,7 +582,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             if (agent is not null)
             {
                 FoundryHostingExtensions.TryApplyUserAgent(agent);
-                return FoundryHostingExtensions.ApplyOpenTelemetry(agent);
+                return FoundryHostingExtensions.ApplyOpenTelemetry(
+                    FoundryHostingExtensions.ApplyWorkflowCheckpointing(agent, this._serviceProvider.GetService<ILoggerFactory>()));
             }
 
             if (this._logger.IsEnabled(LogLevel.Warning))
@@ -595,7 +597,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         if (defaultAgent is not null)
         {
             FoundryHostingExtensions.TryApplyUserAgent(defaultAgent);
-            return FoundryHostingExtensions.ApplyOpenTelemetry(defaultAgent);
+            return FoundryHostingExtensions.ApplyOpenTelemetry(
+                FoundryHostingExtensions.ApplyWorkflowCheckpointing(defaultAgent, this._serviceProvider.GetService<ILoggerFactory>()));
         }
 
         var errorMessage = string.IsNullOrEmpty(agentName)
