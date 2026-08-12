@@ -19,10 +19,15 @@ using Microsoft.Shared.Diagnostics;
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
-/// Provides a <see cref="JsonCheckpointStore"/> that persists workflow checkpoints to the Foundry
-/// platform's durable state-store API (<see cref="FoundryStateStore"/>).
+/// Provides a <see cref="JsonCheckpointStore"/> that persists workflow checkpoints through
+/// <see cref="FoundryStateStore"/>.
 /// </summary>
 /// <remarks>
+/// <para>
+/// The AgentServer SDK selects the backend. In Foundry hosting it writes to the platform's durable
+/// state store. Outside Foundry hosting it uses the SDK's local state-store fallback under
+/// <c>~/.agentserver/state_stores</c>.
+/// </para>
 /// <para>
 /// Item keys are hashes of the session identifier and the checkpoint identifier, because the
 /// platform limits an item key to 128 characters and neither identifier is bounded. Hashing rather
@@ -83,11 +88,14 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     /// <summary>
     /// Initializes a new instance of the <see cref="FoundryJsonCheckpointStore"/> class.
     /// </summary>
-    /// <param name="credential">The credential used to authenticate to the Foundry storage API.</param>
+    /// <param name="credential">
+    /// The credential used to authenticate to the Foundry storage API. May be <see langword="null"/>
+    /// outside Foundry hosting, where the AgentServer SDK uses its local state-store fallback.
+    /// </param>
     /// <param name="endpoint">
-    /// The Foundry project endpoint. When <see langword="null"/>, it is read from the
-    /// <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable, which the platform sets in a hosted
-    /// container.
+    /// The Foundry project endpoint. Used only in Foundry hosting. When <see langword="null"/>,
+    /// it is read from the <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable. Outside Foundry
+    /// hosting, the AgentServer SDK ignores it and uses its local state-store fallback.
     /// </param>
     /// <param name="storeName">The state-store name to hold the checkpoints. Defaults to <see cref="DefaultStoreName"/>.</param>
     /// <param name="itemTtlSeconds">
@@ -102,13 +110,12 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     /// happens in.
     /// </param>
     public FoundryJsonCheckpointStore(
-        TokenCredential credential,
+        TokenCredential? credential = null,
         Uri? endpoint = null,
         string storeName = DefaultStoreName,
         int itemTtlSeconds = FoundryStateStore.DefaultItemTtlSeconds,
         ILoggerFactory? loggerFactory = null)
     {
-        _ = Throw.IfNull(credential);
         _ = Throw.IfNullOrWhitespace(storeName);
 
         this.StoreName = storeName;

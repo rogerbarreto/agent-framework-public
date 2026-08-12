@@ -91,6 +91,20 @@ public class HostedWorkflowCheckpointingHealthCheckTests
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
 
+    [Fact]
+    public void ApplyWorkflowCheckpointing_NotInAFoundryContainer_UsesTheSdkLocalFallback()
+    {
+        // Arrange
+        AIAgent agent = BuildWorkflowAgent(executionEnvironment: null);
+
+        // Act
+        AIAgent result = FoundryHostingExtensions.ApplyWorkflowCheckpointing(agent);
+
+        // Assert: a redirected copy is returned even locally; the SDK chooses its local backend.
+        Assert.NotSame(agent, result);
+        Assert.True(result.GetService<WorkflowAgentMetadata>()?.UsesOwnCheckpointStorage);
+    }
+
     private static HostedWorkflowCheckpointingHealthCheck BuildCheckFor(AIAgent agent)
     {
         var services = new ServiceCollection();

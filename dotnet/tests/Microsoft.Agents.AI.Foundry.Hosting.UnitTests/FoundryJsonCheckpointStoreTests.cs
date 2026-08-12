@@ -17,6 +17,16 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests.Hosting;
 public sealed class FoundryJsonCheckpointStoreTests
 {
     [Fact]
+    public void Constructor_WithoutCredential_IsAllowedForTheSdkLocalFallback()
+    {
+        // Act
+        var store = new FoundryJsonCheckpointStore();
+
+        // Assert
+        Assert.Equal(FoundryJsonCheckpointStore.DefaultStoreName, store.StoreName);
+    }
+
+    [Fact]
     public async Task CreateCheckpointAsync_ThenRetrieveCheckpointAsync_RoundTripsAsync()
     {
         // Arrange

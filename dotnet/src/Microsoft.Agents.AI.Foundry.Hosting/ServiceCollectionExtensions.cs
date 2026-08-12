@@ -67,7 +67,7 @@ public static class FoundryHostingExtensions
         services.AddHealthChecks();
         ConfigureFoundryListenPort(services);
         ConfigureFoundryResponsesOptions(services, configure);
-        services.TryAddSingleton(_ => CreateDefaultAgentSessionStore());
+        services.TryAddSingleton<AgentSessionStore>(_ => CreateDefaultAgentSessionStore());
         services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
         return services;
     }
@@ -94,7 +94,7 @@ public static class FoundryHostingExtensions
     /// </remarks>
     /// <param name="services">The service collection.</param>
     /// <param name="agent">The agent instance to register.</param>
-    /// <param name="agentSessionStore">The agent session store to use for managing agent sessions server-side. If null, the default store is chosen for the environment: the Foundry durable state store when the platform has supplied a project endpoint (<c>FOUNDRY_PROJECT_ENDPOINT</c>), otherwise a file-system store rooted at <c>{$HOME}/.checkpoints</c> when hosted and <c>{cwd}/.checkpoints</c> locally.</param>
+    /// <param name="agentSessionStore">The agent session store to use for managing agent sessions server-side. If null, <see cref="FoundryAgentSessionStore"/> is used: the Foundry durable state store when hosted, and the AgentServer SDK's local state-store fallback otherwise.</param>
     /// <param name="configure">
     /// Optional callback to configure <see cref="FoundryResponsesOptions"/>, for example to allow the
     /// agent's own service to store the responses it produces.
@@ -358,15 +358,12 @@ public static class FoundryHostingExtensions
     /// Creates the <see cref="AgentSessionStore"/> used when the caller did not supply one.
     /// </summary>
     /// <remarks>
-    /// Inside a Foundry container, sessions are held by the platform's durable state store, because
-    /// that state survives the container being restarted or replaced and is readable by every
-    /// instance of the agent. Anywhere else there is no such service to call, so the container falls
-    /// back to writing session files under its own session directory, which is what a local run does.
+    /// The AgentServer SDK selects the backend. Inside a Foundry container it uses the platform's
+    /// durable state store, which survives replacement and is readable by every instance. Anywhere
+    /// else it uses the SDK's local state-store fallback under <c>~/.agentserver/state_stores</c>.
     /// </remarks>
-    private static AgentSessionStore CreateDefaultAgentSessionStore() =>
-        FoundryEnvironment.IsHosted
-            ? new FoundryAgentSessionStore(new DefaultAzureCredential())
-            : FileSystemAgentSessionStore.CreateDefault();
+    private static FoundryAgentSessionStore CreateDefaultAgentSessionStore() =>
+        new(CreateStateStoreCredential());
 
     /// <summary>
     /// Every agent a container can serve: the ones registered under a name, plus the default.
@@ -539,10 +536,10 @@ public static class FoundryHostingExtensions
     /// only the pointer to the last one.
     /// </para>
     /// <para>
-    /// The method is a no-op when the agent does not host a workflow, when the workflow was built
-    /// with an explicit checkpoint manager, and when the process is not running on the platform.
-    /// The redirected agent is cached against the agent it came from, so the substitution happens
-    /// once rather than on every request.
+    /// The method is a no-op when the agent does not host a workflow or when the workflow was built
+    /// with an explicit checkpoint manager. The AgentServer SDK selects the hosted or local
+    /// state-store backend. The redirected agent is cached against the agent it came from, so the
+    /// substitution happens once rather than on every request.
     /// </para>
     /// </remarks>
     /// <param name="agent">The resolved agent.</param>
@@ -550,11 +547,6 @@ public static class FoundryHostingExtensions
     /// <returns>The agent to serve the request with.</returns>
     internal static AIAgent ApplyWorkflowCheckpointing(AIAgent agent, ILoggerFactory? loggerFactory = null)
     {
-        if (!FoundryEnvironment.IsHosted)
-        {
-            return agent;
-        }
-
         return s_workflowCheckpointingAgents.GetValue(
             agent,
             source => source.WithCheckpointing(GetFoundryWorkflowCheckpointManager(loggerFactory)));
@@ -570,9 +562,16 @@ public static class FoundryHostingExtensions
         lock (s_checkpointManagerGate)
         {
             return s_foundryWorkflowCheckpointManager ??= CheckpointManager.CreateJson(
-                new FoundryJsonCheckpointStore(new DefaultAzureCredential(), loggerFactory: loggerFactory));
+                new FoundryJsonCheckpointStore(CreateStateStoreCredential(), loggerFactory: loggerFactory));
         }
     }
+
+    /// <summary>
+    /// Creates the credential required by the hosted state-store backend. The beta.29 SDK requires
+    /// no credential for its local fallback, so local development does not construct one.
+    /// </summary>
+    private static DefaultAzureCredential? CreateStateStoreCredential() =>
+        FoundryEnvironment.IsHosted ? new DefaultAzureCredential() : null;
 
     private static readonly object s_checkpointManagerGate = new();
     private static CheckpointManager? s_foundryWorkflowCheckpointManager;

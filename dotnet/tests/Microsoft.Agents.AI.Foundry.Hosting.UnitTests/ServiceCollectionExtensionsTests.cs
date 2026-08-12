@@ -33,6 +33,21 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddFoundryResponses_UsesTheStateStoreAdapterByDefault()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        // Act
+        services.AddFoundryResponses();
+        using var provider = services.BuildServiceProvider();
+
+        // Assert: the AgentServer SDK behind this adapter chooses the hosted or local backend.
+        Assert.IsType<FoundryAgentSessionStore>(provider.GetRequiredService<AgentSessionStore>());
+    }
+
+    [Fact]
     public void AddFoundryResponses_CalledTwice_RegistersOnce()
     {
         var services = new ServiceCollection();

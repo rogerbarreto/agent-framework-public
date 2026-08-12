@@ -20,7 +20,10 @@ Env.TraversePath().Load();
 
 string endpoint = Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
-string deploymentName = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
+string deploymentName =
+    Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME")
+    ?? Environment.GetEnvironmentVariable("FOUNDRY_MODEL")
+    ?? "gpt-4o";
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
 // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
@@ -37,10 +40,26 @@ IChatClient chatClient = new AIProjectClient(new Uri(endpoint), credential)
     .GetChatClient(deploymentName)
     .AsIChatClient();
 
-// Create translation agents
-AIAgent frenchAgent = chatClient.AsAIAgent("You are a translation assistant that translates the provided text to French.");
-AIAgent spanishAgent = chatClient.AsAIAgent("You are a translation assistant that translates the provided text to Spanish.");
-AIAgent englishAgent = chatClient.AsAIAgent("You are a translation assistant that translates the provided text to English.");
+// A workflow checkpoint records each executor identity. Keep both Id and Name stable so a new
+// container instance reconstructs the same workflow and can resume checkpoints written earlier.
+AIAgent frenchAgent = chatClient.AsAIAgent(new ChatClientAgentOptions
+{
+    Id = "french-translator",
+    Name = "French Translator",
+    ChatOptions = new() { Instructions = "You are a translation assistant that translates the provided text to French." },
+});
+AIAgent spanishAgent = chatClient.AsAIAgent(new ChatClientAgentOptions
+{
+    Id = "spanish-translator",
+    Name = "Spanish Translator",
+    ChatOptions = new() { Instructions = "You are a translation assistant that translates the provided text to Spanish." },
+});
+AIAgent englishAgent = chatClient.AsAIAgent(new ChatClientAgentOptions
+{
+    Id = "english-translator",
+    Name = "English Translator",
+    ChatOptions = new() { Instructions = "You are a translation assistant that translates the provided text to English." },
+});
 
 // Build the sequential workflow: French → Spanish → English
 AIAgent agent = new WorkflowBuilder(frenchAgent)

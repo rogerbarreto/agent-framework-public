@@ -17,16 +17,14 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
 /// Provides an <see cref="AgentSessionStore"/> that persists the agent-framework's serialized
-/// <see cref="AgentSession"/> state to the Foundry platform's durable state-store API
-/// (<see cref="FoundryStateStore"/>) instead of to the container's local disk.
+/// <see cref="AgentSession"/> state through <see cref="FoundryStateStore"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the durable counterpart to <see cref="FileSystemAgentSessionStore"/>. The file-system
-/// store writes under the container's session directory, which belongs to a single container
-/// instance: the state is lost when that container is replaced and cannot be read by another
-/// instance. This store writes to the platform instead, so a session survives container restarts
-/// and replacement and is visible to every instance of the agent.
+/// The AgentServer SDK selects the backend. In Foundry hosting it writes to the platform's durable
+/// state store, so a session survives container replacement and is visible to every instance of the
+/// agent. Outside Foundry hosting it uses the SDK's local state-store fallback under
+/// <c>~/.agentserver/state_stores</c>.
 /// </para>
 /// <para>
 /// Layout. All sessions live in one state store, named <see cref="DefaultStoreName"/> unless
@@ -69,11 +67,14 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// <summary>
     /// Initializes a new instance of the <see cref="FoundryAgentSessionStore"/> class.
     /// </summary>
-    /// <param name="credential">The credential used to authenticate to the Foundry storage API.</param>
+    /// <param name="credential">
+    /// The credential used to authenticate to the Foundry storage API. May be <see langword="null"/>
+    /// outside Foundry hosting, where the AgentServer SDK uses its local state-store fallback.
+    /// </param>
     /// <param name="endpoint">
-    /// The Foundry project endpoint. When <see langword="null"/>, it is read from the
-    /// <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable, which the platform sets in a hosted
-    /// container.
+    /// The Foundry project endpoint. Used only in Foundry hosting. When <see langword="null"/>,
+    /// it is read from the <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable. Outside Foundry
+    /// hosting, the AgentServer SDK ignores it and uses its local state-store fallback.
     /// </param>
     /// <param name="storeName">The state-store name to hold the sessions. Defaults to <see cref="DefaultStoreName"/>.</param>
     /// <param name="itemTtlSeconds">
@@ -83,12 +84,11 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// platform fixes it at creation.
     /// </param>
     public FoundryAgentSessionStore(
-        TokenCredential credential,
+        TokenCredential? credential = null,
         Uri? endpoint = null,
         string storeName = DefaultStoreName,
         int itemTtlSeconds = FoundryStateStore.DefaultItemTtlSeconds)
     {
-        _ = Throw.IfNull(credential);
         _ = Throw.IfNullOrWhitespace(storeName);
 
         this.StoreName = storeName;

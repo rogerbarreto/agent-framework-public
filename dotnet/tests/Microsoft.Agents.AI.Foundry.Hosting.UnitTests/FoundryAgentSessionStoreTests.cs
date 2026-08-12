@@ -211,25 +211,23 @@ public sealed class FoundryAgentSessionStoreTests
     [Fact]
     public void Constructor_NullOrWhitespaceStoreName_Throws()
     {
-        // Arrange
-        var credential = new FakeCredential();
-
         // Act / Assert
-        Assert.Throws<ArgumentNullException>(() => new FoundryAgentSessionStore(credential, storeName: null!));
-        Assert.Throws<ArgumentException>(() => new FoundryAgentSessionStore(credential, storeName: "   "));
+        Assert.Throws<ArgumentNullException>(() => new FoundryAgentSessionStore(storeName: null!));
+        Assert.Throws<ArgumentException>(() => new FoundryAgentSessionStore(storeName: "   "));
+    }
+
+    [Fact]
+    public void Constructor_WithoutCredential_IsAllowedForTheSdkLocalFallback()
+    {
+        // Act
+        var store = new FoundryAgentSessionStore();
+
+        // Assert
+        Assert.Equal(FoundryAgentSessionStore.DefaultStoreName, store.StoreName);
     }
 
     private static FoundryAgentSessionStore NewStore(FakeStateStore backing)
         => new(_ => Task.FromResult<FoundryStateStore>(backing));
-
-    private sealed class FakeCredential : Azure.Core.TokenCredential
-    {
-        public override Azure.Core.AccessToken GetToken(Azure.Core.TokenRequestContext requestContext, CancellationToken cancellationToken)
-            => new("token", DateTimeOffset.MaxValue);
-
-        public override ValueTask<Azure.Core.AccessToken> GetTokenAsync(Azure.Core.TokenRequestContext requestContext, CancellationToken cancellationToken)
-            => new(new Azure.Core.AccessToken("token", DateTimeOffset.MaxValue));
-    }
 
     /// <summary>
     /// An in-memory stand-in for the platform state store. <see cref="FoundryStateStore"/> exposes a
