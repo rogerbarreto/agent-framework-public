@@ -1,0 +1,357 @@
+﻿// Copyright (c) Microsoft. All rights reserved.
+
+using System;
+using System.ClientModel;
+using System.ClientModel.Primitives;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
+using OpenAI;
+using OpenAI.Responses;
+
+#pragma warning disable OPENAI001, MEAI001, MAAI001, SCME0001
+
+namespace Microsoft.Agents.AI.Foundry.UnitTests;
+
+/// <summary>
+/// Tests for hosted-agent session sticky behavior and per-call user identity.
+/// </summary>
+public sealed class FoundryHostedRequestTests
+{
+    [Fact]
+    public void WithHostedAgentSessionId_WritesOptionsCarrier()
+    {
+        var options = new ChatOptions();
+        options.WithHostedAgentSessionId("sess-1");
+        Assert.Equal("sess-1", options.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public void WithUserIdentity_WritesOptionsCarrier()
+    {
+        var options = new ChatOptions();
+        options.WithUserIdentity("alice");
+        Assert.Equal("alice", options.GetUserIdentity());
+    }
+
+    [Fact]
+    public async Task CreateHostedSessionAsync_PinsHostedAndConversationIdsAsync()
+    {
+        FoundryAgent agent = CreateFoundryAgent();
+        ChatClientAgentSession session = await agent.CreateHostedSessionAsync(
+            hostedSessionId: "sess-1",
+            conversationId: "conv-1");
+
+        Assert.Equal("sess-1", session.GetHostedAgentSessionId());
+        Assert.Equal("conv-1", session.ConversationId);
+        Assert.True(session.StateBag.TryGetValue<string>(FoundryAgentSessionExtensions.HostedAgentSessionIdKey, out var raw));
+        Assert.Equal("sess-1", raw);
+    }
+
+    [Fact]
+    public async Task CreateHostedSessionAsync_WithoutIds_LeavesBothEmptyAsync()
+    {
+        FoundryAgent agent = CreateFoundryAgent();
+        ChatClientAgentSession session = await agent.CreateHostedSessionAsync();
+
+        Assert.Null(session.GetHostedAgentSessionId());
+        Assert.Null(session.ConversationId);
+    }
+
+    [Fact]
+    public async Task Conflict_SessionAndOptionsHostedIdsDiffer_ThrowsAsync()
+    {
+        var inner = new ProbeAgent();
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        session.SetHostedAgentSessionId("sess-A");
+        var runOptions = new ChatClientAgentRunOptions(
+            new ChatOptions().WithHostedAgentSessionId("sess-B"));
+
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => agent.RunAsync("hi", session, runOptions));
+        Assert.Contains("hosted-agent session id", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SameHostedId_OnSessionAndOptions_DoesNotThrowAsync()
+    {
+        var inner = new ProbeAgent();
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        session.SetHostedAgentSessionId("sess-A");
+        var runOptions = new ChatClientAgentRunOptions(
+            new ChatOptions().WithHostedAgentSessionId("sess-A"));
+
+        await agent.RunAsync("hi", session, runOptions);
+        Assert.Equal(1, inner.RunCount);
+    }
+
+    [Fact]
+    public async Task Sticky_SessionHostedId_IsInjectedIntoCreateResponseOptionsAsync()
+    {
+        CreateResponseOptions? seen = null;
+        var inner = new ProbeAgent(onRun: options =>
+        {
+            if (options is ChatClientAgentRunOptions { ChatOptions.RawRepresentationFactory: { } factory })
+            {
+                seen = factory(null!) as CreateResponseOptions;
+            }
+        });
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        session.SetHostedAgentSessionId("sess-sticky");
+
+        await agent.RunAsync("hi", session);
+
+        Assert.NotNull(seen);
+        Assert.True(seen!.Patch.Contains("$.agent_session_id"u8));
+    }
+
+    [Fact]
+    public async Task OptionsHostedId_WhenSessionEmpty_IsInjectedAndStickyAfterRunAsync()
+    {
+        var inner = new ProbeAgent();
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        var runOptions = new ChatClientAgentRunOptions(
+            new ChatOptions().WithHostedAgentSessionId("sess-options"));
+
+        await agent.RunAsync("hi", session, runOptions);
+        Assert.Equal("sess-options", session.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public async Task UserIdentity_DifferentPerCall_OnSameSession_IsAllowedAsync()
+    {
+        var seen = new List<string?>();
+        var inner = new ProbeAgent(onRun: _ => seen.Add(UserIdentityScope.Current));
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        session.SetHostedAgentSessionId("sess-shared");
+
+        await agent.RunAsync(
+            "hi",
+            session,
+            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("alice")));
+        await agent.RunAsync(
+            "hi",
+            session,
+            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("bob")));
+
+        Assert.Equal(["alice", "bob"], seen);
+        Assert.Equal("sess-shared", session.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public async Task EndToEnd_UserIdentity_AndHostedSessionId_ReachWireAsync()
+    {
+        using var handler = new RecordingHandler(
+            MinimalResponseJson(),
+            responseHeaders: new Dictionary<string, string>
+            {
+                ["x-agent-session-id"] = "sess-from-platform",
+            });
+#pragma warning disable CA5399
+        using var http = new HttpClient(handler);
+#pragma warning restore CA5399
+        var openAIOptions = new OpenAIClientOptions { Transport = new HttpClientPipelineTransport(http) };
+        var openAIClient = new OpenAIClient(new ApiKeyCredential("fake"), openAIOptions);
+        IChatClient chatClient = openAIClient.GetResponsesClient().AsIChatClient();
+
+#pragma warning disable MEAI001
+        var policies = chatClient.GetService<OpenAIRequestPolicies>();
+        Assert.NotNull(policies);
+        OpenAIRequestPoliciesReflection.AddPolicyIfMissing(policies!, ClientHeadersPolicy.Instance);
+        OpenAIRequestPoliciesReflection.AddPolicyIfMissing(policies!, UserIdentityPolicy.Instance);
+        OpenAIRequestPoliciesReflection.AddPolicyIfMissing(policies!, HostedSessionIdCapturePolicy.Instance);
+#pragma warning restore MEAI001
+
+        var chatAgent = new ChatClientAgent(chatClient);
+        AIAgent agent = new FoundryHostedRequestAgent(new ClientHeadersAgent(chatAgent));
+        AgentSession session = await chatAgent.CreateSessionAsync();
+        session.SetHostedAgentSessionId("sess-pinned");
+
+        var runOptions = new ChatClientAgentRunOptions(
+            new ChatOptions()
+                .WithUserIdentity("alice")
+                .WithClientHeader("x-client-end-user-id", "alice-app"));
+
+        await agent.RunAsync("hi", session, runOptions);
+
+        Assert.True(handler.Requests.Count > 0);
+        var req = handler.Requests[0];
+        Assert.Equal("alice", req.Headers[FoundryChatOptionsExtensions.UserIdentityHeaderName]);
+        Assert.Equal("alice-app", req.Headers["x-client-end-user-id"]);
+        Assert.Contains("\"agent_session_id\":\"sess-pinned\"", req.Body, StringComparison.Ordinal);
+        Assert.Equal("sess-from-platform", session.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public async Task EndToEnd_ServiceManaged_CapturesHostedSessionIdOntoSessionAsync()
+    {
+        using var handler = new RecordingHandler(
+            MinimalResponseJson(),
+            responseHeaders: new Dictionary<string, string>
+            {
+                ["x-agent-session-id"] = "sess-created",
+            });
+#pragma warning disable CA5399
+        using var http = new HttpClient(handler);
+#pragma warning restore CA5399
+        var openAIClient = new OpenAIClient(
+            new ApiKeyCredential("fake"),
+            new OpenAIClientOptions { Transport = new HttpClientPipelineTransport(http) });
+        IChatClient chatClient = openAIClient.GetResponsesClient().AsIChatClient();
+
+#pragma warning disable MEAI001
+        var policies = chatClient.GetService<OpenAIRequestPolicies>()!;
+        OpenAIRequestPoliciesReflection.AddPolicyIfMissing(policies, HostedSessionIdCapturePolicy.Instance);
+#pragma warning restore MEAI001
+
+        var chatAgent = new ChatClientAgent(chatClient);
+        AIAgent agent = new FoundryHostedRequestAgent(chatAgent);
+        AgentSession session = await chatAgent.CreateSessionAsync();
+
+        await agent.RunAsync("hi", session);
+
+        Assert.Equal("sess-created", session.GetHostedAgentSessionId());
+        Assert.DoesNotContain("agent_session_id", handler.Requests[0].Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Constructor_PreWiresFoundryHostedRequestAgent()
+    {
+        FoundryAgent agent = CreateFoundryAgent();
+        Assert.NotNull(agent.GetService<FoundryHostedRequestAgent>());
+        Assert.NotNull(agent.GetService<ClientHeadersAgent>());
+    }
+
+    private static FoundryAgent CreateFoundryAgent() =>
+        new(
+            new Uri("https://test.services.ai.azure.com/api/projects/test-project"),
+            new FakeAuthenticationTokenProvider(),
+            model: "gpt-4o-mini",
+            instructions: "Test");
+
+    private static string MinimalResponseJson() => """
+        {
+          "id":"resp_1","object":"response","created_at":1700000000,"status":"completed",
+          "model":"fake","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+        }
+        """;
+
+    private sealed class TestSession : AgentSession;
+
+    private sealed class ProbeAgent : AIAgent
+    {
+        private readonly Action<AgentRunOptions?>? _onRun;
+
+        public ProbeAgent(Action<AgentRunOptions?>? onRun = null)
+        {
+            this._onRun = onRun;
+        }
+
+        public int RunCount { get; private set; }
+
+        protected override Task<AgentResponse> RunCoreAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session = null,
+            AgentRunOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            this.RunCount++;
+            this._onRun?.Invoke(options);
+            return Task.FromResult(new AgentResponse());
+        }
+
+        protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session = null,
+            AgentRunOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            this.RunCount++;
+            this._onRun?.Invoke(options);
+            await Task.Yield();
+            yield break;
+        }
+
+        protected override ValueTask<AgentSession> CreateSessionCoreAsync(CancellationToken cancellationToken = default) =>
+            new(new TestSession());
+
+        protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+            AgentSession session,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(JsonDocument.Parse("{}").RootElement);
+
+        protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+            JsonElement serializedState,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(new TestSession());
+    }
+
+    private sealed class RecordingHandler : HttpClientHandler
+    {
+        private readonly string _body;
+        private readonly Dictionary<string, string> _responseHeaders;
+
+        public RecordingHandler(string body, Dictionary<string, string>? responseHeaders = null)
+        {
+            this._body = body;
+            this._responseHeaders = responseHeaders ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public List<RecordedRequest> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in request.Headers)
+            {
+                headers[h.Key] = string.Join(",", h.Value);
+            }
+
+            string body;
+            if (request.Content is null)
+            {
+                body = string.Empty;
+            }
+            else
+            {
+#if NET
+                body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+#else
+                body = await request.Content.ReadAsStringAsync().ConfigureAwait(false);
+#endif
+            }
+
+            this.Requests.Add(new RecordedRequest(headers, body));
+
+            var resp = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(this._body, Encoding.UTF8, "application/json"),
+                RequestMessage = request,
+            };
+            foreach (var kvp in this._responseHeaders)
+            {
+                resp.Headers.TryAddWithoutValidation(kvp.Key, kvp.Value);
+            }
+
+            return resp;
+        }
+    }
+
+    private sealed class RecordedRequest(Dictionary<string, string> headers, string body)
+    {
+        public Dictionary<string, string> Headers { get; } = headers;
+        public string Body { get; } = body;
+    }
+}
