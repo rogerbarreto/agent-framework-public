@@ -31,6 +31,21 @@ the agent definition by each fixture, drives a `switch` in the test container's
 `Program.cs` to wire up the scenario specific behavior (tools, toolbox, custom storage,
 etc.).
 
+### Session sticky and user-identity scenario
+
+`HostedSessionAndUserIdentityTests` (fixture `UserIdentityHostedAgentFixture`, agent
+`it-user-identity`) exercises the client-side `FoundryAgent` APIs:
+
+- `CreateHostedSessionAsync` sticky hosted `agent_session_id` (service-managed and
+  admin `CreateSession` / `DeleteSession` pin)
+- per-call `ChatOptions.WithUserIdentity` (`x-ms-user-identity`) producing distinct
+  platform user keys inside the container
+
+The container scenario injects `USER-ID:<platform-user-key>` via
+`EchoPlatformUserIdContextProvider`, reading `HostedSessionContext.UserId` (from
+`x-agent-user-id`). The caller credential must be allowed to delegate via
+`x-ms-user-identity` or those tests fail with HTTP 403.
+
 ## Required environment variables
 
 | Variable | Source | Purpose |

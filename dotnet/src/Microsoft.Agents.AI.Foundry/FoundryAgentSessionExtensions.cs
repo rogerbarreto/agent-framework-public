@@ -18,9 +18,9 @@ namespace Microsoft.Agents.AI;
 /// serializing with the session.
 /// </para>
 /// <para>
-/// This is not <see cref="Microsoft.Extensions.AI.ChatOptions.AdditionalProperties"/>. Per-call
+/// This is not <see cref="Extensions.AI.ChatOptions.AdditionalProperties"/>. Per-call
 /// overrides use
-/// <see cref="Microsoft.Extensions.AI.FoundryChatOptionsExtensions.WithHostedAgentSessionId(Microsoft.Extensions.AI.ChatOptions, string)"/>.
+/// <see cref="Extensions.AI.FoundryChatOptionsExtensions.WithHostedAgentSessionId(Extensions.AI.ChatOptions, string)"/>.
 /// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AIOpenAIRequestPolicies)]
