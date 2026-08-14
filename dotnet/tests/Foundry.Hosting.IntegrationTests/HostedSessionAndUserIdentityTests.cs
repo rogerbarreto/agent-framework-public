@@ -52,8 +52,8 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
     {
         // Arrange
         FoundryAgent agent = this.CreateFoundryAgent();
-        ChatClientAgentSession session = await agent.CreateHostedSessionAsync();
-        Assert.Null(session.GetHostedAgentSessionId());
+        ChatClientAgentSession session = await agent.CreateFoundryHostedAgentSessionAsync();
+        Assert.Null(session.FoundryHostedAgentSessionId);
 
         string? hostedSessionId = null;
         try
@@ -62,7 +62,7 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
             var first = await agent.RunAsync("Reply with the single word ready.", session);
             Assert.False(string.IsNullOrWhiteSpace(first.Text));
 
-            hostedSessionId = session.GetHostedAgentSessionId();
+            hostedSessionId = session.FoundryHostedAgentSessionId;
             Assert.False(string.IsNullOrWhiteSpace(hostedSessionId));
 
             // Act: second run reuses the same AgentSession and must keep the same sticky id.
@@ -70,7 +70,7 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
             Assert.False(string.IsNullOrWhiteSpace(second.Text));
 
             // Assert
-            Assert.Equal(hostedSessionId, session.GetHostedAgentSessionId());
+            Assert.Equal(hostedSessionId, session.FoundryHostedAgentSessionId);
         }
         finally
         {
@@ -91,8 +91,8 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
         await WaitForSessionActiveAsync(admin, this._fixture.AgentName, hostedSessionId);
 
         FoundryAgent agent = this.CreateFoundryAgent();
-        ChatClientAgentSession session = await agent.CreateHostedSessionAsync(hostedSessionId: hostedSessionId);
-        Assert.Equal(hostedSessionId, session.GetHostedAgentSessionId());
+        ChatClientAgentSession session = await agent.CreateFoundryHostedAgentSessionAsync(hostedSessionId: hostedSessionId);
+        Assert.Equal(hostedSessionId, session.FoundryHostedAgentSessionId);
 
         try
         {
@@ -101,7 +101,7 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
 
             // Assert
             Assert.False(string.IsNullOrWhiteSpace(response.Text));
-            Assert.Equal(hostedSessionId, session.GetHostedAgentSessionId());
+            Assert.Equal(hostedSessionId, session.FoundryHostedAgentSessionId);
         }
         finally
         {
@@ -122,22 +122,22 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
         try
         {
             // Act: alice creates the sandbox via service-managed sticky capture.
-            ChatClientAgentSession aliceSession = await agent.CreateHostedSessionAsync();
+            ChatClientAgentSession aliceSession = await agent.CreateFoundryHostedAgentSessionAsync();
             string aliceUserId = await this.RunAndReadUserIdAsync(agent, aliceSession, "alice-it");
-            hostedSessionId = aliceSession.GetHostedAgentSessionId();
+            hostedSessionId = aliceSession.FoundryHostedAgentSessionId;
             Assert.False(string.IsNullOrWhiteSpace(hostedSessionId));
             string? aliceConversationId = aliceSession.ConversationId;
 
             // Act: bob gets a fresh AgentSession pinned to the same hosted sandbox.
-            ChatClientAgentSession bobSession = await agent.CreateHostedSessionAsync(hostedSessionId: hostedSessionId);
+            ChatClientAgentSession bobSession = await agent.CreateFoundryHostedAgentSessionAsync(hostedSessionId: hostedSessionId);
             Assert.NotSame(aliceSession, bobSession);
-            Assert.Equal(hostedSessionId, bobSession.GetHostedAgentSessionId());
+            Assert.Equal(hostedSessionId, bobSession.FoundryHostedAgentSessionId);
 
             string bobUserId = await this.RunAndReadUserIdAsync(agent, bobSession, "bob-it");
 
             // Assert: hosted sandbox stays the same on both sessions after bob's response.
-            Assert.Equal(hostedSessionId, aliceSession.GetHostedAgentSessionId());
-            Assert.Equal(hostedSessionId, bobSession.GetHostedAgentSessionId());
+            Assert.Equal(hostedSessionId, aliceSession.FoundryHostedAgentSessionId);
+            Assert.Equal(hostedSessionId, bobSession.FoundryHostedAgentSessionId);
 
             // Assert: conversation trails stay independent (must not share ConversationId).
             string? bobConversationId = bobSession.ConversationId;
@@ -167,19 +167,19 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
     {
         // Arrange
         FoundryAgent agent = this.CreateFoundryAgent();
-        ChatClientAgentSession session = await agent.CreateHostedSessionAsync();
+        ChatClientAgentSession session = await agent.CreateFoundryHostedAgentSessionAsync();
         string? hostedSessionId = null;
 
         try
         {
             // Act
             string first = await this.RunAndReadUserIdAsync(agent, session, "stable-user-it");
-            hostedSessionId = session.GetHostedAgentSessionId();
+            hostedSessionId = session.FoundryHostedAgentSessionId;
             string second = await this.RunAndReadUserIdAsync(agent, session, "stable-user-it");
 
             // Assert
             Assert.False(string.IsNullOrWhiteSpace(hostedSessionId));
-            Assert.Equal(hostedSessionId, session.GetHostedAgentSessionId());
+            Assert.Equal(hostedSessionId, session.FoundryHostedAgentSessionId);
             Assert.NotEqual("missing", first);
             Assert.Equal(first, second);
         }
@@ -192,7 +192,7 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
     private async Task<string> RunAndReadUserIdAsync(FoundryAgent agent, AgentSession session, string userIdentity)
     {
         var options = new ChatClientAgentRunOptions(
-            new ChatOptions().WithUserIdentity(userIdentity));
+            new ChatOptions().WithFoundryHostedAgentUserIdentity(userIdentity));
 
         var response = await agent.RunAsync(
             "Acknowledge the request briefly.",

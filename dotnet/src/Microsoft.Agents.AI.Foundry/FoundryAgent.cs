@@ -172,7 +172,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
     /// state. See
     /// <see href="https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents#sessions-and-conversations">Sessions and conversations</see>.
     /// When set, it is stored in <see cref="AgentSession.StateBag"/> under
-    /// <see cref="FoundryAgentSessionExtensions.HostedAgentSessionIdKey"/> and subsequent runs that
+    /// <see cref="FoundryAgentSessionExtensions.FoundryHostedAgentSessionIdKey"/> and subsequent runs that
     /// reuse this session send <c>agent_session_id</c> automatically. When omitted, Foundry may create
     /// a session on the first run and the returned id becomes sticky on this session.
     /// </param>
@@ -196,7 +196,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
     /// <see href="https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents#sessions-and-conversations">Hosted agents: sessions and conversations</see>.
     /// </para>
     /// </remarks>
-    public async Task<ChatClientAgentSession> CreateHostedSessionAsync(
+    public async Task<ChatClientAgentSession> CreateFoundryHostedAgentSessionAsync(
         string? hostedSessionId = null,
         string? conversationId = null,
         CancellationToken cancellationToken = default)
@@ -209,7 +209,7 @@ public sealed class FoundryAgent : DelegatingAIAgent
         if (hostedSessionId is not null)
         {
             // Non-null values are treated as an explicit pin attempt; whitespace is rejected by Set.
-            typed.SetHostedAgentSessionId(hostedSessionId);
+            typed.FoundryHostedAgentSessionId = hostedSessionId;
         }
 
         return typed;

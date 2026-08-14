@@ -24,52 +24,52 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests;
 public sealed class FoundryHostedRequestTests
 {
     [Fact]
-    public void WithHostedAgentSessionId_WritesOptionsCarrier()
+    public void WithFoundryHostedAgentSessionId_WritesOptionsCarrier()
     {
         var options = new ChatOptions();
-        options.WithHostedAgentSessionId("sess-1");
-        Assert.Equal("sess-1", options.GetHostedAgentSessionId());
+        options.WithFoundryHostedAgentSessionId("sess-1");
+        Assert.Equal("sess-1", options.GetFoundryHostedAgentSessionId());
     }
 
     [Fact]
-    public void WithUserIdentity_WritesOptionsCarrier()
+    public void WithFoundryHostedAgentUserIdentity_WritesOptionsCarrier()
     {
         var options = new ChatOptions();
-        options.WithUserIdentity("alice");
-        Assert.Equal("alice", options.GetUserIdentity());
+        options.WithFoundryHostedAgentUserIdentity("alice");
+        Assert.Equal("alice", options.GetFoundryHostedAgentUserIdentity());
     }
 
     [Fact]
-    public async Task CreateHostedSessionAsync_PinsHostedAndConversationIdsAsync()
+    public async Task CreateFoundryHostedAgentSessionAsync_PinsHostedAndConversationIdsAsync()
     {
         FoundryAgent agent = CreateFoundryAgent();
-        ChatClientAgentSession session = await agent.CreateHostedSessionAsync(
+        ChatClientAgentSession session = await agent.CreateFoundryHostedAgentSessionAsync(
             hostedSessionId: "sess-1",
             conversationId: "conv-1");
 
-        Assert.Equal("sess-1", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-1", session.FoundryHostedAgentSessionId);
         Assert.Equal("conv-1", session.ConversationId);
-        Assert.True(session.StateBag.TryGetValue<string>(FoundryAgentSessionExtensions.HostedAgentSessionIdKey, out var raw));
+        Assert.True(session.StateBag.TryGetValue<string>(FoundryAgentSessionExtensions.FoundryHostedAgentSessionIdKey, out var raw));
         Assert.Equal("sess-1", raw);
     }
 
     [Fact]
-    public async Task CreateHostedSessionAsync_WithoutIds_LeavesBothEmptyAsync()
+    public async Task CreateFoundryHostedAgentSessionAsync_WithoutIds_LeavesBothEmptyAsync()
     {
         FoundryAgent agent = CreateFoundryAgent();
-        ChatClientAgentSession session = await agent.CreateHostedSessionAsync();
+        ChatClientAgentSession session = await agent.CreateFoundryHostedAgentSessionAsync();
 
-        Assert.Null(session.GetHostedAgentSessionId());
+        Assert.Null(session.FoundryHostedAgentSessionId);
         Assert.Null(session.ConversationId);
     }
 
     [Fact]
-    public async Task CreateHostedSessionAsync_WhitespaceHostedId_ThrowsAsync()
+    public async Task CreateFoundryHostedAgentSessionAsync_WhitespaceHostedId_ThrowsAsync()
     {
         FoundryAgent agent = CreateFoundryAgent();
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => agent.CreateHostedSessionAsync(hostedSessionId: "   "));
+            () => agent.CreateFoundryHostedAgentSessionAsync(hostedSessionId: "   "));
     }
 
     [Fact]
@@ -78,9 +78,9 @@ public sealed class FoundryHostedRequestTests
         var inner = new ProbeAgent();
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
-        session.SetHostedAgentSessionId("sess-A");
+        session.FoundryHostedAgentSessionId = "sess-A";
         var runOptions = new ChatClientAgentRunOptions(
-            new ChatOptions().WithHostedAgentSessionId("sess-B"));
+            new ChatOptions().WithFoundryHostedAgentSessionId("sess-B"));
 
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => agent.RunAsync("hi", session, runOptions));
@@ -93,9 +93,9 @@ public sealed class FoundryHostedRequestTests
         var inner = new ProbeAgent();
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
-        session.SetHostedAgentSessionId("sess-A");
+        session.FoundryHostedAgentSessionId = "sess-A";
         var runOptions = new ChatClientAgentRunOptions(
-            new ChatOptions().WithHostedAgentSessionId("sess-A"));
+            new ChatOptions().WithFoundryHostedAgentSessionId("sess-A"));
 
         await agent.RunAsync("hi", session, runOptions);
         Assert.Equal(1, inner.RunCount);
@@ -114,7 +114,7 @@ public sealed class FoundryHostedRequestTests
         });
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
-        session.SetHostedAgentSessionId("sess-sticky");
+        session.FoundryHostedAgentSessionId = "sess-sticky";
 
         await agent.RunAsync("hi", session);
 
@@ -129,10 +129,10 @@ public sealed class FoundryHostedRequestTests
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
         var runOptions = new ChatClientAgentRunOptions(
-            new ChatOptions().WithHostedAgentSessionId("sess-options"));
+            new ChatOptions().WithFoundryHostedAgentSessionId("sess-options"));
 
         await agent.RunAsync("hi", session, runOptions);
-        Assert.Equal("sess-options", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-options", session.FoundryHostedAgentSessionId);
     }
 
     [Fact]
@@ -145,19 +145,19 @@ public sealed class FoundryHostedRequestTests
         var inner = new ProbeAgent(onRun: _ => seen.Add(UserIdentityScope.Current));
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
-        session.SetHostedAgentSessionId("sess-shared");
+        session.FoundryHostedAgentSessionId = "sess-shared";
 
         await agent.RunAsync(
             "hi",
             session,
-            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("alice")));
+            new ChatClientAgentRunOptions(new ChatOptions().WithFoundryHostedAgentUserIdentity("alice")));
         await agent.RunAsync(
             "hi",
             session,
-            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("bob")));
+            new ChatClientAgentRunOptions(new ChatOptions().WithFoundryHostedAgentUserIdentity("bob")));
 
         Assert.Equal(["alice", "bob"], seen);
-        Assert.Equal("sess-shared", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-shared", session.FoundryHostedAgentSessionId);
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public sealed class FoundryHostedRequestTests
         await agent.RunAsync(
             "hi",
             session,
-            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("alice")));
+            new ChatClientAgentRunOptions(new ChatOptions().WithFoundryHostedAgentUserIdentity("alice")));
         await agent.RunAsync("hi", session, new ChatClientAgentRunOptions(new ChatOptions()));
 
         Assert.Equal(["alice", null], seen);
@@ -223,7 +223,7 @@ public sealed class FoundryHostedRequestTests
         });
         var agent = new FoundryHostedRequestAgent(inner);
         var session = new TestSession();
-        session.SetHostedAgentSessionId("sess-shared");
+        session.FoundryHostedAgentSessionId = "sess-shared";
         var reused = new ChatClientAgentRunOptions(new ChatOptions());
 
         await agent.RunAsync("hi", session, reused);
@@ -262,11 +262,11 @@ public sealed class FoundryHostedRequestTests
         var chatAgent = new ChatClientAgent(chatClient);
         AIAgent agent = new FoundryHostedRequestAgent(new ClientHeadersAgent(chatAgent));
         AgentSession session = await chatAgent.CreateSessionAsync();
-        session.SetHostedAgentSessionId("sess-pinned");
+        session.FoundryHostedAgentSessionId = "sess-pinned";
 
         var runOptions = new ChatClientAgentRunOptions(
             new ChatOptions()
-                .WithUserIdentity("alice")
+                .WithFoundryHostedAgentUserIdentity("alice")
                 .WithClientHeader("x-client-end-user-id", "alice-app"));
 
         // Response returns a different hosted session id than the pin → unexpected switch.
@@ -276,11 +276,11 @@ public sealed class FoundryHostedRequestTests
 
         Assert.True(handler.Requests.Count > 0);
         var req = handler.Requests[0];
-        Assert.Equal("alice", req.Headers[FoundryChatOptionsExtensions.UserIdentityHeaderName]);
+        Assert.Equal("alice", req.Headers[FoundryChatOptionsExtensions.FoundryHostedAgentUserIdentityHeaderName]);
         Assert.Equal("alice-app", req.Headers["x-client-end-user-id"]);
         Assert.Contains("\"agent_session_id\":\"sess-pinned\"", req.Body, StringComparison.Ordinal);
         // Sticky pin must not be overwritten by the conflicting response id.
-        Assert.Equal("sess-pinned", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-pinned", session.FoundryHostedAgentSessionId);
     }
 
     [Fact]
@@ -308,11 +308,11 @@ public sealed class FoundryHostedRequestTests
         var chatAgent = new ChatClientAgent(chatClient);
         AIAgent agent = new FoundryHostedRequestAgent(chatAgent);
         AgentSession session = await chatAgent.CreateSessionAsync();
-        session.SetHostedAgentSessionId("sess-pinned");
+        session.FoundryHostedAgentSessionId = "sess-pinned";
 
         await agent.RunAsync("hi", session);
 
-        Assert.Equal("sess-pinned", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-pinned", session.FoundryHostedAgentSessionId);
         Assert.Contains("\"agent_session_id\":\"sess-pinned\"", handler.Requests[0].Body, StringComparison.Ordinal);
     }
 
@@ -344,7 +344,7 @@ public sealed class FoundryHostedRequestTests
 
         await agent.RunAsync("hi", session);
 
-        Assert.Equal("sess-created", session.GetHostedAgentSessionId());
+        Assert.Equal("sess-created", session.FoundryHostedAgentSessionId);
         Assert.DoesNotContain("agent_session_id", handler.Requests[0].Body, StringComparison.Ordinal);
     }
 

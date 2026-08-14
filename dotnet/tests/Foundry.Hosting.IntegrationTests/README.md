@@ -36,9 +36,9 @@ etc.).
 `HostedSessionAndUserIdentityTests` (fixture `UserIdentityHostedAgentFixture`, agent
 `it-user-identity`) exercises the client-side `FoundryAgent` APIs:
 
-- `CreateHostedSessionAsync` sticky hosted `agent_session_id` (service-managed and
+- `CreateFoundryHostedAgentSessionAsync` sticky hosted `agent_session_id` (service-managed and
   admin `CreateSession` / `DeleteSession` pin)
-- per-call `ChatOptions.WithUserIdentity` (`x-ms-user-identity`) producing distinct
+- per-call `ChatOptions.WithFoundryHostedAgentUserIdentity` (`x-ms-user-identity`) producing distinct
   platform user keys inside the container
 
 The container scenario injects `USER-ID:<platform-user-key>` via
@@ -237,4 +237,3 @@ human-only operation; CI only adds and deletes versions under existing agents.
 The scenarios marked (placeholder) are already wired into the test container `Program.cs`,
 but their assertions stay skipped pending live validation and stabilization of the relevant
 `Microsoft.Agents.AI.Foundry.Hosting` API surfaces.
-

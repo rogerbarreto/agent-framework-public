@@ -72,8 +72,8 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
     {
         ChatOptions? chatOptions = options is ChatClientAgentRunOptions cro ? cro.ChatOptions : null;
 
-        string? sessionHostedId = session?.GetHostedAgentSessionId();
-        string? optionsHostedId = chatOptions?.GetHostedAgentSessionId();
+        string? sessionHostedId = session?.FoundryHostedAgentSessionId;
+        string? optionsHostedId = chatOptions?.GetFoundryHostedAgentSessionId();
 
         if (!string.IsNullOrWhiteSpace(sessionHostedId)
             && !string.IsNullOrWhiteSpace(optionsHostedId)
@@ -95,9 +95,9 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
         var effectiveOptions = EnsureChatOptions(options, out chatOptions);
         AttachHostedSessionIdFactory(chatOptions, sessionIdBox);
 
-        // Always assign (including null) so a nested Foundry run that omits WithUserIdentity does not
-        // inherit a parent AsyncLocal identity and stamp the wrong x-ms-user-identity header.
-        UserIdentityScope.Current = chatOptions.GetUserIdentity();
+        // Always assign (including null) so a nested Foundry run that omits the per-call Foundry
+        // user identity does not inherit a parent AsyncLocal value and stamp the wrong header.
+        UserIdentityScope.Current = chatOptions.GetFoundryHostedAgentUserIdentity();
 
         return new PreparedRun(effectiveOptions, sessionIdBox);
     }
@@ -158,7 +158,7 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
             return;
         }
 
-        session.SetHostedAgentSessionId(sessionIdBox.Value!);
+        session.FoundryHostedAgentSessionId = sessionIdBox.Value!;
     }
 
     private sealed class PreparedRun
