@@ -46,7 +46,12 @@ internal sealed class FoundryStateStoreBinding
             // WaitAsync applies the caller's token to this caller's wait only.
             return await binding.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && !binding.IsCompleted)
+        {
+            // This caller stopped waiting, but the shared binding is still usable by everyone else.
+            throw;
+        }
+        catch
         {
             lock (this._gate)
             {

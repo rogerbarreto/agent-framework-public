@@ -7,7 +7,9 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
@@ -62,7 +64,7 @@ internal sealed class HostedWorkflowCheckpointingHealthCheck : IHealthCheck
                 "Workflow checkpointing: not running in a Foundry container, so workflow checkpoints are left where each agent puts them."));
         }
 
-        List<string> agentsWithOwnCheckpointing = [];
+        List<string> incompatibleAgents = [];
         var checkedAgents = 0;
 
         foreach (var agent in FoundryHostingExtensions.ResolveRegisteredAgents(this._serviceProvider))
@@ -73,20 +75,24 @@ internal sealed class HostedWorkflowCheckpointingHealthCheck : IHealthCheck
             }
 
             checkedAgents++;
-            if (metadata.UsesOwnCheckpointStorage)
+            AIAgent redirected = FoundryHostingExtensions.ApplyWorkflowCheckpointing(
+                agent,
+                this._serviceProvider.GetService<ILoggerFactory>());
+
+            if (metadata.UsesOwnCheckpointStorage || ReferenceEquals(redirected, agent))
             {
-                agentsWithOwnCheckpointing.Add(agent.Name ?? agent.Id);
+                incompatibleAgents.Add(agent.Name ?? agent.Id);
             }
         }
 
-        if (agentsWithOwnCheckpointing.Count > 0)
+        if (incompatibleAgents.Count > 0)
         {
             return Task.FromResult(new HealthCheckResult(
                 status: context.Registration.FailureStatus,
                 description: string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Workflow checkpointing: {agentsWithOwnCheckpointing.Count} registered workflow agent(s) were built with a checkpoint manager of their own. A hosted workflow has its checkpoints written to the Foundry state store so they survive the container being replaced and can be read by every instance; an agent that names its own manager keeps that state somewhere this container does not manage. Build the agent without passing an execution environment configured with WithCheckpointing, and let hosting supply the store."),
-                data: new Dictionary<string, object>(StringComparer.Ordinal) { ["agentsWithOwnCheckpointing"] = agentsWithOwnCheckpointing }));
+                    $"Workflow checkpointing: {incompatibleAgents.Count} registered workflow agent(s) cannot use the checkpoint store supplied by hosting. Remove a caller-configured checkpoint manager and register the workflow agent directly rather than behind middleware."),
+                data: new Dictionary<string, object>(StringComparer.Ordinal) { ["incompatibleAgents"] = incompatibleAgents }));
         }
 
         return Task.FromResult(HealthCheckResult.Healthy(

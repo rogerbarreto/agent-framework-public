@@ -44,7 +44,7 @@ public class HostedWorkflowCheckpointingHealthCheckTests
 
         // Assert
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        var reported = Assert.IsType<List<string>>(result.Data["agentsWithOwnCheckpointing"]);
+        var reported = Assert.IsType<List<string>>(result.Data["incompatibleAgents"]);
         Assert.Equal(["WorkflowAgent"], reported);
     }
 
@@ -60,6 +60,21 @@ public class HostedWorkflowCheckpointingHealthCheckTests
 
         // Assert
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_WrappedWorkflowWithoutOwnManager_IsUnhealthyAsync()
+    {
+        // Arrange: the metadata flows through the wrapper, but hosting cannot replace the inner
+        // workflow agent without discarding that wrapper.
+        var check = BuildCheckFor(new PassThroughAgent(BuildWorkflowAgent(executionEnvironment: null)));
+
+        // Act
+        var result = await check.CheckHealthAsync(NewContext(), CancellationToken.None);
+
+        // Assert
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal(["WorkflowAgent"], Assert.IsType<List<string>>(result.Data["incompatibleAgents"]));
     }
 
     [Fact]

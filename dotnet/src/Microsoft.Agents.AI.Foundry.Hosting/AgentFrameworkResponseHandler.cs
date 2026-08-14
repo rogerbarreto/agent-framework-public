@@ -69,7 +69,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // 1. Resolve agent
-        var agent = this.ResolveAgent(request);
+        var agent = this.ResolveAgent(request, out string agentStorageIdentity);
         var sessionStore = this.ResolveSessionStore(request);
 
         // Fail fast with a clear, actionable error when this 2.0.0-only image is served container
@@ -131,9 +131,28 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Load the session for this conversation, or start a new one. The store returns null when
         // nothing is persisted for the key, so a fresh conversation and a resumed one both end up with
         // a session to run against.
-        AgentSession? session = !string.IsNullOrWhiteSpace(agentSessionId)
-            ? await sessionStore.GetOrCreateSessionAsync(agent, agentSessionId, resolvedUserId, cancellationToken).ConfigureAwait(false)
-            : await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        AgentSession? session;
+        if (string.IsNullOrWhiteSpace(agentSessionId))
+        {
+            session = await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            session = sessionStore is FoundryAgentSessionStore foundrySessionStore
+                ? await foundrySessionStore.GetSessionAsync(
+                    agent,
+                    agentStorageIdentity,
+                    agentSessionId,
+                    resolvedUserId,
+                    cancellationToken).ConfigureAwait(false)
+                : await sessionStore.GetSessionAsync(
+                    agent,
+                    agentSessionId,
+                    resolvedUserId,
+                    cancellationToken).ConfigureAwait(false);
+
+            session ??= await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         // Capture the platform per-request call id (x-agent-foundry-call-id, protocol 2.0.0 only).
         // It is re-applied to the ambient HostedCallContext immediately before each outbound egress
@@ -509,7 +528,25 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             // Persist the session for the next turn of this conversation, unless this one is being failed.
             if (session is not null && !turnFailed)
             {
-                await sessionStore.SaveSessionAsync(agent, agentSessionId!, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+                if (sessionStore is FoundryAgentSessionStore foundrySessionStore)
+                {
+                    await foundrySessionStore.SaveSessionAsync(
+                        agent,
+                        agentStorageIdentity,
+                        agentSessionId!,
+                        session,
+                        resolvedUserId,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await sessionStore.SaveSessionAsync(
+                        agent,
+                        agentSessionId!,
+                        session,
+                        resolvedUserId,
+                        cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -572,7 +609,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// Tries <c>agent.name</c> first, then falls back to <c>metadata["entity_id"]</c>.
     /// If neither is present, attempts to resolve a default (non-keyed) <see cref="AIAgent"/>.
     /// </summary>
-    private AIAgent ResolveAgent(CreateResponse request)
+    private AIAgent ResolveAgent(CreateResponse request, out string storageIdentity)
     {
         var agentName = GetAgentName(request);
 
@@ -581,9 +618,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             var agent = this._serviceProvider.GetKeyedService<AIAgent>(agentName);
             if (agent is not null)
             {
-                FoundryHostingExtensions.TryApplyUserAgent(agent);
-                return FoundryHostingExtensions.ApplyOpenTelemetry(
-                    FoundryHostingExtensions.ApplyWorkflowCheckpointing(agent, this._serviceProvider.GetService<ILoggerFactory>()));
+                storageIdentity = $"key:{agentName}";
+                return this.PrepareResolvedAgent(agent);
             }
 
             if (this._logger.IsEnabled(LogLevel.Warning))
@@ -596,9 +632,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var defaultAgent = this._serviceProvider.GetService<AIAgent>();
         if (defaultAgent is not null)
         {
-            FoundryHostingExtensions.TryApplyUserAgent(defaultAgent);
-            return FoundryHostingExtensions.ApplyOpenTelemetry(
-                FoundryHostingExtensions.ApplyWorkflowCheckpointing(defaultAgent, this._serviceProvider.GetService<ILoggerFactory>()));
+            storageIdentity = !string.IsNullOrWhiteSpace(defaultAgent.Name)
+                ? $"name:{defaultAgent.Name}"
+                : "default";
+
+            return this.PrepareResolvedAgent(defaultAgent);
         }
 
         var errorMessage = string.IsNullOrEmpty(agentName)
@@ -606,6 +644,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             : $"Agent '{agentName}' not found. Ensure it is registered via AddFoundryResponses(services, agent) or services.AddKeyedSingleton<AIAgent>(\"{agentName}\", ...).";
 
         throw new InvalidOperationException(errorMessage);
+    }
+
+    private AIAgent PrepareResolvedAgent(AIAgent agent)
+    {
+        FoundryHostingExtensions.TryApplyUserAgent(agent);
+
+        AIAgent prepared = FoundryHostingExtensions.ApplyWorkflowCheckpointing(
+            agent,
+            this._serviceProvider.GetService<ILoggerFactory>());
+
+        return FoundryHostingExtensions.ApplyOpenTelemetry(prepared);
     }
 
     /// <summary>

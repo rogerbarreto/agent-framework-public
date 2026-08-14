@@ -45,7 +45,7 @@ public sealed class FoundryAgentSessionStoreTests
 
         // Assert: the item body keeps the readable key so a stored item can be traced back.
         var item = Assert.Single(backing.Items);
-        Assert.Equal("\"a-Concierge:u-alice:c-conv-1\"", item["key"].ToString());
+        Assert.Equal("\"a14:name:Concierge|u5:alice|c6:conv-1\"", item["key"].ToString());
     }
 
     [Fact]
@@ -115,6 +115,34 @@ public sealed class FoundryAgentSessionStoreTests
     }
 
     [Fact]
+    public async Task GetSessionAsync_DifferentKeyedRegistration_DoesNotReadAnotherAgentsSessionAsync()
+    {
+        // Arrange: both agents are unnamed, so their keyed DI registrations are the only stable
+        // identities that can separate their sessions.
+        var backing = new FakeStateStore();
+        var store = NewStore(backing);
+        var billing = new TestAgent("{\"owner\":\"billing\"}");
+        var support = new TestAgent();
+        await store.SaveSessionAsync(
+            billing,
+            "key:billing",
+            "shared-conv",
+            new TestSession(),
+            userId: "alice");
+
+        // Act
+        var supportSession = await store.GetSessionAsync(
+            support,
+            "key:support",
+            "shared-conv",
+            userId: "alice");
+
+        // Assert
+        Assert.Null(supportSession);
+        Assert.Equal(0, support.DeserializeCalls);
+    }
+
+    [Fact]
     public async Task GetStoreAsync_ResolvesTheStoreOnceAcrossManyCallsAsync()
     {
         // Arrange: binding the store costs a round trip, so it must not happen per request.
@@ -161,22 +189,113 @@ public sealed class FoundryAgentSessionStoreTests
         Assert.Equal(2, attempts);
     }
 
-    [Theory]
-    [InlineData("Concierge", "alice", "conv-1", "a-Concierge:u-alice:c-conv-1")]
-    [InlineData("Concierge", null, "conv-1", "a-Concierge:c-conv-1")]
-    [InlineData(null, "alice", "conv-1", "u-alice:c-conv-1")]
-    [InlineData(null, null, "conv-1", "c-conv-1")]
-    [InlineData("x", "x", "conv-1", "a-x:u-x:c-conv-1")]
-    public void BuildLogicalKey_UsesTheSamePrefixSchemeAsTheOtherStores(string? agentName, string? userId, string conversationId, string expected)
+    [Fact]
+    public async Task GetStoreAsync_CanceledBinding_IsRetriedOnTheNextCallAsync()
     {
-        // Arrange
-        var agent = new TestAgent(name: agentName);
+        // Arrange: the shared binding task itself was canceled, rather than one caller choosing to
+        // stop waiting for an otherwise healthy shared task.
+        var backing = new FakeStateStore();
+        var attempts = 0;
+        var store = new FoundryAgentSessionStore(_ =>
+        {
+            attempts++;
+            return attempts == 1
+                ? Task.FromCanceled<FoundryStateStore>(new CancellationToken(canceled: true))
+                : Task.FromResult<FoundryStateStore>(backing);
+        });
+        var agent = new TestAgent(name: "Concierge");
 
         // Act
-        var key = FoundryAgentSessionStore.BuildLogicalKey(agent, conversationId, userId);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await store.GetSessionAsync(agent, "conv-1", userId: null));
+        var session = await store.GetSessionAsync(agent, "conv-1", userId: null);
+
+        // Assert
+        Assert.Null(session);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task GetStoreAsync_BindingFaultedWithCancellation_IsRetriedOnTheNextCallAsync()
+    {
+        // Arrange: some async APIs fault with OperationCanceledException instead of returning a
+        // canceled task. That completed shared failure must not remain cached.
+        var backing = new FakeStateStore();
+        var attempts = 0;
+        var store = new FoundryAgentSessionStore(_ =>
+        {
+            attempts++;
+            return attempts == 1
+                ? Task.FromException<FoundryStateStore>(new OperationCanceledException())
+                : Task.FromResult<FoundryStateStore>(backing);
+        });
+        var agent = new TestAgent(name: "Concierge");
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await store.GetSessionAsync(agent, "conv-1", userId: null));
+        var session = await store.GetSessionAsync(agent, "conv-1", userId: null);
+
+        // Assert
+        Assert.Null(session);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task GetStoreAsync_CallerCancellation_DoesNotDiscardTheSharedBindingAsync()
+    {
+        // Arrange
+        var backing = new FakeStateStore();
+        var binding = new TaskCompletionSource<FoundryStateStore>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        var store = new FoundryAgentSessionStore(_ =>
+        {
+            attempts++;
+            return binding.Task;
+        });
+        var agent = new TestAgent(name: "Concierge");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await store.GetSessionAsync(agent, "conv-1", userId: null, cancellation.Token));
+        binding.SetResult(backing);
+        var session = await store.GetSessionAsync(agent, "conv-1", userId: null);
+
+        // Assert
+        Assert.Null(session);
+        Assert.Equal(1, attempts);
+    }
+
+    [Theory]
+    [InlineData("name:Concierge", "alice", "conv-1", "a14:name:Concierge|u5:alice|c6:conv-1")]
+    [InlineData("name:Concierge", null, "conv-1", "a14:name:Concierge|u-1:|c6:conv-1")]
+    [InlineData("default", "alice", "conv-1", "a7:default|u5:alice|c6:conv-1")]
+    [InlineData("default", null, "conv-1", "a7:default|u-1:|c6:conv-1")]
+    [InlineData("name:x", "x", "conv-1", "a6:name:x|u1:x|c6:conv-1")]
+    public void BuildLogicalKey_UsesLengthPrefixedComponents(string agentIdentity, string? userId, string conversationId, string expected)
+    {
+        // Act
+        var key = FoundryAgentSessionStore.BuildLogicalKey(agentIdentity, conversationId, userId);
 
         // Assert
         Assert.Equal(expected, key);
+    }
+
+    [Fact]
+    public void BuildLogicalKey_DelimitersInsideComponents_DoNotCollide()
+    {
+        // Act: these tuples produced the same delimiter-joined string before components carried
+        // their lengths.
+        string first = FoundryAgentSessionStore.BuildLogicalKey("name:Concierge", "x:c-y", "alice");
+        string second = FoundryAgentSessionStore.BuildLogicalKey("name:Concierge", "y", "alice:c-x");
+
+        // Assert
+        Assert.NotEqual(first, second);
+        Assert.NotEqual(
+            FoundryAgentSessionStore.BuildItemKey(first),
+            FoundryAgentSessionStore.BuildItemKey(second));
     }
 
     [Fact]
@@ -184,7 +303,7 @@ public sealed class FoundryAgentSessionStoreTests
     {
         // Arrange: an agent name plus a user id plus a conversation id can easily pass 128 chars.
         var logicalKey = FoundryAgentSessionStore.BuildLogicalKey(
-            new TestAgent(name: new string('a', 200)),
+            $"name:{new string('a', 200)}",
             new string('c', 200),
             new string('u', 200));
 
@@ -199,9 +318,9 @@ public sealed class FoundryAgentSessionStoreTests
     public void BuildItemKey_IsStableAndDistinctPerLogicalKey()
     {
         // Arrange / Act
-        var first = FoundryAgentSessionStore.BuildItemKey("a-Concierge:u-alice:c-conv-1");
-        var same = FoundryAgentSessionStore.BuildItemKey("a-Concierge:u-alice:c-conv-1");
-        var other = FoundryAgentSessionStore.BuildItemKey("a-Concierge:u-bob:c-conv-1");
+        var first = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|u5:alice|c6:conv-1");
+        var same = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|u5:alice|c6:conv-1");
+        var other = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|u3:bob|c6:conv-1");
 
         // Assert
         Assert.Equal(first, same);

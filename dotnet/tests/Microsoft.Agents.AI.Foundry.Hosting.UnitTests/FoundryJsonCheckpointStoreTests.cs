@@ -194,7 +194,7 @@ public sealed class FoundryJsonCheckpointStoreTests
     }
 
     [Fact]
-    public async Task RetrieveCheckpointAsync_DeletesEveryOtherCheckpointOfTheSessionAsync()
+    public async Task RetrieveCheckpointAsync_DeletesPredecessorsOfTheResumeTargetAsync()
     {
         // Arrange: a session that ran three supersteps, so it holds three checkpoints.
         var backing = new FakeCheckpointStateStore();
@@ -211,6 +211,27 @@ public sealed class FoundryJsonCheckpointStoreTests
         Assert.Equal([third], (await store.RetrieveIndexAsync("session-1")).ToList());
         Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", first.CheckpointId)));
         Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", second.CheckpointId)));
+        Assert.True(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", third.CheckpointId)));
+    }
+
+    [Fact]
+    public async Task RetrieveCheckpointAsync_RetainsCheckpointsCommittedAfterTheResumeTargetAsync()
+    {
+        // Arrange: the third checkpoint models another request committing after this request chose
+        // the second checkpoint as its resume target.
+        var backing = new FakeCheckpointStateStore();
+        var store = NewStore(backing);
+        var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
+        var third = await store.CreateCheckpointAsync("session-1", Json("{\"step\":3}"));
+
+        // Act
+        await store.RetrieveCheckpointAsync("session-1", second);
+
+        // Assert: only predecessors are obsolete. The concurrent request's later checkpoint remains.
+        Assert.Equal([second, third], (await store.RetrieveIndexAsync("session-1")).ToList());
+        Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", first.CheckpointId)));
+        Assert.True(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", second.CheckpointId)));
         Assert.True(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", third.CheckpointId)));
     }
 

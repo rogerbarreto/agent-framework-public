@@ -155,6 +155,49 @@ public class HostedStoredOutputHealthCheckTests
         Assert.False(historyProvider.WasInvoked);
     }
 
+    [Fact]
+    public async Task CheckHealthAsync_WrappedChatClientAgent_IsUnhealthyWithoutRunningItAsync()
+    {
+        // Arrange: rebuilding only the leaf would miss any option changes made by this wrapper.
+        var inner = new ChatClientAgent(
+            NewSilentChatClient(),
+            new ChatClientAgentOptions { Name = "wrapped" });
+        AIAgent wrapper = new PassThroughAgent(inner);
+        var check = BuildCheckFor(wrapper);
+
+        // Act
+        var result = await check.CheckHealthAsync(NewContext(), CancellationToken.None);
+
+        // Assert
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal(["wrapped"], Assert.IsType<List<string>>(result.Data["unprobeableAgents"]));
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_FoundryAgent_IsProbeableAsync()
+    {
+        // Arrange: FoundryAgent is a transparent wrapper around its ChatClientAgent.
+        var inner = new ChatClientAgent(
+            NewSilentChatClient(),
+            new ChatClientAgentOptions
+            {
+                Name = "foundry-agent",
+                ChatOptions = new ChatOptions
+                {
+                    RawRepresentationFactory = _ => new CreateResponseOptions { StoredOutputEnabled = true },
+                },
+            });
+        var check = BuildCheckFor(new FoundryAgent(inner));
+
+        // Act
+        var result = await check.CheckHealthAsync(NewContext(), CancellationToken.None);
+
+        // Assert
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("foundry-agent", (List<string>)result.Data["storingAgents"]);
+        Assert.Empty((List<string>)result.Data["unprobeableAgents"]);
+    }
+
     private static HostedStoredOutputHealthCheck BuildCheckFor(AIAgent agent, FoundryResponsesOptions? hostingOptions = null)
     {
         var services = new ServiceCollection();
@@ -227,4 +270,6 @@ public class HostedStoredOutputHealthCheckTests
             return default;
         }
     }
+
+    private sealed class PassThroughAgent(AIAgent innerAgent) : DelegatingAIAgent(innerAgent);
 }

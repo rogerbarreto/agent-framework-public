@@ -37,10 +37,9 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <para>
 /// Retention. A workflow session writes one checkpoint per superstep but only ever resumes from
 /// the most recent one. Retrieving a checkpoint happens when a workflow is resuming from it, and at
-/// that point every other checkpoint of that session is deleted. A conversation therefore holds one
-/// turn's worth of checkpoints rather than growing for as long as it lasts to avoid storing
-/// limitations. Note that this makes <see cref="RetrieveCheckpointAsync"/> the point where old
-/// checkpoints are collected, so retrieving one is not a read-only operation on this store.
+/// that point checkpoints committed before it are deleted. Checkpoints committed later are retained
+/// so a concurrent run cannot lose its live state. Note that this makes
+/// <see cref="RetrieveCheckpointAsync"/> a write operation as well as a read.
 /// </para>
 /// <para>
 /// Concurrency. Adding a checkpoint writes the checkpoint item and then updates the session's index
@@ -222,14 +221,12 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     }
 
     /// <summary>
-    /// Returns a stored checkpoint and, in the same call, deletes every other checkpoint of that
-    /// session.
+    /// Returns a stored checkpoint and deletes checkpoints committed before it.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The method also deletes every other checkpoint of that session except the one that has just been retrieved, which is
-    /// the one the workflow is resuming from. The deletion is not incidental, it is how this store keeps a session's checkpoints from
-    /// piling up.
+    /// The deletion keeps old checkpoints from piling up. Checkpoints committed after the retrieved
+    /// checkpoint are retained because they may belong to a concurrent run.
     /// </para>
     /// <para>
     /// A workflow writes one checkpoint per superstep and only ever resumes from the most
@@ -239,7 +236,7 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     /// </para>
     /// </remarks>
     /// <param name="sessionId">The workflow session that owns the checkpoint.</param>
-    /// <param name="key">Identifies the checkpoint to return, and the one checkpoint left in place.</param>
+    /// <param name="key">Identifies the checkpoint to return and the oldest checkpoint retained.</param>
     /// <returns>The stored checkpoint.</returns>
     /// <exception cref="KeyNotFoundException">No such checkpoint is stored for that session.</exception>
     public override async ValueTask<JsonElement> RetrieveCheckpointAsync(string sessionId, CheckpointInfo key)
@@ -279,8 +276,8 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     }
 
     /// <summary>
-    /// Deletes every checkpoint of a session except the one that has just been retrieved, which is
-    /// the one the workflow is resuming from.
+    /// Deletes every checkpoint committed before the one that has just been retrieved, which is the
+    /// one the workflow is resuming from.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -297,29 +294,20 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
         {
             StateStoreItem? indexItem = await store.GetItemAsync(sessionIndexKey, CancellationToken.None).ConfigureAwait(false);
 
-            List<IndexEntry> obsolete = [];
-            IndexEntry? resumed = null;
-            foreach (IndexEntry entry in ReadEntries(indexItem))
-            {
-                if (entry.CheckpointId == resumedCheckpointId)
-                {
-                    resumed = entry;
-                }
-                else
-                {
-                    obsolete.Add(entry);
-                }
-            }
-
-            if (resumed is null || obsolete.Count == 0)
+            List<IndexEntry> entries = ReadEntries(indexItem);
+            int resumedIndex = entries.FindIndex(entry => entry.CheckpointId == resumedCheckpointId);
+            if (resumedIndex <= 0)
             {
                 return;
             }
 
+            List<IndexEntry> obsolete = entries.GetRange(0, resumedIndex);
+            List<IndexEntry> retained = entries.GetRange(resumedIndex, entries.Count - resumedIndex);
+
             // The index is shortened first. A checkpoint item that is still listed but already gone
             // would be read as a missing checkpoint, whereas one that is listed nowhere is simply
             // never asked for.
-            await WriteEntriesAsync(store, sessionIndexKey, sessionId, [resumed], indexItem?.Etag).ConfigureAwait(false);
+            await WriteEntriesAsync(store, sessionIndexKey, sessionId, retained, indexItem?.Etag).ConfigureAwait(false);
 
             foreach (IndexEntry entry in obsolete)
             {
@@ -343,13 +331,13 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
         }
         catch (FoundryStorageException ex) when (IsLostRace(ex))
         {
-            // Another instance updated the same session index first. Its own resume prunes whatever
-            // this one left behind, so nothing is leaked and there is nothing to report.
+            // Another instance updated the same session index first. Leaving the old items in place
+            // is safer than deleting against a stale index; a later resume can prune them.
             if (this._logger?.IsEnabled(LogLevel.Debug) is true)
             {
                 this._logger.LogDebug(
                     ex,
-                    "Pruning obsolete checkpoints of session '{SessionId}' lost to another writer. The winning writer prunes them instead.",
+                    "Pruning obsolete checkpoints of session '{SessionId}' lost to another writer. The old checkpoints remain until a later resume or expiry.",
                     sessionId);
             }
         }

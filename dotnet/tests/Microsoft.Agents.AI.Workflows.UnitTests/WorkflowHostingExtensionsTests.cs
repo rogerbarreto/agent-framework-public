@@ -7,7 +7,7 @@ namespace Microsoft.Agents.AI.Workflows.UnitTests;
 
 /// <summary>
 /// Covers <see cref="WorkflowHostingExtensions.WithCheckpointing"/>, which lets a host redirect
-/// where a already-built workflow agent writes its checkpoints.
+/// where an already-built workflow agent writes its checkpoints.
 /// </summary>
 public class WorkflowHostingExtensionsTests
 {

@@ -64,11 +64,12 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
         }
 
         List<string> storingAgents = [];
+        List<string> unprobeableAgents = [];
         var checkedAgents = 0;
 
         foreach (var agent in this.ResolveAgents())
         {
-            if (agent.GetService<ChatClientAgent>() is null)
+            if (agent.GetService<ChatClientAgent>() is not { } chatClientAgent)
             {
                 // Hosting only reaches the store setting through ChatClientAgent's chat options, so any
                 // other agent runs untouched and there is nothing to report.
@@ -76,20 +77,30 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
             }
 
             checkedAgents++;
+            if (!ReferenceEquals(agent, chatClientAgent) && agent is not FoundryAgent)
+            {
+                unprobeableAgents.Add(agent.Name ?? agent.Id);
+                continue;
+            }
+
             if (await this.StoresItsOwnResponsesAsync(agent, cancellationToken).ConfigureAwait(false))
             {
                 storingAgents.Add(agent.Name ?? agent.Id);
             }
         }
 
-        if (storingAgents.Count > 0)
+        if (storingAgents.Count > 0 || unprobeableAgents.Count > 0)
         {
             return new HealthCheckResult(
                 status: context.Registration.FailureStatus,
                 description: string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Stored output: {storingAgents.Count} registered agent(s) should not have server side storage enabled. This will produce a new untracked conversation/response in the server while the hosted agent will also generate a conversation for the request of the agent. This setting is only allowed when enabling the FoundryResponsesOptions.AllowStoredOutputEnabled flag, which leaves the agent's own storage setting untouched and keeps that second recording on purpose."),
-                data: new Dictionary<string, object>(StringComparer.Ordinal) { ["storingAgents"] = storingAgents });
+                    $"Stored output: {storingAgents.Count} registered agent(s) ask their service to store responses, and {unprobeableAgents.Count} wrapped agent(s) cannot be inspected without running their middleware. Disable server-side storage, register the ChatClientAgent directly, or explicitly allow stored output."),
+                data: new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["storingAgents"] = storingAgents,
+                    ["unprobeableAgents"] = unprobeableAgents,
+                });
         }
 
         return HealthCheckResult.Healthy(
@@ -114,11 +125,9 @@ internal sealed class HostedStoredOutputHealthCheck : IHealthCheck
     /// stored output setting, the chat options and the raw request factory among them, and drops both
     /// kinds of provider, so the probe stays free of side effects.
     /// </para>
-    /// <para>
-    /// What the stand-in cannot see is a decorator wrapped around the agent. One that changed this
-    /// setting would go unreported, which is accepted here: the check exists to catch how a container
-    /// configured its agent, and a silent probe is worth more than a complete one.
-    /// </para>
+    /// A <see cref="FoundryAgent"/> is safe to inspect because it transparently delegates runs to its
+    /// inner <see cref="ChatClientAgent"/>. Other wrappers are rejected before this method is called
+    /// because rebuilding only the leaf would miss middleware that changes the effective run options.
     /// </remarks>
     private async Task<bool> StoresItsOwnResponsesAsync(AIAgent agent, CancellationToken cancellationToken)
     {

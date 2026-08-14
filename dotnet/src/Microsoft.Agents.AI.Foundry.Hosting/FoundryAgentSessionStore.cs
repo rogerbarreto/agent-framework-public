@@ -29,12 +29,10 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <para>
 /// Layout. All sessions live in one state store, named <see cref="DefaultStoreName"/> unless
 /// overridden, and each (agent, user, conversation) triple is one item in it. The item key is a
-/// hash of the same <c>a-</c>/<c>u-</c>/<c>c-</c> logical key that
-/// <see cref="FileSystemAgentSessionStore"/> and <see cref="InMemoryAgentSessionStore"/> use, so
-/// all three stores partition sessions identically. Hashing is required because the platform
-/// limits an item key to 128 characters, which an agent name plus a user id plus a conversation id
-/// can exceed. The readable logical key is stored alongside the session in the item body so a
-/// stored item can still be traced back to its conversation.
+/// hash of an unambiguous, length-prefixed encoding of the hosted registration identity, user id,
+/// and conversation id. Hashing is required because the platform limits an item key to 128
+/// characters. The readable encoding is stored alongside the session so an item can still be traced
+/// back to its partition.
 /// </para>
 /// <para>
 /// Per-user isolation is expressed through the item key rather than through the state store's own
@@ -119,21 +117,37 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     public string StoreName { get; }
 
     /// <inheritdoc/>
-    public override async ValueTask SaveSessionAsync(
+    public override ValueTask SaveSessionAsync(
         AIAgent agent,
+        string conversationId,
+        AgentSession session,
+        string? userId,
+        CancellationToken cancellationToken = default)
+        => this.SaveSessionAsync(
+            agent,
+            ResolveAgentIdentity(agent),
+            conversationId,
+            session,
+            userId,
+            cancellationToken);
+
+    internal async ValueTask SaveSessionAsync(
+        AIAgent agent,
+        string agentIdentity,
         string conversationId,
         AgentSession session,
         string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
+        _ = Throw.IfNullOrWhitespace(agentIdentity);
         _ = Throw.IfNullOrWhitespace(conversationId);
         _ = Throw.IfNull(session);
 
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
         BinaryData sessionData = ToBinaryData(serialized);
 
-        string logicalKey = BuildLogicalKey(agent, conversationId, userId);
+        string logicalKey = BuildLogicalKey(agentIdentity, conversationId, userId);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         await store.SetItemAsync(
@@ -147,16 +161,30 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     }
 
     /// <inheritdoc/>
-    public override async ValueTask<AgentSession?> GetSessionAsync(
+    public override ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
+        string conversationId,
+        string? userId,
+        CancellationToken cancellationToken = default)
+        => this.GetSessionAsync(
+            agent,
+            ResolveAgentIdentity(agent),
+            conversationId,
+            userId,
+            cancellationToken);
+
+    internal async ValueTask<AgentSession?> GetSessionAsync(
+        AIAgent agent,
+        string agentIdentity,
         string conversationId,
         string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
+        _ = Throw.IfNullOrWhitespace(agentIdentity);
         _ = Throw.IfNullOrWhitespace(conversationId);
 
-        string logicalKey = BuildLogicalKey(agent, conversationId, userId);
+        string logicalKey = BuildLogicalKey(agentIdentity, conversationId, userId);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         // GetItemAsync already answers null for an item that is not there, which is exactly the
@@ -182,27 +210,31 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         => this._binding.GetAsync(cancellationToken);
 
     /// <summary>
-    /// Builds the readable partition key. This is the same <c>a-</c>/<c>u-</c>/<c>c-</c> scheme
-    /// <see cref="InMemoryAgentSessionStore"/> and <see cref="FileSystemAgentSessionStore"/> use, so
-    /// the three stores partition sessions identically: per hosted agent, then per end user, then
-    /// per conversation. <c>agent.Id</c> is deliberately not used because it is regenerated on every
-    /// startup for in-memory-defined agents, which would break session continuity. Each segment is
-    /// omitted when its value is absent.
+    /// Builds an unambiguous readable partition key from the hosted agent identity, end user, and
+    /// conversation. Each component carries its length so delimiters inside values cannot collide.
     /// </summary>
-    internal static string BuildLogicalKey(AIAgent agent, string conversationId, string? userId)
+    internal static string BuildLogicalKey(string agentIdentity, string conversationId, string? userId)
     {
         StringBuilder builder = new();
-        if (!string.IsNullOrEmpty(agent.Name))
+        AppendComponent(builder, 'a', Throw.IfNullOrWhitespace(agentIdentity));
+        AppendComponent(builder, 'u', string.IsNullOrWhiteSpace(userId) ? null : userId);
+        AppendComponent(builder, 'c', Throw.IfNullOrWhitespace(conversationId));
+        builder.Length--;
+        return builder.ToString();
+    }
+
+    private static string ResolveAgentIdentity(AIAgent agent) =>
+        !string.IsNullOrWhiteSpace(agent.Name) ? $"name:{agent.Name}" : $"id:{agent.Id}";
+
+    private static void AppendComponent(StringBuilder builder, char prefix, string? value)
+    {
+        builder.Append(prefix).Append(value?.Length ?? -1).Append(':');
+        if (value is not null)
         {
-            builder.Append("a-").Append(agent.Name).Append(':');
+            builder.Append(value);
         }
 
-        if (!string.IsNullOrWhiteSpace(userId))
-        {
-            builder.Append("u-").Append(userId).Append(':');
-        }
-
-        return builder.Append("c-").Append(conversationId).ToString();
+        builder.Append('|');
     }
 
     /// <summary>
