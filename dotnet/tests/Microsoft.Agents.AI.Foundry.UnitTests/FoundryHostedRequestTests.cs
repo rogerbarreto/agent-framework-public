@@ -64,6 +64,15 @@ public sealed class FoundryHostedRequestTests
     }
 
     [Fact]
+    public async Task CreateHostedSessionAsync_WhitespaceHostedId_ThrowsAsync()
+    {
+        FoundryAgent agent = CreateFoundryAgent();
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => agent.CreateHostedSessionAsync(hostedSessionId: "   "));
+    }
+
+    [Fact]
     public async Task Conflict_SessionAndOptionsHostedIdsDiffer_ThrowsAsync()
     {
         var inner = new ProbeAgent();
@@ -129,6 +138,9 @@ public sealed class FoundryHostedRequestTests
     [Fact]
     public async Task UserIdentity_DifferentPerCall_OnSameSession_IsAllowedAsync()
     {
+        // Pipeline still allows different identities on one AgentSession (request-scoped header).
+        // Live hosted agents should prefer distinct AgentSessions per identity to avoid conversation
+        // trail / previous_response_id partitioning issues; sandbox id may still be shared.
         var seen = new List<string?>();
         var inner = new ProbeAgent(onRun: _ => seen.Add(UserIdentityScope.Current));
         var agent = new FoundryHostedRequestAgent(inner);
@@ -146,6 +158,43 @@ public sealed class FoundryHostedRequestTests
 
         Assert.Equal(["alice", "bob"], seen);
         Assert.Equal("sess-shared", session.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public async Task ReusedRunOptions_DoesNotStackRawRepresentationFactoriesAsync()
+    {
+        CreateResponseOptions? first = null;
+        CreateResponseOptions? second = null;
+        int run = 0;
+        var inner = new ProbeAgent(onRun: options =>
+        {
+            if (options is not ChatClientAgentRunOptions { ChatOptions.RawRepresentationFactory: { } factory })
+            {
+                return;
+            }
+
+            var created = factory(null!) as CreateResponseOptions;
+            if (run++ == 0)
+            {
+                first = created;
+            }
+            else
+            {
+                second = created;
+            }
+        });
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+        session.SetHostedAgentSessionId("sess-shared");
+        var reused = new ChatClientAgentRunOptions(new ChatOptions());
+
+        await agent.RunAsync("hi", session, reused);
+        await agent.RunAsync("hi", session, reused);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotSame(first, second);
+        Assert.Null(reused.ChatOptions!.RawRepresentationFactory);
     }
 
     [Fact]
@@ -182,14 +231,51 @@ public sealed class FoundryHostedRequestTests
                 .WithUserIdentity("alice")
                 .WithClientHeader("x-client-end-user-id", "alice-app"));
 
-        await agent.RunAsync("hi", session, runOptions);
+        // Response returns a different hosted session id than the pin → unexpected switch.
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => agent.RunAsync("hi", session, runOptions));
+        Assert.Contains("Unexpected Foundry hosted session switch", ex.Message, StringComparison.Ordinal);
 
         Assert.True(handler.Requests.Count > 0);
         var req = handler.Requests[0];
         Assert.Equal("alice", req.Headers[FoundryChatOptionsExtensions.UserIdentityHeaderName]);
         Assert.Equal("alice-app", req.Headers["x-client-end-user-id"]);
         Assert.Contains("\"agent_session_id\":\"sess-pinned\"", req.Body, StringComparison.Ordinal);
-        Assert.Equal("sess-from-platform", session.GetHostedAgentSessionId());
+        // Sticky pin must not be overwritten by the conflicting response id.
+        Assert.Equal("sess-pinned", session.GetHostedAgentSessionId());
+    }
+
+    [Fact]
+    public async Task EndToEnd_PinnedHostedSessionId_MatchingResponseKeepsStickyAsync()
+    {
+        using var handler = new RecordingHandler(
+            MinimalResponseJson(),
+            responseHeaders: new Dictionary<string, string>
+            {
+                ["x-agent-session-id"] = "sess-pinned",
+            });
+#pragma warning disable CA5399
+        using var http = new HttpClient(handler);
+#pragma warning restore CA5399
+        var openAIClient = new OpenAIClient(
+            new ApiKeyCredential("fake"),
+            new OpenAIClientOptions { Transport = new HttpClientPipelineTransport(http) });
+        IChatClient chatClient = openAIClient.GetResponsesClient().AsIChatClient();
+
+#pragma warning disable MEAI001
+        var policies = chatClient.GetService<OpenAIRequestPolicies>()!;
+        OpenAIRequestPoliciesReflection.AddPolicyIfMissing(policies, HostedSessionIdCapturePolicy.Instance);
+#pragma warning restore MEAI001
+
+        var chatAgent = new ChatClientAgent(chatClient);
+        AIAgent agent = new FoundryHostedRequestAgent(chatAgent);
+        AgentSession session = await chatAgent.CreateSessionAsync();
+        session.SetHostedAgentSessionId("sess-pinned");
+
+        await agent.RunAsync("hi", session);
+
+        Assert.Equal("sess-pinned", session.GetHostedAgentSessionId());
+        Assert.Contains("\"agent_session_id\":\"sess-pinned\"", handler.Requests[0].Body, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -35,9 +35,15 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
         CancellationToken cancellationToken = default)
     {
         var prepared = Prepare(session, options);
-        var response = await this.InnerAgent.RunAsync(messages, session, prepared.Options, cancellationToken).ConfigureAwait(false);
-        ApplySessionSticky(session, prepared.SessionIdBox);
-        return response;
+        try
+        {
+            return await this.InnerAgent.RunAsync(messages, session, prepared.Options, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Persist any platform-captured hosted session id even when later agent processing fails.
+            ApplySessionSticky(session, prepared.SessionIdBox);
+        }
     }
 
     /// <inheritdoc/>
@@ -48,13 +54,18 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var prepared = Prepare(session, options);
-
-        await foreach (var update in this.InnerAgent.RunStreamingAsync(messages, session, prepared.Options, cancellationToken).ConfigureAwait(false))
+        try
         {
-            yield return update;
+            await foreach (var update in this.InnerAgent.RunStreamingAsync(messages, session, prepared.Options, cancellationToken).ConfigureAwait(false))
+            {
+                yield return update;
+            }
         }
-
-        ApplySessionSticky(session, prepared.SessionIdBox);
+        finally
+        {
+            // finally also runs when the consumer disposes the enumerator early.
+            ApplySessionSticky(session, prepared.SessionIdBox);
+        }
     }
 
     private static PreparedRun Prepare(AgentSession? session, AgentRunOptions? options)
@@ -97,9 +108,12 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
     {
         if (options is ChatClientAgentRunOptions existing)
         {
-            existing.ChatOptions ??= new ChatOptions();
-            chatOptions = existing.ChatOptions;
-            return existing;
+            // Clone so per-run RawRepresentationFactory wrapping does not mutate caller-owned options
+            // or stack factories when the same instance is reused across runs.
+            var clone = (ChatClientAgentRunOptions)existing.Clone();
+            clone.ChatOptions ??= new ChatOptions();
+            chatOptions = clone.ChatOptions;
+            return clone;
         }
 
         chatOptions = new ChatOptions();

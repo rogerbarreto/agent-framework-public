@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -11,6 +12,10 @@ namespace Microsoft.Agents.AI.Foundry;
 /// <see cref="HostedSessionIdCaptureScope"/> so subsequent service calls in the same run (and the
 /// session sticky update after the run) see the platform-assigned hosted-agent session id.
 /// </summary>
+/// <remarks>
+/// When the scope already holds a pinned id, a different response id is rejected as an unexpected
+/// Foundry hosted session switch rather than silently overwriting the sticky value.
+/// </remarks>
 internal sealed class HostedSessionIdCapturePolicy : PipelinePolicy
 {
     internal const string SessionIdHeader = "x-agent-session-id";
@@ -48,7 +53,16 @@ internal sealed class HostedSessionIdCapturePolicy : PipelinePolicy
         if (message.Response.Headers.TryGetValue(SessionIdHeader, out string? sessionId)
             && !string.IsNullOrWhiteSpace(sessionId))
         {
-            box.Value = sessionId.Trim();
+            sessionId = sessionId.Trim();
+            if (!string.IsNullOrWhiteSpace(box.Value)
+                && !string.Equals(box.Value, sessionId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected Foundry hosted session switch. The run is pinned to hosted session '{box.Value}' " +
+                    $"but the response returned '{sessionId}'.");
+            }
+
+            box.Value = sessionId;
         }
     }
 }

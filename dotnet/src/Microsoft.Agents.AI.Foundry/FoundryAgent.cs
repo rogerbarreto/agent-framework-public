@@ -206,9 +206,10 @@ public sealed class FoundryAgent : DelegatingAIAgent
             : await this.CreateSessionAsync(conversationId, cancellationToken).ConfigureAwait(false);
 
         var typed = (ChatClientAgentSession)session;
-        if (!string.IsNullOrWhiteSpace(hostedSessionId))
+        if (hostedSessionId is not null)
         {
-            typed.SetHostedAgentSessionId(hostedSessionId!);
+            // Non-null values are treated as an explicit pin attempt; whitespace is rejected by Set.
+            typed.SetHostedAgentSessionId(hostedSessionId);
         }
 
         return typed;

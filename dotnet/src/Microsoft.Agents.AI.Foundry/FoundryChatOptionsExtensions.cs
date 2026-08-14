@@ -71,8 +71,17 @@ public static class FoundryChatOptionsExtensions
     /// <param name="userIdentity">Opaque application user identifier. Must be non-empty.</param>
     /// <returns><paramref name="options"/> for fluent chaining.</returns>
     /// <remarks>
+    /// <para>
     /// User identity is always request-scoped. It is never stored on <see cref="AgentSession"/>.
-    /// The same session (same sandbox) may be used with different identities across runs.
+    /// </para>
+    /// <para>
+    /// Different identities should use distinct <see cref="AgentSession"/> instances. Reusing one
+    /// <see cref="AgentSession"/> across identities also reuses its conversation /
+    /// previous-response trail, which is partitioned per user and can fail with a not-found error.
+    /// Those separate sessions may still be pinned to the same hosted sandbox id via
+    /// <see cref="WithHostedAgentSessionId"/> or
+    /// <see cref="FoundryAgent.CreateHostedSessionAsync(string?, string?, System.Threading.CancellationToken)"/>.
+    /// </para>
     /// </remarks>
     public static ChatOptions WithUserIdentity(this ChatOptions options, string userIdentity)
     {
