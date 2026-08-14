@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.AI.AgentServer.Invocations" />
+    <PackageReference Include="Azure.AI.AgentServer.Invocations" VersionOverride="1.0.0-beta.6" />
     <PackageReference Include="DotNetEnv" />
     <PackageReference Include="OpenTelemetry.Api" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
