@@ -139,8 +139,8 @@ public sealed class FoundryHostedRequestTests
     public async Task UserIdentity_DifferentPerCall_OnSameSession_IsAllowedAsync()
     {
         // Pipeline still allows different identities on one AgentSession (request-scoped header).
-        // Live hosted agents should prefer distinct AgentSessions per identity to avoid conversation
-        // trail / previous_response_id partitioning issues; sandbox id may still be shared.
+        // On a live hosted agent, Foundry binds previous_response_id chains to the creating user, so
+        // prefer distinct AgentSessions per identity; sandbox id may still be shared.
         var seen = new List<string?>();
         var inner = new ProbeAgent(onRun: _ => seen.Add(UserIdentityScope.Current));
         var agent = new FoundryHostedRequestAgent(inner);
