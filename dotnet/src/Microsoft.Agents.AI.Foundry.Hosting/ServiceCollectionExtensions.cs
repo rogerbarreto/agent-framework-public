@@ -58,7 +58,8 @@ public static class FoundryHostingExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configure">
     /// Optional callback to configure <see cref="FoundryResponsesOptions"/>, for example to allow the
-    /// agent's own service to store the responses it produces.
+    /// agent's own service to store the responses it produces, or to opt in to durable long-running
+    /// (resilient) background responses via <see cref="FoundryResponsesOptions.ResilientBackground"/>.
     /// </param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddFoundryResponses(this IServiceCollection services, Action<FoundryResponsesOptions>? configure = null)
@@ -99,7 +100,8 @@ public static class FoundryHostingExtensions
     /// <param name="agentSessionStore">The agent session store to use for managing agent sessions server-side. If null, <see cref="FoundryAgentSessionStore"/> is used: the Foundry durable state store when hosted, and the AgentServer SDK's local state-store fallback otherwise.</param>
     /// <param name="configure">
     /// Optional callback to configure <see cref="FoundryResponsesOptions"/>, for example to allow the
-    /// agent's own service to store the responses it produces.
+    /// agent's own service to store the responses it produces, or to opt in to durable long-running
+    /// (resilient) background responses via <see cref="FoundryResponsesOptions.ResilientBackground"/>.
     /// </param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddFoundryResponses(
@@ -142,6 +144,8 @@ public static class FoundryHostingExtensions
     /// The checks are registered on the same <c>/readiness</c> pipeline that <see cref="MapFoundryResponses"/>
     /// maps, so such a container never takes traffic.
     /// <c>AddCheck</c> does not dedupe by name, so a repeated registration is guarded here.
+    /// Resilience flags on <see cref="FoundryResponsesOptions"/> are forwarded to
+    /// <see cref="ResponsesServerOptions"/> so the AgentServer SDK enables recovery for the same host.
     /// </remarks>
     private static void ConfigureFoundryResponsesOptions(IServiceCollection services, Action<FoundryResponsesOptions>? configure)
     {
@@ -149,6 +153,14 @@ public static class FoundryHostingExtensions
         {
             services.Configure(configure);
         }
+
+        // Forward hosting resilience flags into the AgentServer Responses options the SDK reads.
+        services.AddOptions<ResponsesServerOptions>()
+            .Configure<IOptions<FoundryResponsesOptions>>((server, foundry) =>
+            {
+                server.ResilientBackground = foundry.Value.ResilientBackground;
+                server.SteerableConversations = foundry.Value.SteerableConversations;
+            });
 
         AddReadinessCheckOnce(services, "foundry-stored-output", sp => ActivatorUtilities.CreateInstance<HostedStoredOutputHealthCheck>(sp));
         AddReadinessCheckOnce(services, "foundry-workflow-checkpointing", sp => ActivatorUtilities.CreateInstance<HostedWorkflowCheckpointingHealthCheck>(sp));

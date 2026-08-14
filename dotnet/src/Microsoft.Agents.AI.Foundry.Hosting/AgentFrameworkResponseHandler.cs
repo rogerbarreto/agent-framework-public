@@ -21,6 +21,7 @@ using Microsoft.Shared.Diagnostics;
 using ResponseCompletedEvent = Azure.AI.AgentServer.Responses.Models.ResponseCompletedEvent;
 using ResponseFailedEvent = Azure.AI.AgentServer.Responses.Models.ResponseFailedEvent;
 using ResponseIncompleteEvent = Azure.AI.AgentServer.Responses.Models.ResponseIncompleteEvent;
+using ResponseOutputItemDoneEvent = Azure.AI.AgentServer.Responses.Models.ResponseOutputItemDoneEvent;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -37,6 +38,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private readonly FoundryToolboxService? _toolboxService;
 
     /// <summary>
+    /// Whether the host was configured for durable long-running (resilient) background responses
+    /// (<see cref="FoundryResponsesOptions.ResilientBackground"/>). When <see langword="false"/> the
+    /// handler never does mid-turn session saves or recovery exit and behaves exactly as a non-resilient host.
+    /// </summary>
+    private readonly bool _resilientBackground;
+
+    /// <summary>
     /// Cached fallback used when no <see cref="HostedSessionIsolationKeyProvider"/> is registered in DI.
     /// Avoids a per-request allocation on the request hot path.
     /// </summary>
@@ -49,10 +57,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// <param name="serviceProvider">The service provider for resolving agents.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="toolboxService">Optional Foundry Toolbox service providing MCP tools.</param>
+    /// <param name="foundryResponsesOptions">
+    /// Hosting options, used to read whether resilient background responses are enabled. Optional so
+    /// the handler can be constructed without the options registered (for example in unit tests), in
+    /// which case resilience is treated as off.
+    /// </param>
     public AgentFrameworkResponseHandler(
         IServiceProvider serviceProvider,
         ILogger<AgentFrameworkResponseHandler> logger,
-        FoundryToolboxService? toolboxService = null)
+        FoundryToolboxService? toolboxService = null,
+        IOptions<FoundryResponsesOptions>? foundryResponsesOptions = null)
     {
         _ = Throw.IfNull(serviceProvider);
         _ = Throw.IfNull(logger);
@@ -60,7 +74,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         this._serviceProvider = serviceProvider;
         this._logger = logger;
         this._toolboxService = toolboxService;
+        this._resilientBackground = foundryResponsesOptions?.Value.ResilientBackground ?? false;
     }
+
+    /// <summary>
+    /// The resilience gate for the mid-turn session-save path: saving is worthwhile only when the
+    /// host enabled resilient background responses and this specific request is a stored background
+    /// response. When any part is false, the request runs exactly as it does on a non-resilient host
+    /// (the recovery path is gated separately on <c>ResponseContext.IsRecovery</c>).
+    /// </summary>
+    private bool ShouldPersistForResilience(CreateResponse request)
+        => this._resilientBackground && request.Background == true && request.Store == true;
 
     /// <inheritdoc/>
     public override async IAsyncEnumerable<ResponseStreamEvent> CreateAsync(
@@ -163,8 +187,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
-        // 3. Create the SDK event stream builder
-        var stream = new ResponseEventStream(context, request);
+        // 3. Create the SDK event stream builder.
+        // On recovery, AgentServer supplies the last ResponseObject snapshot that it persisted. This
+        // handler does not emit ResponseEventStream.Checkpoint(), so an interrupted turn normally
+        // receives the response.created snapshot, which may contain no completed output items. Seed
+        // from whatever snapshot is available to preserve its response fields and any output
+        // watermark it does carry. This snapshot is not the workflow resume cursor. A workflow
+        // continues from the checkpoint referenced by its restored AgentSession.
+        var stream = context.IsRecovery && context.PersistedResponse is { } persistedResponse
+            ? new ResponseEventStream(context, persistedResponse)
+            : new ResponseEventStream(context, request);
 
         // 3. Emit lifecycle events
         yield return stream.EmitCreated();
@@ -172,18 +204,26 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
         // 4. Convert input: the current input items become the run's messages. Earlier turns are not
         // added here; whatever holds the history for this agent supplies them, see step 5.
+        //
+        // On recovery the platform re-delivers the original input, but this adapter deliberately
+        // leaves the message list empty and lets the restored AgentSession define re-entry. For a
+        // workflow agent, the session contains the workflow checkpoint reference used to continue
+        // execution. A regular agent has no within-turn workflow checkpoint, so its recovery remains
+        // best-effort and depends on the state that its AgentSession serialized before the crash.
         var messages = new List<ChatMessage>();
-
-        // Load and convert current input items
-        var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (inputItems.Count > 0)
+        if (!context.IsRecovery)
         {
-            messages.AddRange(InputConverter.ConvertItemsToMessages(inputItems, session?.StateBag));
-        }
-        else
-        {
-            // Fall back to raw request input
-            messages.AddRange(InputConverter.ConvertInputToMessages(request, session?.StateBag));
+            // Load and convert current input items
+            var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (inputItems.Count > 0)
+            {
+                messages.AddRange(InputConverter.ConvertItemsToMessages(inputItems, session?.StateBag));
+            }
+            else
+            {
+                // Fall back to raw request input
+                messages.AddRange(InputConverter.ConvertInputToMessages(request, session?.StateBag));
+            }
         }
 
         // 5. Build chat options
@@ -337,9 +377,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
         var options = new ChatClientAgentRunOptions(chatOptions);
 
-        // We only use a volatile provider for the conversation history if the agent is a ChatClientAgent and the allow setting is not intentionally set or not custom chat history provider is intentionally supplied.
+        // We only use a volatile provider for the conversation history if the agent is a
+        // ChatClientAgent, stored output is not allowed, and no custom history provider was supplied.
+        // Recovery does not reload platform history because the restored AgentSession owns re-entry
+        // state. For workflows, that includes the workflow checkpoint reference.
         var useVolatileChatHistoryProvider =
-            !allowStoredOutputEnabled
+            !context.IsRecovery
+            && !allowStoredOutputEnabled
             && agent.GetService<ChatClientAgent>() is not null
             && agentOptions?.ChatHistoryProvider is null;
 
@@ -365,6 +409,14 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
+        //
+        // On a resilient turn, save the AgentSession after completed response output items so a
+        // process crash can reload a recent session snapshot. This save is not a workflow checkpoint
+        // and it is not an AgentServer ResponseEventStream checkpoint. The workflow runtime writes
+        // its own checkpoints; AgentServer separately persists response events and selected
+        // ResponseObject snapshots.
+        bool isResilientTurn = this.ShouldPersistForResilience(request) || context.IsRecovery;
+
         bool emittedTerminal = false;
         bool notAllowedStoreUsageDetected = false;
 
@@ -467,7 +519,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (shutdownDetected)
                 {
-                    // Server is shutting down — emit incomplete so clients can resume
+                    // Server is shutting down. On a resilient turn, leave the response in_progress
+                    // so AgentServer can re-invoke this handler in a later process. The restored
+                    // AgentSession determines how the agent continues. On a non-resilient turn,
+                    // preserve the existing behavior and emit incomplete.
+                    if (isResilientTurn)
+                    {
+                        this._logger.LogInformation("Shutdown detected on a resilient turn; deferring for recovery.");
+                        await context.ExitForRecoveryAsync(cancellationToken).ConfigureAwait(false);
+                        yield break;
+                    }
+
                     this._logger.LogInformation("Shutdown detected, emitting incomplete response.");
                     yield return stream.EmitIncomplete();
                     yield break;
@@ -486,6 +548,32 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 // yield is in the outer try (finally-only) — allowed by C#
                 yield return evt!;
+
+                // Best-effort session snapshot after a response output item closes. The agent may
+                // still be mutating the session, so serialization can fail without failing the turn.
+                // This does not mark a workflow or ResponseEventStream checkpoint. The final save
+                // below remains authoritative for a turn that reaches normal completion.
+                if (isResilientTurn
+                    && evt is ResponseOutputItemDoneEvent
+                    && session is not null
+                    && !string.IsNullOrWhiteSpace(agentSessionId)
+                    && !turnFailed)
+                {
+                    try
+                    {
+                        await sessionStore.SaveSessionAsync(agent, agentSessionId!, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        if (this._logger.IsEnabled(LogLevel.Debug))
+                        {
+                            this._logger.LogDebug(
+                                ex,
+                                "Incremental session save was skipped for response {ResponseId}; the end-of-turn save will persist the final state.",
+                                context.ResponseId);
+                        }
+                    }
+                }
 
                 if (evt is ResponseFailedEvent or ResponseIncompleteEvent)
                 {
