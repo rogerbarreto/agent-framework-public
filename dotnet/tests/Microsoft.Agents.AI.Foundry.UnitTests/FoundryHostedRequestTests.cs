@@ -161,6 +161,44 @@ public sealed class FoundryHostedRequestTests
     }
 
     [Fact]
+    public async Task UserIdentity_OmittedAfterParent_ClearsAsyncLocalScopeAsync()
+    {
+        var seen = new List<string?>();
+        var inner = new ProbeAgent(onRun: _ => seen.Add(UserIdentityScope.Current));
+        var agent = new FoundryHostedRequestAgent(inner);
+        var session = new TestSession();
+
+        await agent.RunAsync(
+            "hi",
+            session,
+            new ChatClientAgentRunOptions(new ChatOptions().WithUserIdentity("alice")));
+        await agent.RunAsync("hi", session, new ChatClientAgentRunOptions(new ChatOptions()));
+
+        Assert.Equal(["alice", null], seen);
+    }
+
+    [Fact]
+    public async Task PlainAgentRunOptions_PreservesBasePropertiesAsync()
+    {
+        AgentRunOptions? seen = null;
+        var inner = new ProbeAgent(onRun: o => seen = o);
+        var agent = new FoundryHostedRequestAgent(inner);
+#pragma warning disable MEAI001
+        var plain = new AgentRunOptions
+        {
+            AllowBackgroundResponses = true,
+            ResponseFormat = ChatResponseFormat.Text,
+        };
+#pragma warning restore MEAI001
+
+        await agent.RunAsync("hi", new TestSession(), plain);
+
+        var cro = Assert.IsType<ChatClientAgentRunOptions>(seen);
+        Assert.True(cro.AllowBackgroundResponses);
+        Assert.Same(ChatResponseFormat.Text, cro.ResponseFormat);
+    }
+
+    [Fact]
     public async Task ReusedRunOptions_DoesNotStackRawRepresentationFactoriesAsync()
     {
         CreateResponseOptions? first = null;

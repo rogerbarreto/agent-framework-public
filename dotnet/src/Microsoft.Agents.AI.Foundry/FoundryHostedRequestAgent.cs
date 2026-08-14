@@ -95,11 +95,9 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
         var effectiveOptions = EnsureChatOptions(options, out chatOptions);
         AttachHostedSessionIdFactory(chatOptions, sessionIdBox);
 
-        string? userIdentity = chatOptions.GetUserIdentity();
-        if (!string.IsNullOrWhiteSpace(userIdentity))
-        {
-            UserIdentityScope.Current = userIdentity;
-        }
+        // Always assign (including null) so a nested Foundry run that omits WithUserIdentity does not
+        // inherit a parent AsyncLocal identity and stamp the wrong x-ms-user-identity header.
+        UserIdentityScope.Current = chatOptions.GetUserIdentity();
 
         return new PreparedRun(effectiveOptions, sessionIdBox);
     }
@@ -117,7 +115,19 @@ internal sealed class FoundryHostedRequestAgent : DelegatingAIAgent
         }
 
         chatOptions = new ChatOptions();
-        return new ChatClientAgentRunOptions(chatOptions);
+        var specialized = new ChatClientAgentRunOptions(chatOptions);
+        if (options is not null)
+        {
+            // Preserve base AgentRunOptions fields when upgrading a plain options instance.
+#pragma warning disable MEAI001 // ResponseContinuationToken is experimental
+            specialized.ContinuationToken = options.ContinuationToken;
+#pragma warning restore MEAI001
+            specialized.AllowBackgroundResponses = options.AllowBackgroundResponses;
+            specialized.ResponseFormat = options.ResponseFormat;
+            specialized.AdditionalProperties = options.AdditionalProperties?.Clone();
+        }
+
+        return specialized;
     }
 
     private static void AttachHostedSessionIdFactory(ChatOptions chatOptions, StrongBox<string?> sessionIdBox)
