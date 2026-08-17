@@ -53,7 +53,7 @@ public sealed class FoundryAgentSessionStoreTests
     {
         // Arrange
         var store = NewStore(new FakeStateStore());
-        var agent = new TestAgent();
+        var agent = new TestAgent(name: "Concierge");
 
         // Act
         var session = await store.GetSessionAsync(agent, "conv-1", userId: null);
@@ -69,7 +69,7 @@ public sealed class FoundryAgentSessionStoreTests
     {
         // Arrange
         var store = NewStore(new FakeStateStore());
-        var agent = new TestAgent();
+        var agent = new TestAgent(name: "Concierge");
 
         // Act
         var session = await store.GetOrCreateSessionAsync(agent, "conv-1", userId: null);
@@ -140,6 +140,36 @@ public sealed class FoundryAgentSessionStoreTests
         // Assert
         Assert.Null(supportSession);
         Assert.Equal(0, support.DeserializeCalls);
+    }
+
+    [Fact]
+    public async Task SaveSessionAsync_UnnamedAgent_ThrowsAsync()
+    {
+        // Arrange
+        var store = NewStore(new FakeStateStore());
+        var agent = new TestAgent();
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await store.SaveSessionAsync(agent, "conv-1", new TestSession(), userId: "alice"));
+
+        // Assert
+        Assert.Contains(nameof(AIAgent.Name), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetSessionAsync_UnnamedAgent_ThrowsAsync()
+    {
+        // Arrange
+        var store = NewStore(new FakeStateStore());
+        var agent = new TestAgent();
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await store.GetSessionAsync(agent, "conv-1", userId: "alice"));
+
+        // Assert
+        Assert.Contains(nameof(AIAgent.Name), exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

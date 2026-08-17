@@ -618,7 +618,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             var agent = this._serviceProvider.GetKeyedService<AIAgent>(agentName);
             if (agent is not null)
             {
-                storageIdentity = $"key:{agentName}";
+                storageIdentity = ResolveAgentStorageIdentity(
+                    agent,
+                    agentName,
+                    this._serviceProvider.GetService<AIAgent>());
                 return this.PrepareResolvedAgent(agent);
             }
 
@@ -632,9 +635,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var defaultAgent = this._serviceProvider.GetService<AIAgent>();
         if (defaultAgent is not null)
         {
-            storageIdentity = !string.IsNullOrWhiteSpace(defaultAgent.Name)
-                ? $"name:{defaultAgent.Name}"
-                : "default";
+            storageIdentity = ResolveAgentStorageIdentity(defaultAgent, registrationKey: null, defaultAgent);
 
             return this.PrepareResolvedAgent(defaultAgent);
         }
@@ -644,6 +645,20 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             : $"Agent '{agentName}' not found. Ensure it is registered via AddFoundryResponses(services, agent) or services.AddKeyedSingleton<AIAgent>(\"{agentName}\", ...).";
 
         throw new InvalidOperationException(errorMessage);
+    }
+
+    internal static string ResolveAgentStorageIdentity(AIAgent agent, string? registrationKey, AIAgent? defaultAgent)
+    {
+        _ = Throw.IfNull(agent);
+
+        if (registrationKey is not null && !ReferenceEquals(agent, defaultAgent))
+        {
+            return $"key:{registrationKey}";
+        }
+
+        return !string.IsNullOrWhiteSpace(agent.Name)
+            ? $"name:{agent.Name}"
+            : "default";
     }
 
     private AIAgent PrepareResolvedAgent(AIAgent agent)

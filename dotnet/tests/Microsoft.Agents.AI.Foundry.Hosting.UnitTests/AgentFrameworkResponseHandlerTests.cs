@@ -640,6 +640,55 @@ public class AgentFrameworkResponseHandlerTests
     }
 
     [Fact]
+    public void ResolveAgentStorageIdentity_KeyedAliasOfDefaultAgent_UsesDefaultIdentity()
+    {
+        // Arrange
+        var agent = new RecordingAgent("billing");
+
+        // Act
+        string identity = AgentFrameworkResponseHandler.ResolveAgentStorageIdentity(
+            agent,
+            registrationKey: "billing",
+            defaultAgent: agent);
+
+        // Assert
+        Assert.Equal("name:billing", identity);
+    }
+
+    [Fact]
+    public void ResolveAgentStorageIdentity_IndependentKeyedAgent_UsesRegistrationKey()
+    {
+        // Arrange
+        var agent = new RecordingAgent("shared-name");
+        var defaultAgent = new RecordingAgent("shared-name");
+
+        // Act
+        string identity = AgentFrameworkResponseHandler.ResolveAgentStorageIdentity(
+            agent,
+            registrationKey: "billing",
+            defaultAgent);
+
+        // Assert
+        Assert.Equal("key:billing", identity);
+    }
+
+    [Fact]
+    public void ResolveAgentStorageIdentity_UnnamedDefaultAgent_UsesDefaultIdentity()
+    {
+        // Arrange
+        var agent = new RecordingAgent();
+
+        // Act
+        string identity = AgentFrameworkResponseHandler.ResolveAgentStorageIdentity(
+            agent,
+            registrationKey: null,
+            defaultAgent: agent);
+
+        // Assert
+        Assert.Equal("default", identity);
+    }
+
+    [Fact]
     public async Task CreateAsync_CancellationDuringExecution_PropagatesOperationCanceledExceptionAsync()
     {
         // Arrange

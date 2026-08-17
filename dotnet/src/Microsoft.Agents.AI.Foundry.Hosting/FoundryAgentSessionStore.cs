@@ -45,6 +45,11 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// instance. Resolving it costs one round trip (plus one more the very first time, to create the
 /// store), so it deliberately does not happen per request.
 /// </para>
+/// <para>
+/// Direct callers must provide an agent with a stable <see cref="AIAgent.Name"/>. The Foundry
+/// response handler supplies keyed and default registration identities explicitly, including for
+/// unnamed agents.
+/// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class FoundryAgentSessionStore : AgentSessionStore
@@ -223,8 +228,19 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         return builder.ToString();
     }
 
-    private static string ResolveAgentIdentity(AIAgent agent) =>
-        !string.IsNullOrWhiteSpace(agent.Name) ? $"name:{agent.Name}" : $"id:{agent.Id}";
+    private static string ResolveAgentIdentity(AIAgent agent)
+    {
+        _ = Throw.IfNull(agent);
+
+        if (string.IsNullOrWhiteSpace(agent.Name))
+        {
+            throw new InvalidOperationException(
+                $"Direct use of {nameof(FoundryAgentSessionStore)} requires an agent with a stable {nameof(AIAgent.Name)}. " +
+                "Foundry hosting supplies the keyed or default registration identity separately.");
+        }
+
+        return $"name:{agent.Name}";
+    }
 
     private static void AppendComponent(StringBuilder builder, char prefix, string? value)
     {

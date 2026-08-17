@@ -200,8 +200,8 @@ public sealed class FoundryJsonCheckpointStoreTests
         var backing = new FakeCheckpointStateStore();
         var store = NewStore(backing);
         var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
-        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
-        var third = await store.CreateCheckpointAsync("session-1", Json("{\"step\":3}"));
+        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"), parent: first);
+        var third = await store.CreateCheckpointAsync("session-1", Json("{\"step\":3}"), parent: second);
 
         // Act: resuming reads the latest checkpoint back.
         var resumed = await store.RetrieveCheckpointAsync("session-1", third);
@@ -222,8 +222,8 @@ public sealed class FoundryJsonCheckpointStoreTests
         var backing = new FakeCheckpointStateStore();
         var store = NewStore(backing);
         var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
-        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
-        var third = await store.CreateCheckpointAsync("session-1", Json("{\"step\":3}"));
+        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"), parent: first);
+        var third = await store.CreateCheckpointAsync("session-1", Json("{\"step\":3}"), parent: second);
 
         // Act
         await store.RetrieveCheckpointAsync("session-1", second);
@@ -233,6 +233,64 @@ public sealed class FoundryJsonCheckpointStoreTests
         Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", first.CheckpointId)));
         Assert.True(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", second.CheckpointId)));
         Assert.True(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", third.CheckpointId)));
+    }
+
+    [Fact]
+    public async Task RetrieveCheckpointAsync_RetainsEarlierSiblingBranchAsync()
+    {
+        // Arrange: two branches share the same root, and either branch may still be referenced by a
+        // persisted workflow session.
+        var backing = new FakeCheckpointStateStore();
+        var store = NewStore(backing);
+        var root = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var firstBranch = await store.CreateCheckpointAsync("session-1", Json("{\"branch\":1}"), parent: root);
+        var secondBranch = await store.CreateCheckpointAsync("session-1", Json("{\"branch\":2}"), parent: root);
+
+        // Act
+        await store.RetrieveCheckpointAsync("session-1", secondBranch);
+        JsonElement firstBranchValue = await store.RetrieveCheckpointAsync("session-1", firstBranch);
+
+        // Assert: the shared ancestor is obsolete, but the earlier sibling remains resumable.
+        Assert.Equal("{\"branch\":1}", firstBranchValue.GetRawText());
+        Assert.Equal([firstBranch, secondBranch], (await store.RetrieveIndexAsync("session-1")).ToList());
+        Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", root.CheckpointId)));
+    }
+
+    [Fact]
+    public async Task RetrieveCheckpointAsync_ParentlessEntriesStillUseCommitOrderAsync()
+    {
+        // Arrange: parentless checkpoints provide no branch relationship, so commit order remains
+        // the compatibility signal for deciding which earlier entries are obsolete.
+        var backing = new FakeCheckpointStateStore();
+        var store = NewStore(backing);
+        var firstRoot = await store.CreateCheckpointAsync("session-1", Json("{\"root\":1}"));
+        var secondRoot = await store.CreateCheckpointAsync("session-1", Json("{\"root\":2}"));
+
+        // Act
+        await store.RetrieveCheckpointAsync("session-1", secondRoot);
+
+        // Assert
+        Assert.Equal([secondRoot], (await store.RetrieveIndexAsync("session-1")).ToList());
+        Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", firstRoot.CheckpointId)));
+    }
+
+    [Fact]
+    public async Task RetrieveCheckpointAsync_LegacyEntriesStillUseCommitOrderAsync()
+    {
+        // Arrange: old indexes did not record parent metadata, so ordering remains the only
+        // compatibility signal available for pruning them.
+        var backing = new FakeCheckpointStateStore();
+        var store = NewStore(backing);
+        var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var second = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
+        backing.ReplaceIndexWithLegacyEntries("session-1", first, second);
+
+        // Act
+        await store.RetrieveCheckpointAsync("session-1", second);
+
+        // Assert
+        Assert.Equal([second], (await store.RetrieveIndexAsync("session-1")).ToList());
+        Assert.False(backing.Items.ContainsKey(FoundryJsonCheckpointStore.BuildCheckpointKey("session-1", first.CheckpointId)));
     }
 
     [Fact]
@@ -259,8 +317,8 @@ public sealed class FoundryJsonCheckpointStoreTests
         // Arrange: housekeeping is refused, which must not break a conversation that is resuming.
         var backing = new FakeCheckpointStateStore();
         var store = NewStore(backing);
-        await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
-        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
+        var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"), parent: first);
         backing.FailNextIndexWrites = 1;
 
         // Act
@@ -279,8 +337,8 @@ public sealed class FoundryJsonCheckpointStoreTests
         var backing = new FakeCheckpointStateStore();
         var logs = new RecordingLoggerFactory();
         var store = NewStore(backing, logs);
-        await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
-        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
+        var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"), parent: first);
         backing.FailNextIndexWritesAuthentically = 1;
 
         // Act
@@ -301,8 +359,8 @@ public sealed class FoundryJsonCheckpointStoreTests
         var backing = new FakeCheckpointStateStore();
         var logs = new RecordingLoggerFactory();
         var store = NewStore(backing, logs);
-        await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
-        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"));
+        var first = await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        var resumeTarget = await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}"), parent: first);
         backing.FailNextIndexWrites = 1;
 
         // Act
@@ -428,6 +486,23 @@ public sealed class FoundryJsonCheckpointStoreTests
 
         /// <summary>The item bodies currently held, so a test can assert what was deleted.</summary>
         public ConcurrentDictionary<string, (IDictionary<string, BinaryData> Value, string Etag)> Items { get; } = new(StringComparer.Ordinal);
+
+        public void ReplaceIndexWithLegacyEntries(string sessionId, params CheckpointInfo[] checkpoints)
+        {
+            string entriesJson = JsonSerializer.Serialize(
+                checkpoints.Select(checkpoint => new Dictionary<string, string>
+                {
+                    ["id"] = checkpoint.CheckpointId,
+                }));
+
+            this.Write(
+                FoundryJsonCheckpointStore.BuildIndexKey(sessionId),
+                new Dictionary<string, BinaryData>
+                {
+                    ["session"] = BinaryData.FromString(JsonSerializer.Serialize(sessionId)),
+                    ["entries"] = BinaryData.FromString(entriesJson),
+                });
+        }
 
         private StateStoreItemRef Write(string key, IDictionary<string, BinaryData> value)
         {

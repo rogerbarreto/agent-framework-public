@@ -35,11 +35,11 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// each other.
 /// </para>
 /// <para>
-/// Retention. A workflow session writes one checkpoint per superstep but only ever resumes from
-/// the most recent one. Retrieving a checkpoint happens when a workflow is resuming from it, and at
-/// that point checkpoints committed before it are deleted. Checkpoints committed later are retained
-/// so a concurrent run cannot lose its live state. Note that this makes
-/// <see cref="RetrieveCheckpointAsync"/> a write operation as well as a read.
+/// Retention. Retrieving a checkpoint happens when a workflow is resuming from it. At that point,
+/// superseded ancestors and earlier entries without a parent are deleted. Sibling branches, the
+/// resumed checkpoint, and later checkpoints are retained so another persisted or concurrent run
+/// cannot lose its live state. Note that this makes <see cref="RetrieveCheckpointAsync"/> a write
+/// operation as well as a read.
 /// </para>
 /// <para>
 /// Concurrency. Adding a checkpoint writes the checkpoint item and then updates the session's index
@@ -221,12 +221,13 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     }
 
     /// <summary>
-    /// Returns a stored checkpoint and deletes checkpoints committed before it.
+    /// Returns a stored checkpoint and deletes superseded checkpoints from its lineage.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The deletion keeps old checkpoints from piling up. Checkpoints committed after the retrieved
-    /// checkpoint are retained because they may belong to a concurrent run.
+    /// The deletion keeps old checkpoints from piling up. Sibling branches and checkpoints committed
+    /// after the retrieved checkpoint are retained because they may belong to another persisted or
+    /// concurrent run.
     /// </para>
     /// <para>
     /// A workflow writes one checkpoint per superstep and only ever resumes from the most
@@ -236,7 +237,7 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     /// </para>
     /// </remarks>
     /// <param name="sessionId">The workflow session that owns the checkpoint.</param>
-    /// <param name="key">Identifies the checkpoint to return and the oldest checkpoint retained.</param>
+    /// <param name="key">Identifies the checkpoint to return and resume.</param>
     /// <returns>The stored checkpoint.</returns>
     /// <exception cref="KeyNotFoundException">No such checkpoint is stored for that session.</exception>
     public override async ValueTask<JsonElement> RetrieveCheckpointAsync(string sessionId, CheckpointInfo key)
@@ -276,8 +277,7 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     }
 
     /// <summary>
-    /// Deletes every checkpoint committed before the one that has just been retrieved, which is the
-    /// one the workflow is resuming from.
+    /// Deletes superseded ancestors and legacy predecessors of the checkpoint being resumed.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -301,8 +301,32 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
                 return;
             }
 
-            List<IndexEntry> obsolete = entries.GetRange(0, resumedIndex);
-            List<IndexEntry> retained = entries.GetRange(resumedIndex, entries.Count - resumedIndex);
+            HashSet<string> ancestorIds = GetAncestorIds(entries, resumedCheckpointId);
+            List<IndexEntry> obsolete = [];
+            List<IndexEntry> retained = [];
+
+            for (int index = 0; index < entries.Count; index++)
+            {
+                IndexEntry entry = entries[index];
+                // Legacy entries and parentless roots cannot be classified as branches, so they keep
+                // the original commit-order pruning behavior.
+                if (index < resumedIndex &&
+                    (!entry.HasParentMetadata ||
+                     entry.ParentCheckpointId is null ||
+                     ancestorIds.Contains(entry.CheckpointId)))
+                {
+                    obsolete.Add(entry);
+                }
+                else
+                {
+                    retained.Add(entry);
+                }
+            }
+
+            if (obsolete.Count == 0)
+            {
+                return;
+            }
 
             // The index is shortened first. A checkpoint item that is still listed but already gone
             // would be read as a missing checkpoint, whereas one that is listed nowhere is simply
@@ -354,6 +378,36 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
                 sessionId,
                 this.StoreName);
         }
+    }
+
+    private static HashSet<string> GetAncestorIds(List<IndexEntry> entries, string checkpointId)
+    {
+        Dictionary<string, IndexEntry> entriesById = [];
+        foreach (IndexEntry entry in entries)
+        {
+            entriesById[entry.CheckpointId] = entry;
+        }
+
+        HashSet<string> ancestors = new(StringComparer.Ordinal);
+        if (!entriesById.TryGetValue(checkpointId, out IndexEntry? current) ||
+            !current.HasParentMetadata)
+        {
+            return ancestors;
+        }
+
+        string? parentId = current.ParentCheckpointId;
+        while (parentId is not null && ancestors.Add(parentId))
+        {
+            if (!entriesById.TryGetValue(parentId, out IndexEntry? parent) ||
+                !parent.HasParentMetadata)
+            {
+                break;
+            }
+
+            parentId = parent.ParentCheckpointId;
+        }
+
+        return ancestors;
     }
 
     /// <inheritdoc/>
