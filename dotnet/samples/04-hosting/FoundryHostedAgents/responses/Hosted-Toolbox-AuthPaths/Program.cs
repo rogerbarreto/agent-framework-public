@@ -32,7 +32,6 @@
 #pragma warning disable OPENAI001 // FoundryAITool.CreateHostedMcpToolbox is experimental
 
 using Azure.AI.Projects;
-using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
 using Microsoft.Agents.AI;
@@ -52,9 +51,15 @@ string endpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_END
     ?? throw new InvalidOperationException(
         "Neither FOUNDRY_PROJECT_ENDPOINT (platform-injected in hosted runtime) " +
         "nor AZURE_AI_PROJECT_ENDPOINT (local-dev convention) is set.");
-string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? "gpt-4o";
-string toolboxName = System.Environment.GetEnvironmentVariable("TOOLBOX_NAME") ?? "auth-paths-toolbox";
-string agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-toolbox-auth-paths-agent";
+string deploymentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    "gpt-4o")!;
+string toolboxName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("TOOLBOX_NAME"),
+    "auth-paths-toolbox")!;
+string agentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AGENT_NAME"),
+    "hosted-toolbox-auth-paths-agent")!;
 
 var credential = new DefaultAzureCredential();
 
@@ -98,5 +103,8 @@ app.MapFoundryResponses();
 
 
 app.Run();
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
 
 // ── DevTemporaryTokenCredential ───────────────────────────────────────────────

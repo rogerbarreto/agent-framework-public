@@ -1,6 +1,7 @@
 # Hosted-ToolboxMcpSkills
 
-A hosted agent that discovers MCP-based skills attached to a Foundry Toolbox and serves them at runtime. Requires TOOLBOX_NAME set to a toolbox with MCP skills. NOTE: this sample references Microsoft.Agents.AI.Mcp, which is not part of the contributor local-feed closure, so the contributor local-framework flow does not apply here.
+A hosted agent that discovers MCP-based skills attached to a Foundry Toolbox and serves them at
+runtime. Requires `TOOLBOX_NAME` set to a toolbox with MCP skills.
 
 This sample deploys to Foundry **directly from source (code / ZIP upload)**: the platform builds and runs your code with no container image, so there is no Dockerfile to author or container registry to manage. Source deploy is the default for .NET.
 
@@ -44,6 +45,7 @@ cp .env.example .env
 ```env
 FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projects/<your-project>
 AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o
+TOOLBOX_NAME=<your-toolbox-name>
 ASPNETCORE_URLS=http://+:8088
 AZURE_TOKEN_CREDENTIALS=dev
 ```
@@ -120,11 +122,6 @@ cd $work
 in `azure.yaml`) and writes the adopted `azure.yaml` and the `azd` environment there. It prompts
 you to pick the Foundry project; `-d` is the name of an existing model deployment in that project.
 
-```
-azd env get-values
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
-```
-
 PowerShell:
 
 ```powershell
@@ -142,6 +139,9 @@ before the commands below. Everyone else can ignore it.
 
 ```
 cd hosted-toolbox-mcp-skills
+azd env get-values
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
+azd env set TOOLBOX_NAME <your-toolbox-name>
 azd provision
 azd deploy
 azd ai agent invoke "List the MCP skills available from the toolbox."
@@ -167,9 +167,10 @@ azd down
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-toolbox-mcp-skills?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-toolbox-mcp-skills" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 Then delete the working directory.

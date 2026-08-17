@@ -33,8 +33,11 @@ Env.TraversePath().Load();
 
 string endpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
-string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
-string skillNames = System.Environment.GetEnvironmentVariable("SKILL_NAMES")
+string deploymentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o")!;
+string skillNames = FirstNonBlank(System.Environment.GetEnvironmentVariable("SKILL_NAMES"))
     ?? throw new InvalidOperationException("SKILL_NAMES is not set. Provide a comma-separated list of skill names (e.g., support-style,escalation-policy).");
 
 string[] requestedSkills = skillNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -116,6 +119,9 @@ app.MapFoundryResponses();
 app.Run();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
 
 // Downloads each named skill from Foundry into a separate subdirectory under the target directory.
 // GetSkillContentAsync downloads the skill package and unzips it into the destination directory.

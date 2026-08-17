@@ -26,10 +26,19 @@ Env.TraversePath().Load();
 
 var projectEndpoint = new Uri(System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
-var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-memory-agent";
-var deployment = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
-var embeddingDeployment = System.Environment.GetEnvironmentVariable("AZURE_AI_EMBEDDING_DEPLOYMENT_NAME") ?? "text-embedding-ada-002";
-var memoryStoreName = System.Environment.GetEnvironmentVariable("AZURE_AI_MEMORY_STORE_ID") ?? "hosted-memory-sample";
+var agentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AGENT_NAME"),
+    "hosted-memory-agent")!;
+var deployment = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o")!;
+var embeddingDeployment = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_EMBEDDING_DEPLOYMENT_NAME"),
+    "text-embedding-ada-002")!;
+var memoryStoreName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MEMORY_STORE_ID"),
+    "hosted-memory-sample")!;
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
 // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
@@ -85,3 +94,6 @@ app.MapFoundryResponses();
 
 
 app.Run();
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));

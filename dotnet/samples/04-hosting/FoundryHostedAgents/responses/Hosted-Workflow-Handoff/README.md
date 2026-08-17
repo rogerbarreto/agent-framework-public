@@ -76,14 +76,14 @@ $sample = "<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted
 azd auth login
 azd ai agent init -m $sample
 
+cd hosted-workflow-handoff
+
 # Provide the Azure OpenAI settings to the azd environment before deploying:
 azd env set AZURE_OPENAI_ENDPOINT https://<your-openai>.openai.azure.com/
 azd env set AZURE_OPENAI_DEPLOYMENT gpt-4o
 
-cd hosted-workflow-handoff
 azd provision
 azd deploy
-azd ai agent invoke "Write a haiku about the sea."
 ```
 
 `azd` packages the source into a ZIP (honoring `.agentignore`), uploads it, and Foundry runs
@@ -94,9 +94,10 @@ No Dockerfile, no container registry. Clean up with `azd down`.
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-workflow-handoff?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-workflow-handoff" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 ## Grant the agent access to Azure OpenAI
@@ -108,10 +109,12 @@ role on the Azure OpenAI account, and `azd` does not grant it. Do this once, aft
 
 ```bash
 # 1. Read the agent's managed-identity principal id from the deployed version.
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-PRINCIPAL=$(curl -s "<project-endpoint>/agents/hosted-workflow-handoff?api-version=v1" \
-  -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview" \
-  | jq -r '.versions.latest.instance_identity.principal_id')
+PRINCIPAL=$(az rest --method get \
+  --url "<project-endpoint>/agents/hosted-workflow-handoff" \
+  --url-parameters api-version=v1 \
+  --resource https://ai.azure.com \
+  --query "versions.latest.instance_identity.principal_id" \
+  --output tsv)
 
 # 2. Grant it the data-plane role on the Azure OpenAI account behind AZURE_OPENAI_ENDPOINT.
 az role assignment create \

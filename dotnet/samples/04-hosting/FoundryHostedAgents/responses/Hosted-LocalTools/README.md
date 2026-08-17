@@ -132,11 +132,6 @@ cd "$WORK"
 environment there. It prompts you to pick the Foundry project; `-d` is the name of an existing
 model deployment in that project.
 
-```
-azd env get-values
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
-```
-
 PowerShell:
 
 ```powershell
@@ -163,6 +158,8 @@ before the commands below. Everyone else can ignore it.
 
 ```
 cd hosted-local-tools
+azd env get-values
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
 azd provision
 azd deploy
 azd ai agent invoke "Find me hotels in Seattle under $200 a night."
@@ -182,9 +179,10 @@ azd down
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-local-tools?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-local-tools" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 Then delete the working directory.

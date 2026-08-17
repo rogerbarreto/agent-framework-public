@@ -9,7 +9,6 @@
 
 using Azure;
 using Azure.AI.Projects;
-using Azure.Core;
 using Azure.Identity;
 using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
@@ -17,18 +16,20 @@ using DotNetEnv;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Extensions.AI;
-using OpenAI.Chat;
 
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
 
 string projectEndpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
-string deploymentName = System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
+string deploymentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o")!;
 
-string searchEndpoint = System.Environment.GetEnvironmentVariable("AZURE_SEARCH_ENDPOINT")
+string searchEndpoint = FirstNonBlank(System.Environment.GetEnvironmentVariable("AZURE_SEARCH_ENDPOINT"))
     ?? throw new InvalidOperationException("AZURE_SEARCH_ENDPOINT is not set.");
-string searchIndexName = System.Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX_NAME")
+string searchIndexName = FirstNonBlank(System.Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX_NAME"))
     ?? throw new InvalidOperationException("AZURE_SEARCH_INDEX_NAME is not set.");
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
@@ -73,6 +74,9 @@ app.MapFoundryResponses();
 
 
 app.Run();
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
 
 // ── Search adapter ───────────────────────────────────────────────────────────
 // Wraps a SearchClient as the delegate TextSearchProvider expects. Keyword/full-text only;

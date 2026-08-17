@@ -38,9 +38,13 @@ string endpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_END
     ?? throw new InvalidOperationException(
         "Neither FOUNDRY_PROJECT_ENDPOINT (platform-injected in hosted runtime) " +
         "nor AZURE_AI_PROJECT_ENDPOINT (local-dev convention) is set.");
-string deploymentName = System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL")
-    ?? System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME") ?? "gpt-4o";
-string toolboxName = System.Environment.GetEnvironmentVariable("TOOLBOX_NAME") ?? "my-toolset";
+string deploymentName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o")!;
+string toolboxName = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("TOOLBOX_NAME"),
+    "my-toolset")!;
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
 // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
@@ -80,5 +84,8 @@ app.MapFoundryResponses();
 
 
 app.Run();
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
 
 // ── DevTemporaryTokenCredential ───────────────────────────────────────────────

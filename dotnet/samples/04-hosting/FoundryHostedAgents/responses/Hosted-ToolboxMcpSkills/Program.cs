@@ -11,7 +11,8 @@
 //   TOOLBOX_NAME                     - Name of the Foundry Toolbox to connect to
 //
 // Optional:
-//   FOUNDRY_MODEL                    - Model deployment name (default: gpt-5)
+//   AZURE_AI_MODEL_DEPLOYMENT_NAME  - Model deployment name (default: gpt-5)
+//   FOUNDRY_MODEL                    - Legacy local-development fallback
 //
 // NOTE: All FOUNDRY_* and AGENT_* env-var prefixes (other than the platform-injected ones
 // listed above) are reserved by the Foundry container platform and rejected at agent-create.
@@ -32,8 +33,11 @@ Env.TraversePath().Load();
 
 var projectEndpoint = System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set.");
-var deployment = System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-5";
-var toolboxName = System.Environment.GetEnvironmentVariable("TOOLBOX_NAME")
+var deployment = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-5");
+var toolboxName = FirstNonBlank(System.Environment.GetEnvironmentVariable("TOOLBOX_NAME"))
     ?? throw new InvalidOperationException("TOOLBOX_NAME is not set.");
 
 // Build the Toolbox MCP URL from the project endpoint and toolbox name.
@@ -94,6 +98,9 @@ app.MapFoundryResponses();
 
 
 app.Run();
+
+static string? FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));
 
 // ---------------------------------------------------------------------------
 // HttpClientHandler: attaches a fresh Foundry bearer token to every request

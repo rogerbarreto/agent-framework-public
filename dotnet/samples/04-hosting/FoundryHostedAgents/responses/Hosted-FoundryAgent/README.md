@@ -7,10 +7,8 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- An **existing** Foundry project with an **existing** model deployment (for example `gpt-4o`).
-  This sample's `azure.yaml` declares no `deployments:` block, so `azd` connects to a project and
-  a deployment you already have rather than creating them. `azd ai agent init` prompts you to pick
-  the project, and takes the deployment name as the `-d` argument.
+- An **existing** Foundry project with an **existing Foundry-managed prompt agent**. This sample
+  retrieves that agent by name; it does not create or configure the prompt agent.
 - Azure CLI logged in (`az login`)
 - Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`
 
@@ -43,6 +41,7 @@ cp .env.example .env
 
 ```env
 FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projects/<your-project>
+MANAGED_AGENT_NAME=<your-managed-agent-name>
 ASPNETCORE_URLS=http://+:8088
 AZURE_TOKEN_CREDENTIALS=dev
 ```
@@ -115,9 +114,9 @@ cd $work
 
 ### Step 2: scaffold the project
 
-`azd ai agent init` copies the sample into a subfolder named `hosted-foundry-agent` (the top-level `name:`
-in `azure.yaml`) and writes the adopted `azure.yaml` and the `azd` environment there. It prompts
-you to pick the Foundry project; `-d` is the name of an existing model deployment in that project.
+`azd ai agent init` copies the sample into a subfolder named `hosted-foundry-agent` (the top-level
+`name:` in `azure.yaml`) and writes the adopted `azure.yaml` and the `azd` environment there. It
+prompts you to pick the Foundry project.
 
 
 
@@ -138,6 +137,7 @@ before the commands below. Everyone else can ignore it.
 
 ```
 cd hosted-foundry-agent
+azd env set MANAGED_AGENT_NAME <your-managed-agent-name>
 azd provision
 azd deploy
 azd ai agent invoke "Hello!"
@@ -157,9 +157,10 @@ azd down
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-foundry-agent?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-foundry-agent" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 Then delete the working directory.

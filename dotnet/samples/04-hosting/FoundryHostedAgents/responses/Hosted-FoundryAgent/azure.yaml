@@ -21,6 +21,7 @@ services:
         # over this value, so it only matters when the project is pinned to an older package.
         env:
             ASPNETCORE_URLS: http://+:8088
+            MANAGED_AGENT_NAME: ${MANAGED_AGENT_NAME}
         container:
             resources:
                 cpu: "0.5"

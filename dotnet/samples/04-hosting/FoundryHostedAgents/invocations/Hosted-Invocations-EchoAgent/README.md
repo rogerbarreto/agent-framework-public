@@ -84,12 +84,10 @@ azd deploy
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
 in `azure.yaml`). No Dockerfile, no container registry.
 
-Invoke the deployed agent with a bearer token (the Invocations endpoint returns `text/plain`):
+Invoke the deployed agent through `azd` using the Invocations protocol:
 
 ```bash
-TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-curl -X POST "<project-endpoint>/agents/hosted-invocations-echo-agent/endpoint/protocols/invocations?api-version=v1" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "Hello!"
+azd ai agent invoke --protocol invocations "Hello!"
 ```
 
 Clean up with `azd down`, then delete the working directory.
@@ -98,9 +96,10 @@ Clean up with `azd down`, then delete the working directory.
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-invocations-echo-agent?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-invocations-echo-agent" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 ## Deploy your local framework changes (contributors)

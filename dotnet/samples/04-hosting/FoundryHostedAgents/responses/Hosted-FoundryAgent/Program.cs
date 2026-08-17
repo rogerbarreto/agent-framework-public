@@ -19,10 +19,13 @@ Env.TraversePath().Load();
 var projectEndpoint = new Uri(System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
 
-// The Foundry-managed agent to wrap, by name. When hosted, the platform injects AGENT_NAME as this
-// hosted agent's own name, so the hosted agent and the managed agent it wraps share a name.
-var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME")
-    ?? throw new InvalidOperationException("AGENT_NAME is not set.");
+// The existing Foundry-managed prompt agent to wrap. This is intentionally separate from
+// FOUNDRY_AGENT_NAME, which the platform reserves for the hosted endpoint being deployed.
+var managedAgentName = System.Environment.GetEnvironmentVariable("MANAGED_AGENT_NAME");
+if (string.IsNullOrWhiteSpace(managedAgentName))
+{
+    throw new InvalidOperationException("MANAGED_AGENT_NAME is not set.");
+}
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful
 // consideration in production. Consider a specific credential (for example
@@ -32,7 +35,7 @@ var aiProjectClient = new AIProjectClient(projectEndpoint, new DefaultAzureCrede
 
 // Retrieve the Foundry-managed agent by name (latest version).
 ProjectsAgentRecord agentRecord = await aiProjectClient
-    .AgentAdministrationClient.GetAgentAsync(agentName);
+    .AgentAdministrationClient.GetAgentAsync(managedAgentName);
 
 FoundryAgent agent = aiProjectClient.AsAIAgent(agentRecord);
 

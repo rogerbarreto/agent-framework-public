@@ -27,6 +27,7 @@
     <RootNamespace>HostedMemoryAgent</RootNamespace>
     <AssemblyName>HostedMemoryAgent</AssemblyName>
     <UserSecretsId>7933e8df-ba8d-4e62-b419-6d34d53de308</UserSecretsId>
+    <NoWarn>$(NoWarn);MAAI001</NoWarn>
     <AgentFrameworkVersion>1.15.0-preview.260722.1</AgentFrameworkVersion>
   </PropertyGroup>
 

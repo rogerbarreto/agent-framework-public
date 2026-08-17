@@ -12,9 +12,9 @@
 // Foundry hosted-agent container.
 //
 // RUNTIME: this sample runs generated Python with a Python interpreter. The
-// hosted dotnet_10 runtime image does not ship Python, so the `execute_code`
-// tool only works where a Python interpreter is present (for example a local
-// run, or a container/base image that includes Python).
+// hosted dotnet_10 source-deployment runtime provides python3. Local runs use
+// python.exe on Windows and python3 elsewhere; LOCAL_CODEACT_PYTHON overrides
+// that selection when a different executable is required.
 
 using System.ComponentModel;
 using Azure.AI.Projects;
@@ -42,8 +42,9 @@ var deploymentName = FirstNonBlank(
 
 var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-local-codeact";
 
-var pythonExecutable = System.Environment.GetEnvironmentVariable("LOCAL_CODEACT_PYTHON")
-    ?? (OperatingSystem.IsWindows() ? "python.exe" : "python3");
+var pythonExecutable = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("LOCAL_CODEACT_PYTHON"),
+    OperatingSystem.IsWindows() ? "python.exe" : "python3");
 
 // ── Sandbox-only tools (model never sees these directly) ─────────────────────
 

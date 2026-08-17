@@ -44,6 +44,8 @@ cp .env.example .env
 ```env
 FOUNDRY_PROJECT_ENDPOINT=https://<your-account>.services.ai.azure.com/api/projects/<your-project>
 AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o
+PROVISION_SAMPLE_SKILLS=true
+SKILL_NAMES=support-style,escalation-policy
 ASPNETCORE_URLS=http://+:8088
 AZURE_TOKEN_CREDENTIALS=dev
 ```
@@ -120,11 +122,6 @@ cd $work
 in `azure.yaml`) and writes the adopted `azure.yaml` and the `azd` environment there. It prompts
 you to pick the Foundry project; `-d` is the name of an existing model deployment in that project.
 
-```
-azd env get-values
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
-```
-
 PowerShell:
 
 ```powershell
@@ -142,6 +139,10 @@ before the commands below. Everyone else can ignore it.
 
 ```
 cd hosted-agent-skills
+azd env get-values
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
+azd env set PROVISION_SAMPLE_SKILLS true
+azd env set SKILL_NAMES support-style,escalation-policy
 azd provision
 azd deploy
 azd ai agent invoke "Introduce yourself using your configured skills."
@@ -161,9 +162,10 @@ azd down
 > in place. Delete it explicitly with a REST call:
 >
 > ```bash
-> TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
-> curl -X DELETE "<project-endpoint>/agents/hosted-agent-skills?api-version=v1&force=true" \
->   -H "Authorization: Bearer $TOKEN" -H "Foundry-Features: HostedAgents=V1Preview"
+> az rest --method delete \
+>   --url "<project-endpoint>/agents/hosted-agent-skills" \
+>   --url-parameters api-version=v1 force=true \
+>   --resource https://ai.azure.com
 > ```
 
 Then delete the working directory.
