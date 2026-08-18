@@ -20,6 +20,7 @@
 #pragma warning disable AAIP001 // ProjectAgentSkills is experimental
 
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Azure.AI.Projects;
 using Azure.AI.Projects.Agents;
 using Azure.Identity;
@@ -64,7 +65,10 @@ foreach (string name in requestedSkills)
 var credential = new DefaultAzureCredential();
 
 AIProjectClient projectClient = new(new Uri(endpoint), credential);
-ProjectAgentSkills skillsClient = projectClient.AgentAdministrationClient.GetAgentSkills();
+var adminOptions = new AgentAdministrationClientOptions();
+adminOptions.AddPolicy(new FoundryFeaturesPolicy("Skills=V1Preview"), PipelinePosition.PerCall);
+var adminClient = new AgentAdministrationClient(new Uri(endpoint), credential, adminOptions);
+ProjectAgentSkills skillsClient = adminClient.GetAgentSkills();
 
 // ── Provision skills (sample convenience only — NOT a production pattern) ─────
 // In production, skills are provisioned externally (e.g., via CI/CD or a management script).
@@ -82,7 +86,7 @@ if (provisionEnabled && Directory.Exists(sourceSkillsDir))
 // Pull the latest copy of each skill from Foundry into a runtime-only folder.
 // This directory is recreated on every startup so the agent always picks up
 // the latest version of each skill.
-string downloadedSkillsDir = Path.Combine(AppContext.BaseDirectory, "downloaded_skills");
+string downloadedSkillsDir = Path.Combine(Path.GetTempPath(), "hosted-agent-skills", "downloaded_skills");
 await DownloadSkillsAsync(skillsClient, requestedSkills, downloadedSkillsDir);
 
 // ── Wire skills into the agent ───────────────────────────────────────────────
@@ -149,6 +153,7 @@ static async Task DownloadSkillsAsync(ProjectAgentSkills skillsClient, string[] 
                 $"Downloaded skill '{name}' did not contain a SKILL.md at the root.");
         }
     }
+
 }
 
 // Ensures each requested skill is provisioned in Foundry. For each skill name, checks whether
@@ -176,5 +181,26 @@ static async Task EnsureSkillsProvisionedAsync(ProjectAgentSkills skillsClient, 
             AgentsSkill imported = (await skillsClient.CreateSkillVersionFromFilesAsync(name, skillPath)).Value;
             Console.WriteLine($"  Imported skill '{imported.Name}' (id={imported.Id}, version={imported.LatestVersion}).");
         }
+    }
+}
+
+// Skills is a preview data-plane surface and requires an explicit feature opt-in on every call.
+internal sealed class FoundryFeaturesPolicy(string feature) : PipelinePolicy
+{
+    private const string FeatureHeader = "Foundry-Features";
+
+    public override void Process(PipelineMessage message, IReadOnlyList<PipelinePolicy> pipeline, int currentIndex)
+    {
+        message.Request.Headers.Add(FeatureHeader, feature);
+        ProcessNext(message, pipeline, currentIndex);
+    }
+
+    public override ValueTask ProcessAsync(
+        PipelineMessage message,
+        IReadOnlyList<PipelinePolicy> pipeline,
+        int currentIndex)
+    {
+        message.Request.Headers.Add(FeatureHeader, feature);
+        return ProcessNextAsync(message, pipeline, currentIndex);
     }
 }

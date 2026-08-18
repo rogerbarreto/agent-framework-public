@@ -14,6 +14,8 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
   the project, and takes the deployment name as the `-d` argument.
 - Azure CLI logged in (`az login`)
 - Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`
+- Permission to assign **Foundry User** on the Foundry project. The agent identity is created by
+  the first deploy, so this role is granted after `azd deploy`.
 
 ## Files
 
@@ -144,6 +146,12 @@ azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
 azd env set TOOLBOX_NAME <your-toolbox-name>
 azd provision
 azd deploy
+
+# Grant the new hosted-agent identity project data-plane access:
+az rest --method get --url "<project-endpoint>/agents/hosted-toolbox-mcp-skills" --url-parameters api-version=v1 --resource https://ai.azure.com --query "versions.latest.instance_identity.principal_id" --output tsv
+az role assignment create --assignee-object-id <principal-id-from-previous-command> --assignee-principal-type ServicePrincipal --role 53ca6127-db72-4b80-b1b0-d745d6d5456d --scope <project-resource-id>
+
+# Wait briefly for the role assignment to propagate, then invoke:
 azd ai agent invoke "List the MCP skills available from the toolbox."
 ```
 
@@ -154,8 +162,14 @@ in `azure.yaml`). No Dockerfile, no container registry.
 > **The toolbox must already exist in the project, and the agent identity must be able to read it.**
 > `TOOLBOX_NAME` is resolved at runtime against the project's toolboxes (list them with
 > `GET <project-endpoint>/toolboxes?api-version=v1`). The deployed agent runs under a managed
-> identity that `azd` grants `Foundry User` on the project, which is enough to read the toolbox and
-> the MCP skills attached to it.
+> identity. Grant it `Foundry User` on the project after deploy so it can read the toolbox and the
+> MCP skills attached to it. The stable role definition ID is
+> `53ca6127-db72-4b80-b1b0-d745d6d5456d`; `Azure AI Developer` is not a substitute.
+
+To approve and execute `load_skill`, use the
+[`Hosted-Toolbox-AuthPaths-Client`](../Using-Samples/Hosted-Toolbox-AuthPaths-Client/) REPL. It
+detects `mcp_approval_request`, asks for `Y` or `N`, and sends the native OpenAI
+`mcp_approval_response` item on the same session.
 
 ### Step 4: clean up
 

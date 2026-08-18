@@ -13,6 +13,8 @@ This sample deploys to Foundry **directly from source (code / ZIP upload)**: the
   the project, and takes the deployment name as the `-d` argument.
 - Azure CLI logged in (`az login`)
 - Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`
+- Permission to assign **Foundry User** on the Foundry project. The agent identity is created by
+  the first deploy, so this role is granted after `azd deploy`.
 
 ## Files
 
@@ -145,12 +147,27 @@ azd env set PROVISION_SAMPLE_SKILLS true
 azd env set SKILL_NAMES support-style,escalation-policy
 azd provision
 azd deploy
+
+# Grant the new hosted-agent identity project data-plane access:
+az rest --method get --url "<project-endpoint>/agents/hosted-agent-skills" --url-parameters api-version=v1 --resource https://ai.azure.com --query "versions.latest.instance_identity.principal_id" --output tsv
+az role assignment create --assignee-object-id <principal-id-from-previous-command> --assignee-principal-type ServicePrincipal --role 53ca6127-db72-4b80-b1b0-d745d6d5456d --scope <project-resource-id>
+
+# Wait briefly for the role assignment to propagate, then invoke:
 azd ai agent invoke "Introduce yourself using your configured skills."
 ```
 
 `azd` packages the source into a ZIP (honoring `.agentignore`), uploads it, and Foundry runs
 `dotnet restore` + `dotnet publish` on it during provisioning (`dependencyResolution: remote_build`
 in `azure.yaml`). No Dockerfile, no container registry.
+
+`53ca6127-db72-4b80-b1b0-d745d6d5456d` is the stable role definition ID for **Foundry User**.
+Do not substitute `Azure AI Developer`; Microsoft documents that role as insufficient for Foundry
+hosted agents. Recreate the role assignment when the agent is deleted and created again, because
+the new agent receives a new identity.
+
+The Skills API is a preview surface. `Program.cs` adds the required
+`Foundry-Features: Skills=V1Preview` header and downloads skills into the writable temporary
+directory. The source-deploy application directory (`/app`) is read-only.
 
 ### Step 4: clean up
 
