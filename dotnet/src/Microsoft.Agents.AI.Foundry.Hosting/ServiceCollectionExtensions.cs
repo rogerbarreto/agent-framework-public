@@ -363,7 +363,7 @@ public static class FoundryHostingExtensions
     /// else it uses the SDK's local state-store fallback under <c>~/.agentserver/state_stores</c>.
     /// </remarks>
     private static FoundryAgentSessionStore CreateDefaultAgentSessionStore() =>
-        new(CreateStateStoreCredential());
+        new(credential: CreateStateStoreCredential());
 
     /// <summary>
     /// Every agent a container can serve: the ones registered under a name, plus the default.
@@ -562,7 +562,9 @@ public static class FoundryHostingExtensions
         lock (s_checkpointManagerGate)
         {
             return s_foundryWorkflowCheckpointManager ??= CheckpointManager.CreateJson(
-                new FoundryJsonCheckpointStore(CreateStateStoreCredential(), loggerFactory: loggerFactory));
+                new FoundryJsonCheckpointStore(
+                    credential: CreateStateStoreCredential(),
+                    loggerFactory: loggerFactory));
         }
     }
 

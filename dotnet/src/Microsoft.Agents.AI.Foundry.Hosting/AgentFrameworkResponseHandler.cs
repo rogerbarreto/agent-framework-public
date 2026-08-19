@@ -69,7 +69,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // 1. Resolve agent
-        var agent = this.ResolveAgent(request, out string agentStorageIdentity);
+        var agent = this.ResolveAgent(request);
+        string agentStorageIdentity = agent.GetService<FoundryHostingAgent>()?.SessionStorageIdentity
+            ?? throw new InvalidOperationException("The resolved agent is missing its Foundry hosting metadata.");
         var sessionStore = this.ResolveSessionStore(request);
 
         // Fail fast with a clear, actionable error when this 2.0.0-only image is served container
@@ -609,7 +611,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// Tries <c>agent.name</c> first, then falls back to <c>metadata["entity_id"]</c>.
     /// If neither is present, attempts to resolve a default (non-keyed) <see cref="AIAgent"/>.
     /// </summary>
-    private AIAgent ResolveAgent(CreateResponse request, out string storageIdentity)
+    private AIAgent ResolveAgent(CreateResponse request)
     {
         var agentName = GetAgentName(request);
 
@@ -618,11 +620,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             var agent = this._serviceProvider.GetKeyedService<AIAgent>(agentName);
             if (agent is not null)
             {
-                storageIdentity = ResolveAgentStorageIdentity(
+                string storageIdentity = FoundryHostingAgent.ResolveSessionStorageIdentity(
                     agent,
                     agentName,
                     this._serviceProvider.GetService<AIAgent>());
-                return this.PrepareResolvedAgent(agent);
+                return this.PrepareResolvedAgent(agent, storageIdentity);
             }
 
             if (this._logger.IsEnabled(LogLevel.Warning))
@@ -635,9 +637,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         var defaultAgent = this._serviceProvider.GetService<AIAgent>();
         if (defaultAgent is not null)
         {
-            storageIdentity = ResolveAgentStorageIdentity(defaultAgent, registrationKey: null, defaultAgent);
-
-            return this.PrepareResolvedAgent(defaultAgent);
+            string storageIdentity = FoundryHostingAgent.ResolveSessionStorageIdentity(
+                defaultAgent,
+                registrationKey: null,
+                defaultAgent);
+            return this.PrepareResolvedAgent(defaultAgent, storageIdentity);
         }
 
         var errorMessage = string.IsNullOrEmpty(agentName)
@@ -647,27 +651,14 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         throw new InvalidOperationException(errorMessage);
     }
 
-    internal static string ResolveAgentStorageIdentity(AIAgent agent, string? registrationKey, AIAgent? defaultAgent)
-    {
-        _ = Throw.IfNull(agent);
-
-        if (registrationKey is not null && !ReferenceEquals(agent, defaultAgent))
-        {
-            return $"key:{registrationKey}";
-        }
-
-        return !string.IsNullOrWhiteSpace(agent.Name)
-            ? $"name:{agent.Name}"
-            : "default";
-    }
-
-    private AIAgent PrepareResolvedAgent(AIAgent agent)
+    private AIAgent PrepareResolvedAgent(AIAgent agent, string sessionStorageIdentity)
     {
         FoundryHostingExtensions.TryApplyUserAgent(agent);
 
         AIAgent prepared = FoundryHostingExtensions.ApplyWorkflowCheckpointing(
             agent,
             this._serviceProvider.GetService<ILoggerFactory>());
+        prepared = new FoundryHostingAgent(prepared, sessionStorageIdentity);
 
         return FoundryHostingExtensions.ApplyOpenTelemetry(prepared);
     }

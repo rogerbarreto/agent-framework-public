@@ -70,14 +70,14 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// <summary>
     /// Initializes a new instance of the <see cref="FoundryAgentSessionStore"/> class.
     /// </summary>
-    /// <param name="credential">
-    /// The credential used to authenticate to the Foundry storage API. May be <see langword="null"/>
-    /// outside Foundry hosting, where the AgentServer SDK uses its local state-store fallback.
-    /// </param>
     /// <param name="endpoint">
     /// The Foundry project endpoint. Used only in Foundry hosting. When <see langword="null"/>,
     /// it is read from the <c>FOUNDRY_PROJECT_ENDPOINT</c> environment variable. Outside Foundry
     /// hosting, the AgentServer SDK ignores it and uses its local state-store fallback.
+    /// </param>
+    /// <param name="credential">
+    /// The credential used to authenticate to the Foundry storage API. May be <see langword="null"/>
+    /// outside Foundry hosting, where the AgentServer SDK uses its local state-store fallback.
     /// </param>
     /// <param name="storeName">The state-store name to hold the sessions. Defaults to <see cref="DefaultStoreName"/>.</param>
     /// <param name="itemTtlSeconds">
@@ -87,8 +87,8 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// platform fixes it at creation.
     /// </param>
     public FoundryAgentSessionStore(
-        TokenCredential? credential = null,
         Uri? endpoint = null,
+        TokenCredential? credential = null,
         string storeName = DefaultStoreName,
         int itemTtlSeconds = FoundryStateStore.DefaultItemTtlSeconds)
     {

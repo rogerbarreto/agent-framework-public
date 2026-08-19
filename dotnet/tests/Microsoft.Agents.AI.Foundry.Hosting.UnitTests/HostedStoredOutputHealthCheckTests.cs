@@ -156,7 +156,7 @@ public class HostedStoredOutputHealthCheckTests
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WrappedChatClientAgent_IsUnhealthyWithoutRunningItAsync()
+    public async Task CheckHealthAsync_WrappedChatClientAgent_IsHealthyWithoutRunningItAsync()
     {
         // Arrange: rebuilding only the leaf would miss any option changes made by this wrapper.
         var inner = new ChatClientAgent(
@@ -169,8 +169,7 @@ public class HostedStoredOutputHealthCheckTests
         var result = await check.CheckHealthAsync(NewContext(), CancellationToken.None);
 
         // Assert
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Equal(["wrapped"], Assert.IsType<List<string>>(result.Data["unprobeableAgents"]));
+        Assert.Equal(HealthStatus.Healthy, result.Status);
     }
 
     [Fact]
@@ -195,7 +194,6 @@ public class HostedStoredOutputHealthCheckTests
         // Assert
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
         Assert.Contains("foundry-agent", (List<string>)result.Data["storingAgents"]);
-        Assert.Empty((List<string>)result.Data["unprobeableAgents"]);
     }
 
     private static HostedStoredOutputHealthCheck BuildCheckFor(AIAgent agent, FoundryResponsesOptions? hostingOptions = null)
