@@ -21,6 +21,20 @@ internal sealed class FoundryHostingAgent : DelegatingAIAgent
 
     internal string SessionStorageIdentity { get; }
 
+    /// <summary>
+    /// Resolves the stable identity used to partition session storage for the resolved agent.
+    /// </summary>
+    /// <remarks>
+    /// A keyed registration normally uses <c>key:{registrationKey}</c>. When keyed resolution
+    /// returns the same agent instance as the default registration, reference equality treats both
+    /// registrations as aliases and uses the default identity. This ensures named and unnamed
+    /// requests for the same agent share session state. The default identity uses
+    /// <c>name:{agent.Name}</c> when the agent has a name, or <c>default</c> otherwise.
+    /// </remarks>
+    /// <param name="agent">The agent resolved for the current request.</param>
+    /// <param name="registrationKey">The keyed registration requested by the caller, if any.</param>
+    /// <param name="defaultAgent">The agent registered as the default, if any.</param>
+    /// <returns>The stable session storage identity.</returns>
     internal static string ResolveSessionStorageIdentity(
         AIAgent agent,
         string? registrationKey,
