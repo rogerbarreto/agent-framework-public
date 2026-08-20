@@ -70,8 +70,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     {
         // 1. Resolve agent
         var agent = this.ResolveAgent(request);
-        string agentStorageIdentity = agent.GetService<FoundryHostingAgent>()?.SessionStorageIdentity
-            ?? throw new InvalidOperationException("The resolved agent is missing its Foundry hosting metadata.");
         var sessionStore = this.ResolveSessionStore(request);
 
         // Fail fast with a clear, actionable error when this 2.0.0-only image is served container
@@ -140,18 +138,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
         else
         {
-            session = sessionStore is FoundryAgentSessionStore foundrySessionStore
-                ? await foundrySessionStore.GetSessionAsync(
-                    agent,
-                    agentStorageIdentity,
-                    agentSessionId,
-                    resolvedUserId,
-                    cancellationToken).ConfigureAwait(false)
-                : await sessionStore.GetSessionAsync(
-                    agent,
-                    agentSessionId,
-                    resolvedUserId,
-                    cancellationToken).ConfigureAwait(false);
+            session = await sessionStore.GetSessionAsync(
+                agent,
+                agentSessionId,
+                resolvedUserId,
+                cancellationToken).ConfigureAwait(false);
 
             session ??= await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -530,25 +521,12 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             // Persist the session for the next turn of this conversation, unless this one is being failed.
             if (session is not null && !turnFailed)
             {
-                if (sessionStore is FoundryAgentSessionStore foundrySessionStore)
-                {
-                    await foundrySessionStore.SaveSessionAsync(
-                        agent,
-                        agentStorageIdentity,
-                        agentSessionId!,
-                        session,
-                        resolvedUserId,
-                        cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    await sessionStore.SaveSessionAsync(
-                        agent,
-                        agentSessionId!,
-                        session,
-                        resolvedUserId,
-                        cancellationToken).ConfigureAwait(false);
-                }
+                await sessionStore.SaveSessionAsync(
+                    agent,
+                    agentSessionId!,
+                    session,
+                    resolvedUserId,
+                    cancellationToken).ConfigureAwait(false);
             }
         }
 

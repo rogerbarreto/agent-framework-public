@@ -122,33 +122,18 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     public string StoreName { get; }
 
     /// <inheritdoc/>
-    public override ValueTask SaveSessionAsync(
+    public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
-        AgentSession session,
-        string? userId,
-        CancellationToken cancellationToken = default)
-        => this.SaveSessionAsync(
-            agent,
-            ResolveAgentIdentity(agent),
-            conversationId,
-            session,
-            userId,
-            cancellationToken);
-
-    internal async ValueTask SaveSessionAsync(
-        AIAgent agent,
-        string agentIdentity,
         string conversationId,
         AgentSession session,
         string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(agentIdentity);
         _ = Throw.IfNullOrWhitespace(conversationId);
         _ = Throw.IfNull(session);
 
+        string agentIdentity = ResolveAgentIdentity(agent);
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
         BinaryData sessionData = ToBinaryData(serialized);
 
@@ -166,30 +151,16 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     }
 
     /// <inheritdoc/>
-    public override ValueTask<AgentSession?> GetSessionAsync(
+    public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
-        CancellationToken cancellationToken = default)
-        => this.GetSessionAsync(
-            agent,
-            ResolveAgentIdentity(agent),
-            conversationId,
-            userId,
-            cancellationToken);
-
-    internal async ValueTask<AgentSession?> GetSessionAsync(
-        AIAgent agent,
-        string agentIdentity,
         string conversationId,
         string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(agentIdentity);
         _ = Throw.IfNullOrWhitespace(conversationId);
 
-        string logicalKey = BuildLogicalKey(agentIdentity, conversationId, userId);
+        string logicalKey = BuildLogicalKey(ResolveAgentIdentity(agent), conversationId, userId);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         // GetItemAsync already answers null for an item that is not there, which is exactly the
@@ -231,6 +202,11 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     private static string ResolveAgentIdentity(AIAgent agent)
     {
         _ = Throw.IfNull(agent);
+
+        if (agent.GetService<FoundryHostingAgent>() is { } hostingAgent)
+        {
+            return hostingAgent.SessionStorageIdentity;
+        }
 
         if (string.IsNullOrWhiteSpace(agent.Name))
         {

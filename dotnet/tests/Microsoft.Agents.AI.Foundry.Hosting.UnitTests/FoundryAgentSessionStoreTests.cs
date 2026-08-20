@@ -121,21 +121,14 @@ public sealed class FoundryAgentSessionStoreTests
         // identities that can separate their sessions.
         var backing = new FakeStateStore();
         var store = NewStore(backing);
-        var billing = new TestAgent("{\"owner\":\"billing\"}");
+        var billingLeaf = new TestAgent("{\"owner\":\"billing\"}");
         var support = new TestAgent();
-        await store.SaveSessionAsync(
-            billing,
-            "key:billing",
-            "shared-conv",
-            new TestSession(),
-            userId: "alice");
+        AIAgent billing = new FoundryHostingAgent(billingLeaf, "key:billing");
+        AIAgent hostedSupport = new FoundryHostingAgent(support, "key:support");
+        await store.SaveSessionAsync(billing, "shared-conv", new TestSession(), userId: "alice");
 
         // Act
-        var supportSession = await store.GetSessionAsync(
-            support,
-            "key:support",
-            "shared-conv",
-            userId: "alice");
+        var supportSession = await store.GetSessionAsync(hostedSupport, "shared-conv", userId: "alice");
 
         // Assert
         Assert.Null(supportSession);
