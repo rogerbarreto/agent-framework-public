@@ -12,6 +12,7 @@ using Azure.Core;
 using Azure.Identity;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.AI;
@@ -311,7 +312,11 @@ public static class FoundryHostingExtensions
     public static IEndpointRouteBuilder MapFoundryResponses(this IEndpointRouteBuilder endpoints, string prefix = "")
     {
         _ = Throw.IfNull(endpoints);
-        endpoints.MapResponsesServer(prefix);
+        RouteGroupBuilder responsesEndpoints = endpoints.MapGroup(string.Empty);
+        responsesEndpoints.AddEndpointFilter(new HostedProtocolCompatibilityFilter(
+            endpoints.ServiceProvider.GetRequiredService<IConfiguration>(),
+            endpoints.ServiceProvider.GetRequiredService<ILogger<HostedProtocolCompatibilityFilter>>()));
+        responsesEndpoints.MapResponsesServer(prefix);
         MapReadinessIfMissing(endpoints);
         return endpoints;
     }
