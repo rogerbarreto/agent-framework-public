@@ -109,18 +109,43 @@ public sealed class FoundryJsonCheckpointStore : JsonCheckpointStore
     /// up old checkpoints leaves no trace, since it is deliberately not allowed to fail the call it
     /// happens in.
     /// </param>
-    /// <param name="maxIndexUpdateAttempts">
-    /// The maximum number of attempts to update a workflow checkpoint index when another writer
-    /// modifies it concurrently. Each retry re-reads the index before writing. Must be greater than
-    /// zero. Defaults to <see cref="DefaultMaxIndexUpdateAttempts"/>.
-    /// </param>
     public FoundryJsonCheckpointStore(
         Uri? endpoint = null,
         TokenCredential? credential = null,
         string storeName = DefaultStoreName,
         int itemTtlSeconds = FoundryStateStore.DefaultItemTtlSeconds,
-        ILoggerFactory? loggerFactory = null,
-        int maxIndexUpdateAttempts = DefaultMaxIndexUpdateAttempts)
+        ILoggerFactory? loggerFactory = null)
+        : this(
+            DefaultMaxIndexUpdateAttempts,
+            endpoint,
+            credential,
+            storeName,
+            itemTtlSeconds,
+            loggerFactory)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FoundryJsonCheckpointStore"/> class with a
+    /// configurable checkpoint-index update limit.
+    /// </summary>
+    /// <param name="maxIndexUpdateAttempts">
+    /// The maximum number of attempts to update a workflow checkpoint index when another writer
+    /// modifies it concurrently. Each retry re-reads the index before writing. Must be greater than
+    /// zero.
+    /// </param>
+    /// <param name="endpoint">The Foundry project endpoint, or <see langword="null"/> to resolve it from the environment.</param>
+    /// <param name="credential">The credential used for hosted state storage. May be <see langword="null"/> outside Foundry.</param>
+    /// <param name="storeName">The state-store name to hold the checkpoints.</param>
+    /// <param name="itemTtlSeconds">How long a checkpoint survives without being written, in seconds.</param>
+    /// <param name="loggerFactory">Creates the logger this store reports through.</param>
+    public FoundryJsonCheckpointStore(
+        int maxIndexUpdateAttempts,
+        Uri? endpoint = null,
+        TokenCredential? credential = null,
+        string storeName = DefaultStoreName,
+        int itemTtlSeconds = FoundryStateStore.DefaultItemTtlSeconds,
+        ILoggerFactory? loggerFactory = null)
     {
         _ = Throw.IfNullOrWhitespace(storeName);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIndexUpdateAttempts, 1);

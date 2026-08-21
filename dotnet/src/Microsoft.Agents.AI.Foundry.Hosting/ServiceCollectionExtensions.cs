@@ -66,13 +66,17 @@ public static class FoundryHostingExtensions
     {
         _ = Throw.IfNull(services);
         FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
-        bool serverAdded = AddResponsesServerOnce(services, configuredOptions);
+        bool serverAdded = AddResponsesServerOnce(
+            services,
+            configuredOptions,
+            configure is not null);
         services.AddHealthChecks();
         ConfigureFoundryListenPort(services);
-        if (serverAdded)
-        {
-            ConfigureFoundryResponsesOptions(services, configuredOptions);
-        }
+        ConfigureFoundryResponsesOptions(
+            services,
+            configuredOptions,
+            includeServerOptions: serverAdded,
+            applyOptions: serverAdded || configure is not null);
         services.TryAddSingleton<AgentSessionStore>(_ => CreateDefaultAgentSessionStore());
         services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
         MarkFeatureUsed();
@@ -118,13 +122,17 @@ public static class FoundryHostingExtensions
         _ = Throw.IfNull(agent);
 
         FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
-        bool serverAdded = AddResponsesServerOnce(services, configuredOptions);
+        bool serverAdded = AddResponsesServerOnce(
+            services,
+            configuredOptions,
+            configure is not null);
         services.AddHealthChecks();
         ConfigureFoundryListenPort(services);
-        if (serverAdded)
-        {
-            ConfigureFoundryResponsesOptions(services, configuredOptions);
-        }
+        ConfigureFoundryResponsesOptions(
+            services,
+            configuredOptions,
+            includeServerOptions: serverAdded,
+            applyOptions: serverAdded || configure is not null);
         agentSessionStore ??= CreateDefaultAgentSessionStore();
 
         if (!string.IsNullOrWhiteSpace(agent.Name))
@@ -164,15 +172,23 @@ public static class FoundryHostingExtensions
 
     private static void ConfigureFoundryResponsesOptions(
         IServiceCollection services,
-        FoundryResponsesOptions configuredOptions)
+        FoundryResponsesOptions configuredOptions,
+        bool includeServerOptions,
+        bool applyOptions)
     {
-        services.Configure<FoundryResponsesOptions>(options =>
+        if (applyOptions)
         {
-            options.AllowStoredOutputEnabled = configuredOptions.AllowStoredOutputEnabled;
-            options.IncludeReasoningEncryptedContent = configuredOptions.IncludeReasoningEncryptedContent;
-            options.ResilientBackground = configuredOptions.ResilientBackground;
-            options.SteerableConversations = configuredOptions.SteerableConversations;
-        });
+            services.Configure<FoundryResponsesOptions>(options =>
+            {
+                options.AllowStoredOutputEnabled = configuredOptions.AllowStoredOutputEnabled;
+                options.IncludeReasoningEncryptedContent = configuredOptions.IncludeReasoningEncryptedContent;
+                if (includeServerOptions)
+                {
+                    options.ResilientBackground = configuredOptions.ResilientBackground;
+                    options.SteerableConversations = configuredOptions.SteerableConversations;
+                }
+            });
+        }
 
         AddReadinessCheckOnce(services, "foundry-stored-output", sp => ActivatorUtilities.CreateInstance<HostedStoredOutputHealthCheck>(sp));
         AddReadinessCheckOnce(services, "foundry-workflow-checkpointing", sp => ActivatorUtilities.CreateInstance<HostedWorkflowCheckpointingHealthCheck>(sp));
@@ -384,14 +400,29 @@ public static class FoundryHostingExtensions
     /// </remarks>
     private static bool AddResponsesServerOnce(
         IServiceCollection services,
-        FoundryResponsesOptions configuredOptions)
+        FoundryResponsesOptions configuredOptions,
+        bool hasConfigureCallback)
     {
-        if (services.Any(static d => d.ServiceType == typeof(FoundryResponsesServerMarker)))
+        FoundryResponsesServerMarker? marker = services
+            .LastOrDefault(static descriptor =>
+                descriptor.ServiceType == typeof(FoundryResponsesServerMarker))
+            ?.ImplementationInstance as FoundryResponsesServerMarker;
+        if (marker is not null)
         {
+            if (hasConfigureCallback
+                && ((!marker.ResilientBackground && configuredOptions.ResilientBackground)
+                    || (!marker.SteerableConversations && configuredOptions.SteerableConversations)))
+            {
+                throw new InvalidOperationException(
+                    "ResilientBackground and SteerableConversations must be configured on the first AddFoundryResponses call because AgentServer registers its durable tasks during that call.");
+            }
+
             return false;
         }
 
-        services.AddSingleton<FoundryResponsesServerMarker>();
+        services.AddSingleton(new FoundryResponsesServerMarker(
+            configuredOptions.ResilientBackground,
+            configuredOptions.SteerableConversations));
         services.AddResponsesServer(options =>
         {
             options.ResilientBackground = configuredOptions.ResilientBackground;
@@ -438,7 +469,14 @@ public static class FoundryHostingExtensions
     /// Marker registered once per <see cref="IServiceCollection"/> so the Responses Server SDK is
     /// registered at most once, even across multiple <c>AddFoundryResponses</c> calls.
     /// </summary>
-    private sealed class FoundryResponsesServerMarker;
+    private sealed class FoundryResponsesServerMarker(
+        bool resilientBackground,
+        bool steerableConversations)
+    {
+        public bool ResilientBackground { get; } = resilientBackground;
+
+        public bool SteerableConversations { get; } = steerableConversations;
+    }
 
     /// <summary>
     /// Binds Kestrel to the port the Foundry hosted runtime probes and routes to, so a plain

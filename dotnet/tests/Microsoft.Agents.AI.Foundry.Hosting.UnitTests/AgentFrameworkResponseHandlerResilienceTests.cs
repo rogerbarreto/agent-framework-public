@@ -11,6 +11,7 @@ using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -26,10 +27,12 @@ namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 /// </summary>
 public class AgentFrameworkResponseHandlerResilienceTests
 {
+    private const string ResponseId = "resp_0000000000000000000000000000000000000000000000";
+
     [Fact]
-    public async Task CreateAsync_Recovery_DoesNotReinjectInputAsync()
+    public async Task CreateAsync_Recovery_WithoutPersistedSession_ReinjectsInputAsync()
     {
-        // Arrange: a resilient background+store request being re-invoked as a recovery.
+        // Arrange: recovery ran before the first AgentSession snapshot was persisted.
         var recording = new RecordingAgent();
         var handler = CreateHandler(recording, new InMemoryAgentSessionStore(), resilient: true);
         var request = NewBackgroundStoreRequest("original input");
@@ -38,8 +41,27 @@ public class AgentFrameworkResponseHandlerResilienceTests
         // Act
         await CollectEventsAsync(handler, request, context);
 
-        // Assert: on recovery the restored session drives the resume, so the handler must not
-        // re-inject the original input (which would enqueue a duplicate turn).
+        // Assert: no session exists to resume, so recovery must restart from the original input.
+        Assert.NotNull(recording.LastMessages);
+        Assert.Contains(
+            recording.LastMessages!,
+            message => message.Text.Contains("original input", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_Recovery_WithPersistedSession_DoesNotReinjectInputAsync()
+    {
+        // Arrange: a prior lifetime persisted an AgentSession for this response.
+        var recording = new RecordingAgent();
+        var store = new AlwaysLoadedSessionStore();
+        var handler = CreateHandler(recording, store, resilient: true);
+        var request = NewBackgroundStoreRequest("original input");
+        var context = CreateContext(isRecovery: true);
+
+        // Act
+        await CollectEventsAsync(handler, request, context);
+
+        // Assert: the restored session owns re-entry, so the original input is not duplicated.
         Assert.NotNull(recording.LastMessages);
         Assert.Empty(recording.LastMessages!);
     }
@@ -113,6 +135,41 @@ public class AgentFrameworkResponseHandlerResilienceTests
         Assert.Equal(3, completed.Response.Output.Count);
     }
 
+    [Fact]
+    public async Task CreateAsync_ShutdownAfterAgentAdvanced_DoesNotSaveUnemittedSessionStateAsync()
+    {
+        // Arrange: the agent advances its session and returns an update after shutdown is visible.
+        var store = new CountingSessionStore();
+        var handler = CreateHandler(
+            new SessionAdvancingAgent(),
+            store,
+            resilient: true);
+        var request = NewBackgroundStoreRequest("input");
+        var context = CreateContext(isRecovery: false, shutdownRequested: true);
+
+        // Act
+        var events = await CollectEventsAsync(handler, request, context);
+
+        // Assert: only the lifecycle prefix was emitted, so advanced session state must not be saved.
+        Assert.DoesNotContain(events, responseEvent => responseEvent is ResponseOutputItemDoneEvent);
+        Assert.Equal(0, store.SaveAttempts);
+    }
+
+    [Fact]
+    public void Constructor_ExistingThreeParameterSignature_IsPreserved()
+    {
+        // Act
+        var constructor = typeof(AgentFrameworkResponseHandler).GetConstructor(
+            [
+                typeof(IServiceProvider),
+                typeof(ILogger<AgentFrameworkResponseHandler>),
+                typeof(FoundryToolboxService),
+            ]);
+
+        // Assert
+        Assert.NotNull(constructor);
+    }
+
     private static AgentFrameworkResponseHandler CreateHandler(AIAgent agent, AgentSessionStore store, bool resilient)
     {
         var services = new ServiceCollection();
@@ -142,15 +199,25 @@ public class AgentFrameworkResponseHandlerResilienceTests
         return request;
     }
 
-    private static ResponseContext CreateContext(bool isRecovery, ResponseObject? persistedResponse = null)
+    private static ResponseContext CreateContext(
+        bool isRecovery,
+        ResponseObject? persistedResponse = null,
+        bool shutdownRequested = false)
     {
-        var mock = new Mock<ResponseContext>("resp_" + new string('0', 46)) { CallBase = true };
+        var mock = new Mock<ResponseContext>(ResponseId) { CallBase = true };
         mock.Setup(x => x.IsRecovery).Returns(isRecovery);
         mock.Setup(x => x.PersistedResponse).Returns(persistedResponse);
+        mock.Setup(x => x.ExitForRecoveryAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
         mock.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<OutputItem>());
         mock.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Item>());
+        if (shutdownRequested)
+        {
+            mock.Object.IsShutdownRequested = true;
+        }
+
         return mock.Object;
     }
 
@@ -253,5 +320,103 @@ public class AgentFrameworkResponseHandlerResilienceTests
 
         public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, string conversationId, string? userId, CancellationToken cancellationToken = default) =>
             await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class CountingSessionStore : AgentSessionStore
+    {
+        private int _saveAttempts;
+
+        public int SaveAttempts => this._saveAttempts;
+
+        public override ValueTask SaveSessionAsync(
+            AIAgent agent,
+            string conversationId,
+            AgentSession session,
+            string? userId,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref this._saveAttempts);
+            return default;
+        }
+
+        public override ValueTask<AgentSession?> GetSessionAsync(
+            AIAgent agent,
+            string conversationId,
+            string? userId,
+            CancellationToken cancellationToken = default) =>
+            new((AgentSession?)null);
+    }
+
+    private sealed class AlwaysLoadedSessionStore : AgentSessionStore
+    {
+        public override ValueTask SaveSessionAsync(
+            AIAgent agent,
+            string conversationId,
+            AgentSession session,
+            string? userId,
+            CancellationToken cancellationToken = default) =>
+            default;
+
+        public override async ValueTask<AgentSession?> GetSessionAsync(
+            AIAgent agent,
+            string conversationId,
+            string? userId,
+            CancellationToken cancellationToken = default) =>
+            await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class SessionAdvancingAgent : AIAgent
+    {
+        protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var advancingSession = Assert.IsType<AdvancingSession>(session);
+            advancingSession.Phase = 1;
+            yield return new AgentResponseUpdate
+            {
+                MessageId = "msg_shutdown_1",
+                Contents = [new MeaiTextContent("not emitted")]
+            };
+            await Task.CompletedTask;
+        }
+
+        protected override Task<AgentResponse> RunCoreAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        protected override ValueTask<AgentSession> CreateSessionCoreAsync(
+            CancellationToken cancellationToken = default) =>
+            new(new AdvancingSession());
+
+        protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+            AgentSession session,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default)
+        {
+            var advancingSession = Assert.IsType<AdvancingSession>(session);
+            return new(JsonSerializer.SerializeToElement(
+                new { advancingSession.Phase },
+                jsonSerializerOptions));
+        }
+
+        protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+            JsonElement serializedState,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(new AdvancingSession
+            {
+                Phase = serializedState.GetProperty("Phase").GetInt32(),
+            });
+
+        private sealed class AdvancingSession : AgentSession
+        {
+            public int Phase { get; set; }
+        }
     }
 }

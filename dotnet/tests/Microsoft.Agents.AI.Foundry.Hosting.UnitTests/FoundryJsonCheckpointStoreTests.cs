@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.AI.AgentServer.Core.Storage;
+using Azure.Core;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,23 @@ public sealed class FoundryJsonCheckpointStoreTests
 
         // Assert
         Assert.Equal("maxIndexUpdateAttempts", exception.ParamName);
+    }
+
+    [Fact]
+    public void Constructor_ExistingFiveParameterSignature_IsPreserved()
+    {
+        // Act
+        var constructor = typeof(FoundryJsonCheckpointStore).GetConstructor(
+            [
+                typeof(Uri),
+                typeof(TokenCredential),
+                typeof(string),
+                typeof(int),
+                typeof(ILoggerFactory),
+            ]);
+
+        // Assert
+        Assert.NotNull(constructor);
     }
 
     [Fact]

@@ -47,7 +47,10 @@ storage and whether the conversation task accepts steering. Configuring the opti
 the later `IOptions` pipeline is too late for those choices.
 
 The first `AddFoundryResponses` call owns this host-level configuration. Repeated calls do not
-register another Responses server or redefine its resilience mode.
+register another Responses server or redefine its resilience mode. Later calls can still configure
+MAF-only options such as `AllowStoredOutputEnabled`; attempting to enable an AgentServer task
+feature after the first call fails immediately instead of leaving AgentServer and MAF with
+different settings.
 
 ```csharp
 builder.Services.AddFoundryResponses(agent, configure: o => o.ResilientBackground = true);
@@ -60,15 +63,20 @@ When `IsRecovery` is true:
 1. Seed `ResponseEventStream` from the `PersistedResponse` that AgentServer provides. This preserves
    its response fields and any output watermark it carries. It does not select the workflow resume
    point.
-2. Do not re-inject the original input or platform history. The restored `AgentSession` owns
-   re-entry. For a workflow agent, the session contains the `LastCheckpoint` reference used by the
-   workflow runtime. A regular agent has no equivalent within-turn workflow checkpoint, so recovery
-   is best-effort and depends on its serialized session state.
+2. When a persisted `AgentSession` is restored, do not re-inject the original input or platform
+   history. The restored session owns re-entry. For a workflow agent, the session contains the
+   `LastCheckpoint` reference used by the workflow runtime. If the process stopped before the first
+   session save, no resumable MAF state exists, so the handler restarts from the original input
+   instead of invoking a fresh session with no messages. A regular agent has no equivalent
+   within-turn workflow checkpoint, so recovery remains best-effort and depends on its serialized
+   session state.
 3. On graceful shutdown of a resilient turn, call `ExitForRecoveryAsync` instead of emitting
    incomplete. The AgentServer shutdown token is linked to the token passed into the MAF agent so
    long-running model, tool, and workflow operations stop promptly. The handler also checks
    `IsShutdownRequested` after each agent update, because an agent may consume cancellation and
-   return normally instead of throwing.
+   return normally instead of throwing. If shutdown becomes visible after the agent advanced but
+   before the corresponding event was emitted, the final session save is skipped. Recovery uses
+   the last session snapshot that corresponds to output already handed to AgentServer.
 4. Best-effort save the agent session after each `ResponseOutputItemDoneEvent`, with an
    authoritative end-of-turn save in `finally` (skipped when the turn failed). These incremental
    saves are neither workflow checkpoints nor AgentServer response-stream checkpoints.

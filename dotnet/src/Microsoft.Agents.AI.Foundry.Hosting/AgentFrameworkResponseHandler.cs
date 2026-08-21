@@ -57,24 +57,42 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// <param name="serviceProvider">The service provider for resolving agents.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="toolboxService">Optional Foundry Toolbox service providing MCP tools.</param>
-    /// <param name="foundryResponsesOptions">
-    /// Hosting options, used to read whether resilient background responses are enabled. Optional so
-    /// the handler can be constructed without the options registered (for example in unit tests), in
-    /// which case resilience is treated as off.
-    /// </param>
     public AgentFrameworkResponseHandler(
         IServiceProvider serviceProvider,
         ILogger<AgentFrameworkResponseHandler> logger,
-        FoundryToolboxService? toolboxService = null,
-        IOptions<FoundryResponsesOptions>? foundryResponsesOptions = null)
+        FoundryToolboxService? toolboxService = null)
+        : this(
+            serviceProvider,
+            logger,
+            Options.Create(new FoundryResponsesOptions()),
+            toolboxService)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AgentFrameworkResponseHandler"/> class
+    /// that resolves agents from keyed DI services.
+    /// </summary>
+    /// <param name="serviceProvider">The service provider for resolving agents.</param>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="foundryResponsesOptions">
+    /// Hosting options, used to read whether resilient background responses are enabled.
+    /// </param>
+    /// <param name="toolboxService">Optional Foundry Toolbox service providing MCP tools.</param>
+    public AgentFrameworkResponseHandler(
+        IServiceProvider serviceProvider,
+        ILogger<AgentFrameworkResponseHandler> logger,
+        IOptions<FoundryResponsesOptions> foundryResponsesOptions,
+        FoundryToolboxService? toolboxService = null)
     {
         _ = Throw.IfNull(serviceProvider);
         _ = Throw.IfNull(logger);
+        _ = Throw.IfNull(foundryResponsesOptions);
 
         this._serviceProvider = serviceProvider;
         this._logger = logger;
         this._toolboxService = toolboxService;
-        this._resilientBackground = foundryResponsesOptions?.Value.ResilientBackground ?? false;
+        this._resilientBackground = foundryResponsesOptions.Value.ResilientBackground;
     }
 
     /// <summary>
@@ -142,6 +160,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // nothing is persisted for the key, so a fresh conversation and a resumed one both end up with
         // a session to run against.
         AgentSession? session;
+        bool sessionRestoredFromStore = false;
         if (string.IsNullOrWhiteSpace(agentSessionId))
         {
             session = await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
@@ -154,6 +173,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 resolvedUserId,
                 cancellationToken).ConfigureAwait(false);
 
+            sessionRestoredFromStore = session is not null;
             session ??= await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -205,13 +225,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // 4. Convert input: the current input items become the run's messages. Earlier turns are not
         // added here; whatever holds the history for this agent supplies them, see step 5.
         //
-        // On recovery the platform re-delivers the original input, but this adapter deliberately
-        // leaves the message list empty and lets the restored AgentSession define re-entry. For a
-        // workflow agent, the session contains the workflow checkpoint reference used to continue
-        // execution. A regular agent has no within-turn workflow checkpoint, so its recovery remains
-        // best-effort and depends on the state that its AgentSession serialized before the crash.
+        // On recovery the platform re-delivers the original input. When a persisted AgentSession was
+        // restored, this adapter leaves the message list empty and lets that session define re-entry.
+        // If no session was ever saved, there is no resumable MAF state, so recovery restarts from the
+        // original input instead of invoking a fresh session with no messages.
+        bool shouldInjectRequestInput = !context.IsRecovery || !sessionRestoredFromStore;
         var messages = new List<ChatMessage>();
-        if (!context.IsRecovery)
+        if (shouldInjectRequestInput)
         {
             // Load and convert current input items
             var inputItems = await context.GetInputItemsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -382,7 +402,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // Recovery does not reload platform history because the restored AgentSession owns re-entry
         // state. For workflows, that includes the workflow checkpoint reference.
         var useVolatileChatHistoryProvider =
-            !context.IsRecovery
+            shouldInjectRequestInput
             && !allowStoredOutputEnabled
             && agent.GetService<ChatClientAgent>() is not null
             && agentOptions?.ChatHistoryProvider is null;
@@ -430,6 +450,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // A successful terminal event, held until the run is wound up and the session can be checked.
         ResponseStreamEvent? completedEvent = null;
         bool steeringDetected = false;
+        bool deferredForRecovery = false;
 
         // Check whenever the agent is storing messages when it should not.
         bool CheckNotAllowedStoreUsage() =>
@@ -535,6 +556,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     if (isResilientTurn)
                     {
                         this._logger.LogInformation("Shutdown detected on a resilient turn; deferring for recovery.");
+                        deferredForRecovery = true;
                         await context.ExitForRecoveryAsync(cancellationToken).ConfigureAwait(false);
                         yield break;
                     }
@@ -572,6 +594,11 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     continue;
                 }
 
+                // Emit the output boundary before saving the matching MAF session. AgentServer
+                // persists the event while this iterator is suspended. Reversing this order could
+                // advance the session past output that the caller never received. A crash after the
+                // event but before the save can replay work, which is the deliberate at-least-once
+                // side of this cross-store boundary.
                 // yield is in the outer try (finally-only) — allowed by C#
                 yield return evt!;
 
@@ -618,8 +645,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 turnFailed = true;
             }
 
-            // Persist the session for the next turn of this conversation, unless this one is being failed.
-            if (session is not null && !turnFailed)
+            // Persist the session for the next turn unless this turn failed or deferred after the
+            // agent advanced beyond the last event emitted to AgentServer.
+            if (session is not null && !turnFailed && !deferredForRecovery)
             {
                 await sessionStore.SaveSessionAsync(
                     agent,
