@@ -402,7 +402,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         //    We create a linked CTS so the consent-aware tool wrapper can cancel the agent
         //    run mid-loop when a -32006 error is returned by the proxy. The RequestConsentState
         //    is a shared mutable object that flows via AsyncLocal to the tool wrapper.
-        using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            context.Shutdown);
         var consentState = new RequestConsentState { CancellationSource = consentCts };
         McpConsentContext.Current.Value = consentState;
 
@@ -427,6 +429,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
         // A successful terminal event, held until the run is wound up and the session can be checked.
         ResponseStreamEvent? completedEvent = null;
+        bool steeringDetected = false;
 
         // Check whenever the agent is storing messages when it should not.
         bool CheckNotAllowedStoreUsage() =>
@@ -460,6 +463,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     }
 
                     evt = enumerator.Current;
+                    shutdownDetected =
+                        context.IsShutdownRequested && !emittedTerminal;
                 }
                 catch (OperationCanceledException) when (!emittedTerminal && consentState.Pending is not null)
                 {
@@ -469,6 +474,10 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 catch (OperationCanceledException) when (context.IsShutdownRequested && !emittedTerminal)
                 {
                     shutdownDetected = true;
+                }
+                catch (OperationCanceledException) when (context.PendingInputCount > 0 && !emittedTerminal)
+                {
+                    steeringDetected = true;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException && !emittedTerminal)
                 {
@@ -532,6 +541,23 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                     this._logger.LogInformation("Shutdown detected, emitting incomplete response.");
                     yield return stream.EmitIncomplete();
+                    yield break;
+                }
+
+                if (steeringDetected)
+                {
+                    // AgentServer cancelled this active turn because another input is queued for the
+                    // same conversation. Finish the current response cleanly so Core can drain the
+                    // queued input as a new handler invocation. The MAF AgentSession is saved in the
+                    // outer finally block and becomes the starting state for that invocation.
+                    if (this._logger.IsEnabled(LogLevel.Information))
+                    {
+                        this._logger.LogInformation(
+                            "Steering input detected for response {ResponseId}; completing the active turn.",
+                            context.ResponseId);
+                    }
+                    emittedTerminal = true;
+                    yield return stream.EmitCompleted();
                     yield break;
                 }
 
@@ -600,7 +626,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     agentSessionId!,
                     session,
                     resolvedUserId,
-                    cancellationToken).ConfigureAwait(false);
+                    steeringDetected ? CancellationToken.None : cancellationToken).ConfigureAwait(false);
             }
         }
 

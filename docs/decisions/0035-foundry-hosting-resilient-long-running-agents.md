@@ -1,7 +1,7 @@
 ---
 status: proposed
 contact: rogerbarreto
-date: 2026-08-14
+date: 2026-08-21
 deciders: Roger Barreto, Ben Thomas
 consulted: Tao Chen, Ravi Teja Pidaparthi, Glenn Condron
 informed: Agent Framework .NET team
@@ -41,6 +41,13 @@ Chosen option: **turn resilience on through the existing handler and registratio
 
 `FoundryResponsesOptions.ResilientBackground` and `FoundryResponsesOptions.SteerableConversations`
 are forwarded to `ResponsesServerOptions` so the AgentServer SDK enables recovery and steering.
+This forwarding must happen in the callback passed directly to `AddResponsesServer`. The SDK makes
+two process-level choices during that registration call: whether local SSE replay uses durable
+storage and whether the conversation task accepts steering. Configuring the options only through
+the later `IOptions` pipeline is too late for those choices.
+
+The first `AddFoundryResponses` call owns this host-level configuration. Repeated calls do not
+register another Responses server or redefine its resilience mode.
 
 ```csharp
 builder.Services.AddFoundryResponses(agent, configure: o => o.ResilientBackground = true);
@@ -58,10 +65,39 @@ When `IsRecovery` is true:
    workflow runtime. A regular agent has no equivalent within-turn workflow checkpoint, so recovery
    is best-effort and depends on its serialized session state.
 3. On graceful shutdown of a resilient turn, call `ExitForRecoveryAsync` instead of emitting
-   incomplete.
+   incomplete. The AgentServer shutdown token is linked to the token passed into the MAF agent so
+   long-running model, tool, and workflow operations stop promptly. The handler also checks
+   `IsShutdownRequested` after each agent update, because an agent may consume cancellation and
+   return normally instead of throwing.
 4. Best-effort save the agent session after each `ResponseOutputItemDoneEvent`, with an
    authoritative end-of-turn save in `finally` (skipped when the turn failed). These incremental
    saves are neither workflow checkpoints nor AgentServer response-stream checkpoints.
+
+### Handler contract on steering
+
+When a second input arrives for an active steerable conversation:
+
+1. AgentServer returns a response with `status=queued`, records the input, increments
+   `PendingInputCount` on the active handler context, and signals that handler's cancellation token.
+2. The superseded handler invocation has `IsSteeredTurn=false`. If a cancellation-aware MAF
+   operation throws `OperationCanceledException`, Foundry Hosting uses `PendingInputCount > 0` to
+   distinguish steering from shutdown and client cancellation.
+3. Foundry Hosting completes the superseded response cleanly and saves its `AgentSession` with a
+   non-cancelled save token. This gives the queued turn the latest committed MAF state.
+4. AgentServer invokes the handler again with `IsSteeredTurn=true`. This is not crash recovery:
+   `IsRecovery=false`, so the new input is converted to MAF messages normally. The same
+   `conversation_id` resolves the same persisted `AgentSession`.
+
+No special MAF branch is required merely because `IsSteeredTurn=true`. The classification is
+available for handlers that need different application behavior; the generic adapter treats the
+drained input as the next normal turn on the same session.
+
+Skipping `ResponseEventStream.Checkpoint()` on steering does not mean discarding everything the
+superseded response produced. The response reaches a terminal `completed` event, which persists its
+terminal representation. Separately, the `AgentSession` save preserves upstream MAF state. For a
+workflow, `LastCheckpoint` advances only after a completed superstep, so a session saved after
+steering still points at the last complete workflow boundary rather than the interrupted
+superstep.
 
 ### State ownership
 
@@ -85,7 +121,18 @@ the existing session and workflow stores.
 ## Consequences
 
 - Samples: `Hosted-Workflow-Resilient` and `Hosted-Steering`.
-- Unit tests cover recovery input skip, consumption of an available response snapshot, and
-  mid-stream session-save failure.
-- Package floor: Azure.AI.AgentServer Core beta.29, Invocations beta.8, Responses beta.9 (local
-  preview feed until nuget.org ships them).
+- Handler-level tests cover recovery input skip, consumption of an available response snapshot,
+  and mid-stream session-save failure.
+- A local two-lifetime integration test starts a real Responses host, persists a MAF
+  `AgentSession`, stops the host, starts a new host over the same local AgentServer state, and
+  verifies that the same response completes without re-injecting the original input.
+- A local steering integration test sends two real HTTP turns through AgentServer and the MAF
+  adapter. It verifies `queued`, serial execution, delivery of the steering input, and reuse of the
+  persisted session.
+- Live Foundry tests cover background continuation without client traffic, hard process
+  termination through `Environment.Exit`, recovery in a different process incarnation, transient
+  `404`/`424` polling responses during replacement, and long-running steering on the same
+  conversation.
+- The checkpoint-index optimistic-concurrency retry count is configurable through
+  `FoundryJsonCheckpointStore`, with a default of eight attempts.
+- Package floor: Azure.AI.AgentServer Core beta.28, Invocations beta.6, Responses beta.8.

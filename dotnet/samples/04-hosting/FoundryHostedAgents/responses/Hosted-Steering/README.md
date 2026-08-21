@@ -1,74 +1,75 @@
 # Hosted-Steering
 
-A chat agent hosted as a Foundry Hosted Agent using the **Responses protocol**, with **steerable conversations** enabled. A new input sent while a turn is still running is queued behind the current turn and folded into the ongoing answer, instead of being rejected with a conversation-locked error.
+A Foundry Hosted Agent with steerable conversations enabled. When a second input arrives while a
+conversation turn is running, AgentServer queues it instead of returning `conversation_locked`.
 
-## What "steering" means here
+This sample deploys directly from source. Foundry uploads the project as a ZIP, restores its
+packages, builds it, and runs `HostedSteering.dll`. No Dockerfile or container registry is needed.
 
-- **Mid-turn input is queued, not rejected.** With `SteerableConversations = true`, a follow-up request for a conversation that is still in progress is accepted (`status: queued`) and drained at the next safe point, so a user can course-correct without cancelling and restarting.
-- **Independent of resilience.** Steering and resilient background responses are separate options; you can enable either on its own. This sample turns on only steering. For crash recovery, see [`Hosted-Workflow-Resilient`](../Hosted-Workflow-Resilient/README.md).
-- **Opt-in, off by default.** The only code difference from the non-steering [`Hosted-ChatClientAgent`](../Hosted-ChatClientAgent/README.md) is one line:
+## Key setting
 
-  ```csharp
-  builder.Services.AddFoundryResponses(agent, configure: o => o.SteerableConversations = true);
-  ```
-
-  Without the option, an overlapping turn on the same conversation is rejected (`conversation_locked`).
-
-## Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- `az login` plus a Foundry **project endpoint** and a **model deployment**.
-
-## Configuration
-
-```bash
-cp .env.example .env
-# set FOUNDRY_PROJECT_ENDPOINT and FOUNDRY_MODEL
+```csharp
+builder.Services.AddFoundryResponses(
+    agent,
+    configure: options => options.SteerableConversations = true);
 ```
 
-## Run locally (contributors)
+Steering and resilient background execution are separate options. This sample enables only
+steering. See [Hosted-Workflow-Resilient](../Hosted-Workflow-Resilient/README.md) for crash recovery.
 
-This project uses `ProjectReference` to build against the local Agent Framework source.
+## Local development
 
-```bash
+Copy `.env.example` to `.env`, set the project endpoint and model deployment, then run:
+
+```powershell
 az login
-export FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>
-export FOUNDRY_MODEL=gpt-4o
-
-cd dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-Steering
-dotnet run
+dotnet run --tl:off
 ```
 
-The agent starts on `http://localhost:8088`.
+The in-repository project automatically uses ProjectReference to run the current framework source.
 
-### Try steering
+## Deploy from source
 
-1. Start a background response for a conversation and note its response id:
+Create an empty working directory outside the repository:
 
-   ```bash
-   curl -N -s http://localhost:8088/responses \
-     -H 'content-type: application/json' \
-     -d '{"input":"Write a detailed plan for a birthday party","stream":true,"store":true,"background":true}'
-   ```
+```powershell
+$work = Join-Path $env:TEMP "hosted-steering-work"
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+Set-Location $work
 
-2. While it is still running, send a follow-up for the same chain (set `previous_response_id` to the latest response id). Instead of `conversation_locked`, it is queued and the agent folds it in:
+$sample = "<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-Steering/azure.yaml"
+azd auth login
+azd ai agent init -m $sample -d <model-deployment>
+```
 
-   ```bash
-   curl -N -s http://localhost:8088/responses \
-     -H 'content-type: application/json' \
-     -d '{"input":"Actually, make it a surprise party on a tight budget","previous_response_id":"<id>","stream":true,"store":true,"background":true}'
-   ```
+### Contributors testing framework changes
 
-Without `SteerableConversations`, step 2 would be rejected while the first turn is in progress.
+**Skip this section unless you are testing an Agent Framework change from the current codebase that
+has not been released yet.** The normal deployment uses the published packages. To test local
+framework changes, pack the current repository source into the scaffolded upload before provisioning:
 
-## Deploy to Foundry
+```powershell
+<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 `
+    -Path ./hosted-steering
+```
 
-Initialize an `azd` project from this sample's manifest, then deploy:
+The helper creates `local-feed/`, writes `nuget.config`, and changes `AgentFrameworkVersion` in the
+scaffolded project. Both generated artifacts are included in the source ZIP.
 
-```bash
-mkdir hosted-steering && cd hosted-steering
-azd ai agent init -m https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-Steering/agent.manifest.yaml
+```powershell
+Set-Location hosted-steering
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <model-deployment>
+azd provision
 azd deploy
 ```
 
-See the [official deployment guide](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/deploy-hosted-agent).
+## Exercise steering
+
+Start a stored background response, keep its response or conversation identity, then submit a second
+input to the same in-progress conversation. The second request should be queued instead of rejected.
+Use the Responses API or an OpenAI-compatible client that exposes background and conversation fields.
+
+## Related samples
+
+- [Hosted-ChatClientAgent](../Hosted-ChatClientAgent/README.md): basic source-deployed agent.
+- [Hosted-Workflow-Resilient](../Hosted-Workflow-Resilient/README.md): resilient background workflow.

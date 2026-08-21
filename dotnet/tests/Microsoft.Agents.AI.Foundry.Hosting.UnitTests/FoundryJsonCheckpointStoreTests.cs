@@ -27,6 +27,42 @@ public sealed class FoundryJsonCheckpointStoreTests
     }
 
     [Fact]
+    public void DefaultMaxIndexUpdateAttempts_IsEight()
+    {
+        // Assert
+        Assert.Equal(8, FoundryJsonCheckpointStore.DefaultMaxIndexUpdateAttempts);
+    }
+
+    [Fact]
+    public void Constructor_MaxIndexUpdateAttemptsLessThanOne_Throws()
+    {
+        // Act
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new FoundryJsonCheckpointStore(maxIndexUpdateAttempts: 0));
+
+        // Assert
+        Assert.Equal("maxIndexUpdateAttempts", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task CreateCheckpointAsync_CustomMaxIndexUpdateAttempts_LimitsRetriesAsync()
+    {
+        // Arrange
+        var backing = new FakeCheckpointStateStore();
+        var store = NewStore(backing, maxIndexUpdateAttempts: 2);
+        await store.CreateCheckpointAsync("session-1", Json("{\"step\":1}"));
+        backing.FailNextIndexWrites = 2;
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await store.CreateCheckpointAsync("session-1", Json("{\"step\":2}")));
+
+        // Assert
+        Assert.Contains("after 2 attempts", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, backing.FailNextIndexWrites);
+    }
+
+    [Fact]
     public async Task CreateCheckpointAsync_ThenRetrieveCheckpointAsync_RoundTripsAsync()
     {
         // Arrange
@@ -381,8 +417,14 @@ public sealed class FoundryJsonCheckpointStoreTests
         Assert.NotEqual(first, second);
     }
 
-    private static FoundryJsonCheckpointStore NewStore(FoundryStateStore backing, ILoggerFactory? loggerFactory = null)
-        => new(_ => Task.FromResult(backing), loggerFactory: loggerFactory);
+    private static FoundryJsonCheckpointStore NewStore(
+        FoundryStateStore backing,
+        ILoggerFactory? loggerFactory = null,
+        int maxIndexUpdateAttempts = FoundryJsonCheckpointStore.DefaultMaxIndexUpdateAttempts)
+        => new(
+            _ => Task.FromResult(backing),
+            loggerFactory: loggerFactory,
+            maxIndexUpdateAttempts: maxIndexUpdateAttempts);
 
     private static JsonElement Json(string json)
     {

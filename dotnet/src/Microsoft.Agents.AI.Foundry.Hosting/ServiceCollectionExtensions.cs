@@ -65,10 +65,14 @@ public static class FoundryHostingExtensions
     public static IServiceCollection AddFoundryResponses(this IServiceCollection services, Action<FoundryResponsesOptions>? configure = null)
     {
         _ = Throw.IfNull(services);
-        AddResponsesServerOnce(services);
+        FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
+        bool serverAdded = AddResponsesServerOnce(services, configuredOptions);
         services.AddHealthChecks();
         ConfigureFoundryListenPort(services);
-        ConfigureFoundryResponsesOptions(services, configure);
+        if (serverAdded)
+        {
+            ConfigureFoundryResponsesOptions(services, configuredOptions);
+        }
         services.TryAddSingleton<AgentSessionStore>(_ => CreateDefaultAgentSessionStore());
         services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
         MarkFeatureUsed();
@@ -113,10 +117,14 @@ public static class FoundryHostingExtensions
         _ = Throw.IfNull(services);
         _ = Throw.IfNull(agent);
 
-        AddResponsesServerOnce(services);
+        FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
+        bool serverAdded = AddResponsesServerOnce(services, configuredOptions);
         services.AddHealthChecks();
         ConfigureFoundryListenPort(services);
-        ConfigureFoundryResponsesOptions(services, configure);
+        if (serverAdded)
+        {
+            ConfigureFoundryResponsesOptions(services, configuredOptions);
+        }
         agentSessionStore ??= CreateDefaultAgentSessionStore();
 
         if (!string.IsNullOrWhiteSpace(agent.Name))
@@ -147,20 +155,24 @@ public static class FoundryHostingExtensions
     /// Resilience flags on <see cref="FoundryResponsesOptions"/> are forwarded to
     /// <see cref="ResponsesServerOptions"/> so the AgentServer SDK enables recovery for the same host.
     /// </remarks>
-    private static void ConfigureFoundryResponsesOptions(IServiceCollection services, Action<FoundryResponsesOptions>? configure)
+    private static FoundryResponsesOptions CreateFoundryResponsesOptions(Action<FoundryResponsesOptions>? configure)
     {
-        if (configure is not null)
-        {
-            services.Configure(configure);
-        }
+        FoundryResponsesOptions options = new();
+        configure?.Invoke(options);
+        return options;
+    }
 
-        // Forward hosting resilience flags into the AgentServer Responses options the SDK reads.
-        services.AddOptions<ResponsesServerOptions>()
-            .Configure<IOptions<FoundryResponsesOptions>>((server, foundry) =>
-            {
-                server.ResilientBackground = foundry.Value.ResilientBackground;
-                server.SteerableConversations = foundry.Value.SteerableConversations;
-            });
+    private static void ConfigureFoundryResponsesOptions(
+        IServiceCollection services,
+        FoundryResponsesOptions configuredOptions)
+    {
+        services.Configure<FoundryResponsesOptions>(options =>
+        {
+            options.AllowStoredOutputEnabled = configuredOptions.AllowStoredOutputEnabled;
+            options.IncludeReasoningEncryptedContent = configuredOptions.IncludeReasoningEncryptedContent;
+            options.ResilientBackground = configuredOptions.ResilientBackground;
+            options.SteerableConversations = configuredOptions.SteerableConversations;
+        });
 
         AddReadinessCheckOnce(services, "foundry-stored-output", sp => ActivatorUtilities.CreateInstance<HostedStoredOutputHealthCheck>(sp));
         AddReadinessCheckOnce(services, "foundry-workflow-checkpointing", sp => ActivatorUtilities.CreateInstance<HostedWorkflowCheckpointingHealthCheck>(sp));
@@ -370,15 +382,22 @@ public static class FoundryHostingExtensions
     /// a host that registers several agents naturally does, so the second and later calls are
     /// skipped here.
     /// </remarks>
-    private static void AddResponsesServerOnce(IServiceCollection services)
+    private static bool AddResponsesServerOnce(
+        IServiceCollection services,
+        FoundryResponsesOptions configuredOptions)
     {
         if (services.Any(static d => d.ServiceType == typeof(FoundryResponsesServerMarker)))
         {
-            return;
+            return false;
         }
 
         services.AddSingleton<FoundryResponsesServerMarker>();
-        services.AddResponsesServer();
+        services.AddResponsesServer(options =>
+        {
+            options.ResilientBackground = configuredOptions.ResilientBackground;
+            options.SteerableConversations = configuredOptions.SteerableConversations;
+        });
+        return true;
     }
 
     /// <summary>

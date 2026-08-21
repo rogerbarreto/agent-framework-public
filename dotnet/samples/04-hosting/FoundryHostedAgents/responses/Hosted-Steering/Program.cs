@@ -1,68 +1,40 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-// Steerable Conversation Agent — a chat agent hosted as a Foundry Hosted Agent that accepts
-// steering: a new input sent while a turn is still running is queued behind the current turn
-// instead of being rejected, and the agent picks it up at the next safe point.
-//
-// What "steering" adds here:
-//   - The agent is hosted with SteerableConversations = true. A follow-up request for the same
-//     conversation that is still in progress is accepted (status "queued") rather than rejected
-//     with a conversation-locked error.
-//   - Steering is independent of resilience: you can enable either option on its own. This sample
-//     turns on only steering to keep the behavior focused; see Hosted-Workflow-Resilient for
-//     crash recovery.
-//   - Opt-in, off by default. Without SteerableConversations an overlapping turn is rejected, as
-//     in the non-steering samples.
+// Sample: a Foundry Hosted Agent that accepts steering input while a response is still running.
+// It deploys directly from source, so Foundry builds and runs the uploaded project.
 
 using Azure.AI.Projects;
-using Azure.Core;
 using Azure.Identity;
 using DotNetEnv;
-using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 
-// Load .env file if present (for local development)
 Env.TraversePath().Load();
 
-var projectEndpoint = new Uri(Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+var projectEndpoint = new Uri(System.Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
     ?? throw new InvalidOperationException("FOUNDRY_PROJECT_ENDPOINT is not set."));
+var deployment = FirstNonBlank(
+    System.Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+    System.Environment.GetEnvironmentVariable("FOUNDRY_MODEL"),
+    "gpt-4o");
+var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-steering";
 
-var agentName = Environment.GetEnvironmentVariable("AGENT_NAME") ?? "hosted-steering";
-
-var deployment = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt-4o";
-
-// WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
-// In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
-// latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
-TokenCredential credential = new ChainedTokenCredential(
-    new DevTemporaryTokenCredential(),
-    new DefaultAzureCredential());
-
-// Create the agent via the AI project client using the Responses API.
-AIAgent agent = new AIProjectClient(projectEndpoint, credential)
+AIAgent agent = new AIProjectClient(projectEndpoint, new DefaultAzureCredential())
     .AsAIAgent(
         model: deployment,
         instructions: """
-            You are a helpful AI assistant hosted as a Foundry Hosted Agent.
-            When you receive an additional message while already working, treat it as a course
-            correction and fold it into your ongoing answer. Be concise, clear, and helpful.
+            You are a helpful AI assistant. When another message arrives while you are working,
+            treat it as a course correction and incorporate it into the answer.
             """,
         name: agentName,
         description: "A steerable general-purpose AI assistant");
 
-// Host the agent as a Foundry Hosted Agent using the Responses API.
-// SteerableConversations opts this host into mid-turn steering; it is the only difference from
-// the non-steering Hosted-ChatClientAgent sample.
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddFoundryResponses(agent, configure: o => o.SteerableConversations = true);
+builder.Services.AddFoundryResponses(agent, configure: options => options.SteerableConversations = true);
 
 var app = builder.Build();
 app.MapFoundryResponses();
-
-// Contributor-only: in Development, also map the per-agent OpenAI route shape that live Foundry uses
-// so a local REPL client can target this server via AIProjectClient.AsAIAgent(Uri agentEndpoint).
-// Do not use this in production. Hosted Foundry agents only support the agent-endpoint path.
-app.MapDevTemporaryLocalAgentEndpoint();
-
 app.Run();
+
+static string FirstNonBlank(params string?[] candidates) =>
+    Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate))!;
