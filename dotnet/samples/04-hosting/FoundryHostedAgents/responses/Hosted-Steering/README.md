@@ -73,3 +73,4 @@ Use the Responses API or an OpenAI-compatible client that exposes background and
 
 - [Hosted-ChatClientAgent](../Hosted-ChatClientAgent/README.md): basic source-deployed agent.
 - [Hosted-Workflow-Resilient](../Hosted-Workflow-Resilient/README.md): resilient background workflow.
+- [Hosted-Workflow-Resilient-Long-Running](../Hosted-Workflow-Resilient-Long-Running/README.md): deterministic countdown recovery with exact output validation.

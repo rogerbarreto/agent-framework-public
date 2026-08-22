@@ -23,9 +23,9 @@ This applies only to **background** requests (`background=true`) whose `store` v
 true. Omitted `store` uses the Responses API default of true. Foreground requests and explicit
 `store=false` requests have no crash-recovery contract.
 
-Python already exposes this through `resilient_background` and optional `steerable_conversations`.
-.NET hosting must offer the same opt-in surface on top of the durable session and checkpoint storage
-introduced for Foundry state stores (PR #7649).
+Python currently supports resilient background execution for workflow agents and steering for
+single agents. .NET hosting must offer the same opt-in capabilities on top of the durable session
+and checkpoint storage introduced for Foundry state stores (PR #7649).
 
 ## Decision Drivers
 
