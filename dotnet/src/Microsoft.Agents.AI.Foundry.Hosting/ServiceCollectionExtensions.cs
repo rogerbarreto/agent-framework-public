@@ -78,7 +78,7 @@ public static class FoundryHostingExtensions
             includeServerOptions: serverAdded,
             applyOptions: serverAdded || configure is not null);
         services.TryAddSingleton<AgentSessionStore>(_ => CreateDefaultAgentSessionStore());
-        services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
+        RegisterResponseHandler(services);
         MarkFeatureUsed();
         return services;
     }
@@ -146,7 +146,7 @@ public static class FoundryHostingExtensions
         services.TryAddSingleton(agent);
         services.TryAddSingleton(agentSessionStore);
 
-        services.TryAddSingleton<ResponseHandler, AgentFrameworkResponseHandler>();
+        RegisterResponseHandler(services);
         MarkFeatureUsed();
         return services;
     }
@@ -168,6 +168,16 @@ public static class FoundryHostingExtensions
         FoundryResponsesOptions options = new();
         configure?.Invoke(options);
         return options;
+    }
+
+    private static void RegisterResponseHandler(IServiceCollection services)
+    {
+        services.TryAddSingleton<ResponseHandler>(serviceProvider =>
+            new AgentFrameworkResponseHandler(
+                serviceProvider,
+                serviceProvider.GetRequiredService<ILogger<AgentFrameworkResponseHandler>>(),
+                serviceProvider.GetRequiredService<IOptions<FoundryResponsesOptions>>(),
+                serviceProvider.GetService<FoundryToolboxService>()));
     }
 
     private static void ConfigureFoundryResponsesOptions(

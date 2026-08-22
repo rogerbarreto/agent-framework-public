@@ -2,9 +2,16 @@
 
 using System;
 using System.ClientModel;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundry.Hosting.IntegrationTests.Fixtures;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using OpenAI.Responses;
 
 #pragma warning disable OPENAI001 // Experimental Responses API surfaces
@@ -75,6 +82,76 @@ public sealed class ResilientWorkflowHostedAgentTests(ResilientWorkflowHostedAge
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task BackgroundCountdown_ProcessCrash_RecoversAndReplaysAllUpdatesAsync()
+    {
+        // Arrange
+        const int Target = 20;
+        const int CrashAfterCount = 10;
+        string token = Guid.NewGuid().ToString("N");
+        List<string> expected =
+        [
+            .. Enumerable.Range(1, Target)
+                .Reverse()
+                .Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            "Countdown complete.",
+        ];
+        AIAgent agent = this._fixture.Agent;
+        AgentSession session = await agent.CreateSessionAsync();
+        AgentRunOptions initialOptions = new() { AllowBackgroundResponses = true };
+        using CancellationTokenSource timeoutSource = new(s_completionTimeout);
+
+        // Act
+        StreamCapture before = await CaptureUntilDisconnectAsync(
+            agent,
+            session,
+            $"countdown:{Target}:{CrashAfterCount}:{token}",
+            initialOptions,
+            "before",
+            timeoutSource.Token);
+
+        ResponseContinuationToken continuationToken = before.ContinuationToken
+            ?? throw new InvalidOperationException(
+                "The interrupted stream did not provide a continuation token.");
+        AgentRunOptions recoveryOptions = new()
+        {
+            AllowBackgroundResponses = true,
+            ContinuationToken = continuationToken,
+        };
+        StreamCapture recovered = await CaptureToCompletionWithRetryAsync(
+            agent,
+            session,
+            recoveryOptions,
+            "recovered",
+            before.CompletedMessageIds,
+            timeoutSource.Token);
+
+        List<string> recoveredCountdown = [.. before.Texts, .. recovered.Texts];
+        string responseId = before.ResponseId
+            ?? recovered.ResponseId
+            ?? throw new InvalidOperationException(
+                "The countdown stream did not provide a response ID.");
+        AgentRunOptions replayOptions = new()
+        {
+            AllowBackgroundResponses = true,
+            ContinuationToken = CreateReplayFromStartToken(responseId),
+        };
+        StreamCapture replayed = await CaptureToCompletionWithRetryAsync(
+            agent,
+            session,
+            replayOptions,
+            "replayed",
+            existingMessageIds: null,
+            timeoutSource.Token);
+
+        // Assert
+        Assert.Equal(expected.Take(CrashAfterCount), before.Texts);
+        Assert.Equal(expected, recoveredCountdown);
+        Assert.Equal(Target, CountCountdownUpdates(recoveredCountdown));
+        Assert.Equal(expected, replayed.Texts);
+        Assert.Equal(Target, CountCountdownUpdates(replayed.Texts));
+    }
+
     private static CreateResponseOptions CreateBackgroundRequest(string input)
     {
         CreateResponseOptions options = new()
@@ -85,6 +162,108 @@ public sealed class ResilientWorkflowHostedAgentTests(ResilientWorkflowHostedAge
         options.InputItems.Add(ResponseItem.CreateUserMessageItem(input));
         return options;
     }
+
+    private static async Task<StreamCapture> CaptureUntilDisconnectAsync(
+        AIAgent agent,
+        AgentSession session,
+        string input,
+        AgentRunOptions options,
+        string phase,
+        CancellationToken cancellationToken)
+    {
+        StreamCapture capture = new();
+
+        try
+        {
+            await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(
+                input,
+                session,
+                options,
+                cancellationToken))
+            {
+                capture.Observe(update, phase);
+            }
+        }
+        catch (ClientResultException exception)
+            when (IsTransientRecoveryStatus(exception.Status))
+        {
+        }
+        catch (HttpRequestException)
+        {
+        }
+
+        return capture;
+    }
+
+    private static async Task<StreamCapture> CaptureToCompletionWithRetryAsync(
+        AIAgent agent,
+        AgentSession session,
+        AgentRunOptions options,
+        string phase,
+        IEnumerable<string>? existingMessageIds,
+        CancellationToken cancellationToken)
+    {
+        StreamCapture capture = new(existingMessageIds);
+
+        while (!capture.ResponseCompleted)
+        {
+            if (capture.ContinuationToken is not null)
+            {
+                options.ContinuationToken = capture.ContinuationToken;
+            }
+
+            try
+            {
+                await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(
+                    session,
+                    options,
+                    cancellationToken))
+                {
+                    capture.Observe(update, phase);
+                }
+            }
+            catch (ClientResultException exception)
+                when (IsTransientRecoveryStatus(exception.Status))
+            {
+            }
+            catch (HttpRequestException)
+            {
+            }
+
+            if (!capture.ResponseCompleted)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            }
+        }
+
+        return capture;
+    }
+
+    private static ResponseContinuationToken CreateReplayFromStartToken(
+        string responseId)
+    {
+        ResponseContinuationToken innerToken =
+            ResponseContinuationToken.FromBytes(
+                JsonSerializer.SerializeToUtf8Bytes(
+                    new { responseId }));
+        string serializedInnerToken = JsonSerializer.Serialize(
+            innerToken,
+            AgentAbstractionsJsonUtilities.DefaultOptions.GetTypeInfo(
+                typeof(ResponseContinuationToken)));
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+            new
+            {
+                type = "chatClientAgentContinuationToken",
+                innerToken = serializedInnerToken,
+            });
+        return ResponseContinuationToken.FromBytes(bytes);
+    }
+
+    private static bool IsTransientRecoveryStatus(int status) =>
+        status is 404 or 424 or 500 or 502 or 503;
+
+    private static int CountCountdownUpdates(IEnumerable<string> texts) =>
+        texts.Count(text => text != "Countdown complete.");
 
     private static async Task<ResponseWaitResult> WaitForTerminalAsync(
         ResponsesClient responses,
@@ -147,4 +326,103 @@ public sealed class ResilientWorkflowHostedAgentTests(ResilientWorkflowHostedAge
         bool SawSessionNotReady,
         bool SawResponseNotFound,
         TimeSpan LongestPollDuration);
+
+    private sealed class StreamCapture
+    {
+        private readonly HashSet<string> _completedMessageIds;
+
+        public StreamCapture(
+            IEnumerable<string>? existingMessageIds = null)
+        {
+            this._completedMessageIds = new(
+                existingMessageIds ?? [],
+                StringComparer.Ordinal);
+        }
+
+        public List<string> Texts { get; } = [];
+
+        public IReadOnlyCollection<string> CompletedMessageIds =>
+            this._completedMessageIds;
+
+        public string? ResponseId { get; private set; }
+
+        public ResponseContinuationToken? ContinuationToken { get; private set; }
+
+        public bool ResponseCompleted { get; private set; }
+
+        public void Observe(AgentResponseUpdate update, string phase)
+        {
+            object? rawRepresentation =
+                update.RawRepresentation is ChatResponseUpdate chatResponseUpdate
+                    ? chatResponseUpdate.RawRepresentation
+                    : update.RawRepresentation;
+
+            if (update.ContinuationToken is { } continuationToken)
+            {
+                this.ContinuationToken = continuationToken;
+            }
+
+            if (!string.IsNullOrWhiteSpace(update.ResponseId))
+            {
+                this.ResponseId = update.ResponseId;
+            }
+
+            if (rawRepresentation is StreamingResponseOutputItemDoneUpdate
+                {
+                    Item: MessageResponseItem message
+                }
+                && this._completedMessageIds.Add(message.Id))
+            {
+                this.AddMessage(message, phase);
+            }
+
+            ResponseResult? responseSnapshot = rawRepresentation switch
+            {
+                StreamingResponseCreatedUpdate created => created.Response,
+                StreamingResponseInProgressUpdate inProgress =>
+                    inProgress.Response,
+                StreamingResponseCompletedUpdate completed =>
+                    completed.Response,
+                _ => null,
+            };
+            if (responseSnapshot is not null)
+            {
+                foreach (MessageResponseItem snapshotMessage in
+                    responseSnapshot.OutputItems.OfType<MessageResponseItem>())
+                {
+                    if (this._completedMessageIds.Add(snapshotMessage.Id))
+                    {
+                        this.AddMessage(snapshotMessage, phase);
+                    }
+                }
+            }
+
+            if (rawRepresentation is StreamingResponseCompletedUpdate)
+            {
+                this.ResponseCompleted = true;
+            }
+            else if (rawRepresentation is StreamingResponseFailedUpdate failed)
+            {
+                throw new InvalidOperationException(
+                    $"Response '{failed.Response.Id}' failed: " +
+                    failed.Response.Error?.Message);
+            }
+        }
+
+        private void AddMessage(
+            MessageResponseItem message,
+            string phase)
+        {
+            string text = string.Concat(
+                message.Content
+                    .Where(content =>
+                        content.Kind is ResponseContentPartKind.OutputText)
+                    .Select(content => content.Text));
+            if (!string.IsNullOrEmpty(text))
+            {
+                this.Texts.Add(text);
+                Console.WriteLine($"{phase} > {text}");
+            }
+        }
+    }
 }

@@ -57,15 +57,16 @@ public sealed class FoundryResponsesOptions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// When <see langword="true"/>, accepted background responses (<c>store=true</c>, <c>background=true</c>)
-    /// are registered with the durable task subsystem so a handler interrupted by a crash or shutdown is
+    /// When <see langword="true"/>, accepted background responses (<c>background=true</c> and
+    /// <c>store</c> omitted or <see langword="true"/>) are registered with the durable task subsystem
+    /// so a handler interrupted by a crash or shutdown is
     /// re-invoked in a subsequent process lifetime with the original request context restored
     /// (<c>ResponseContext.IsRecovery</c> is <see langword="true"/>). AgentServer supplies its last durable
-    /// response snapshot, which may be only the initial <c>response.created</c> snapshot when no explicit
-    /// response-stream checkpoint was written. The hosting handler restores the AgentSession, skips
-    /// re-injecting the original input, saves session snapshots while output items complete, and defers for
-    /// recovery on shutdown instead of ending the response as incomplete. Workflow execution resumes from
-    /// the workflow checkpoint referenced by the restored session, not from <c>PersistedResponse</c>.
+    /// response snapshot. For workflow agents, the hosting handler pairs completed supersteps with response
+    /// checkpoints and records the matching workflow checkpoint ID in AgentServer internal response metadata.
+    /// Recovery restores the AgentSession, selects that exact workflow checkpoint, skips re-injecting the
+    /// original input, and defers on shutdown instead of ending the response as incomplete. Regular agents
+    /// continue to depend on their serialized AgentSession state.
     /// </para>
     /// <para>
     /// When <see langword="false"/> (the default), an interrupted background response transitions to a

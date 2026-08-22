@@ -11,6 +11,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Agents.AI.Workflows;
+using Microsoft.Agents.AI.Workflows.Checkpointing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.TestHost;
@@ -118,6 +120,108 @@ public sealed class ResilientTwoLifetimeIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task StoppedHost_RecoversWorkflowWithCompleteOrderedOutputAsync()
+    {
+        // Arrange
+        string stateRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"maf-workflow-recovery-{Guid.NewGuid():N}");
+        string checkpointRoot = Path.Combine(stateRoot, "workflow-checkpoints");
+        string? previousStateRoot =
+            Environment.GetEnvironmentVariable("AGENTSERVER_STATE_ROOT");
+        string? previousHostingEnvironment =
+            Environment.GetEnvironmentVariable("FOUNDRY_HOSTING_ENVIRONMENT");
+        var coordinator = new CountdownRecoveryCoordinator(target: 6, blockAt: 3);
+        string sessionStoreName = $"agent-framework/sessions-{Guid.NewGuid():N}";
+
+        try
+        {
+            Environment.SetEnvironmentVariable("AGENTSERVER_STATE_ROOT", stateRoot);
+            Environment.SetEnvironmentVariable("FOUNDRY_HOSTING_ENVIRONMENT", null);
+
+            string conversationId = $"conv_{Guid.NewGuid():N}";
+            string responseId;
+
+            using (var checkpointStore = new FileSystemJsonCheckpointStore(
+                Directory.CreateDirectory(checkpointRoot)))
+            {
+                WebApplication firstHost = await StartServerAsync(
+                    BuildCountdownWorkflowAgent(coordinator, checkpointStore),
+                    new FoundryAgentSessionStore(storeName: sessionStoreName));
+                try
+                {
+                    using HttpClient firstClient = GetClient(firstHost);
+                    responseId = await StartBackgroundResponseAsync(
+                        firstClient,
+                        conversationId,
+                        agentName: "countdown-workflow",
+                        input: "Count down from 6");
+                    await coordinator.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                    await WaitForResponseProgressAsync(
+                        firstClient,
+                        responseId,
+                        ["6", "5", "4"],
+                        minimumOutputItems: 12,
+                        timeout: TimeSpan.FromSeconds(15));
+
+                    using CancellationTokenSource stopTimeout =
+                        new(TimeSpan.FromSeconds(15));
+                    await firstHost.StopAsync(stopTimeout.Token);
+                }
+                finally
+                {
+                    await firstHost.DisposeAsync();
+                }
+            }
+
+            JsonElement persisted = ReadPersistedResponse(stateRoot, responseId);
+            Assert.Equal(["6", "5", "4"], GetOutputTexts(persisted));
+            Assert.True(
+                persisted.TryGetProperty("metadata", out JsonElement metadata)
+                && metadata.TryGetProperty("_internal_metadata", out _),
+                persisted.GetRawText());
+
+            // Act
+            using var recoveryCheckpointStore = new FileSystemJsonCheckpointStore(
+                Directory.CreateDirectory(checkpointRoot));
+            await using WebApplication secondHost = await StartServerAsync(
+                BuildCountdownWorkflowAgent(coordinator, recoveryCheckpointStore),
+                new FoundryAgentSessionStore(storeName: sessionStoreName));
+            using HttpClient secondClient = GetClient(secondHost);
+            JsonElement completed = await WaitForTerminalAsync(
+                secondClient,
+                responseId,
+                TimeSpan.FromSeconds(20));
+
+            // Assert
+            Assert.Equal("completed", completed.GetProperty("status").GetString());
+            Assert.Equal(
+                ["6", "5", "4", "3", "2", "1", "Countdown complete."],
+                GetOutputTexts(completed));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "AGENTSERVER_STATE_ROOT",
+                previousStateRoot);
+            Environment.SetEnvironmentVariable(
+                "FOUNDRY_HOSTING_ENVIRONMENT",
+                previousHostingEnvironment);
+
+            if (Directory.Exists(stateRoot))
+            {
+                try
+                {
+                    Directory.Delete(stateRoot, recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
     private static async Task<WebApplication> StartServerAsync(
         AIAgent agent,
         AgentSessionStore sessionStore)
@@ -145,12 +249,14 @@ public sealed class ResilientTwoLifetimeIntegrationTests
 
     private static async Task<string> StartBackgroundResponseAsync(
         HttpClient client,
-        string conversationId)
+        string conversationId,
+        string agentName = "resumable-agent",
+        string input = "start durable work")
     {
         string body = JsonSerializer.Serialize(new
         {
-            model = "resumable-agent",
-            input = "start durable work",
+            model = agentName,
+            input,
             store = true,
             background = true,
             conversation = conversationId,
@@ -204,6 +310,54 @@ public sealed class ResilientTwoLifetimeIntegrationTests
             $"Response '{responseId}' did not complete. Last response: {last}");
     }
 
+    private static async Task WaitForResponseProgressAsync(
+        HttpClient client,
+        string responseId,
+        IReadOnlyList<string> expected,
+        int minimumOutputItems,
+        TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        List<string> last = [];
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            using HttpResponseMessage response = await client.GetAsync(
+                new Uri($"/responses/{responseId}", UriKind.Relative));
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                using JsonDocument document = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync());
+                JsonElement root = document.RootElement;
+                last = GetOutputTexts(root);
+                if (last.Count == expected.Count
+                    && last.SequenceEqual(expected)
+                    && root.GetProperty("output").GetArrayLength() >= minimumOutputItems)
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+
+        throw new TimeoutException(
+            $"Response '{responseId}' did not reach the expected checkpointed output. " +
+            $"Expected: {string.Join(", ", expected)}. Last: {string.Join(", ", last)}.");
+    }
+
+    private static JsonElement ReadPersistedResponse(
+        string stateRoot,
+        string responseId)
+    {
+        string path = Path.Combine(
+            stateRoot,
+            "responses",
+            "envelopes",
+            $"{responseId}.json");
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(path));
+        return document.RootElement.GetProperty("envelope").Clone();
+    }
+
     private static string GetOutputText(JsonElement response)
     {
         StringBuilder text = new();
@@ -224,6 +378,111 @@ public sealed class ResilientTwoLifetimeIntegrationTests
         }
 
         return text.ToString();
+    }
+
+    private static List<string> GetOutputTexts(JsonElement response)
+    {
+        List<string> texts = [];
+        foreach (JsonElement item in response.GetProperty("output").EnumerateArray())
+        {
+            if (!item.TryGetProperty("content", out JsonElement content))
+            {
+                continue;
+            }
+
+            foreach (JsonElement part in content.EnumerateArray())
+            {
+                if (part.TryGetProperty("text", out JsonElement value)
+                    && value.GetString() is { } text)
+                {
+                    texts.Add(text);
+                }
+            }
+        }
+
+        return texts;
+    }
+
+    private static AIAgent BuildCountdownWorkflowAgent(
+        CountdownRecoveryCoordinator coordinator,
+        FileSystemJsonCheckpointStore checkpointStore)
+    {
+        var start = new CountdownStartExecutor(coordinator.Target);
+        var countdown = new CountdownExecutor(coordinator);
+        var complete = new CountdownCompleteExecutor();
+        Workflow workflow = new WorkflowBuilder(start)
+            .AddEdge(start, countdown)
+            .AddEdge(countdown, countdown)
+            .AddEdge(countdown, complete)
+            .WithOutputFrom(countdown, complete)
+            .Build();
+
+        return workflow.AsAIAgent(
+            id: "countdown-workflow",
+            name: "countdown-workflow",
+            executionEnvironment: InProcessExecution.OffThread.WithCheckpointing(
+                CheckpointManager.CreateJson(checkpointStore)),
+            includeExceptionDetails: true,
+            includeWorkflowOutputsInResponse: true);
+    }
+
+    [SendsMessage(typeof(int))]
+    private sealed class CountdownStartExecutor(int target) : ChatProtocolExecutor(
+        "start",
+        new ChatProtocolExecutorOptions { AutoSendTurnToken = false })
+    {
+        protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder) =>
+            base.ConfigureProtocol(protocolBuilder).SendsMessage<int>();
+
+        protected override ValueTask TakeTurnAsync(
+            List<ChatMessage> messages,
+            IWorkflowContext context,
+            bool? emitEvents,
+            CancellationToken cancellationToken = default) =>
+            context.SendMessageAsync(target, cancellationToken: cancellationToken);
+    }
+
+    [SendsMessage(typeof(int))]
+    [SendsMessage(typeof(string))]
+    [YieldsOutput(typeof(string))]
+    private sealed class CountdownExecutor(CountdownRecoveryCoordinator coordinator) : Executor<int>("countdown")
+    {
+        public override async ValueTask HandleAsync(
+            int message,
+            IWorkflowContext context,
+            CancellationToken cancellationToken = default)
+        {
+            if (message <= 0)
+            {
+                await context.SendMessageAsync(
+                    "Countdown complete.",
+                    targetId: "complete",
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            if (coordinator.ShouldBlock(message))
+            {
+                coordinator.Blocked.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            await context.YieldOutputAsync(message.ToString(), cancellationToken);
+            await context.SendMessageAsync(
+                message - 1,
+                targetId: "countdown",
+                cancellationToken: cancellationToken);
+        }
+    }
+
+    [YieldsOutput(typeof(string))]
+    private sealed class CountdownCompleteExecutor() : Executor<string>("complete")
+    {
+        public override ValueTask HandleAsync(
+            string message,
+            IWorkflowContext context,
+            CancellationToken cancellationToken = default) =>
+            context.YieldOutputAsync(message, cancellationToken);
     }
 
     private sealed class ResumableAgent(RecoveryCoordinator coordinator) : AIAgent
@@ -373,5 +632,18 @@ public sealed class ResilientTwoLifetimeIntegrationTests
 
         public TaskCompletionSource PhasePersisted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class CountdownRecoveryCoordinator(int target, int blockAt)
+    {
+        private int _blocked;
+
+        public int Target { get; } = target;
+
+        public TaskCompletionSource Blocked { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool ShouldBlock(int value) =>
+            value == blockAt && Interlocked.CompareExchange(ref this._blocked, 1, 0) == 0;
     }
 }

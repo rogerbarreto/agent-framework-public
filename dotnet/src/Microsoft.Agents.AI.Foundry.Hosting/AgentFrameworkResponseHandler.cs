@@ -6,8 +6,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
+using System.Threading.Tasks;
 using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
+using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -33,6 +35,8 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public class AgentFrameworkResponseHandler : ResponseHandler
 {
+    private const string LatestWorkflowCheckpointIdMetadataKey = "_last_checkpoint_id";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AgentFrameworkResponseHandler> _logger;
     private readonly FoundryToolboxService? _toolboxService;
@@ -79,6 +83,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// Hosting options, used to read whether resilient background responses are enabled.
     /// </param>
     /// <param name="toolboxService">Optional Foundry Toolbox service providing MCP tools.</param>
+    [ActivatorUtilitiesConstructor]
     public AgentFrameworkResponseHandler(
         IServiceProvider serviceProvider,
         ILogger<AgentFrameworkResponseHandler> logger,
@@ -94,15 +99,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         this._toolboxService = toolboxService;
         this._resilientBackground = foundryResponsesOptions.Value.ResilientBackground;
     }
-
-    /// <summary>
-    /// The resilience gate for the mid-turn session-save path: saving is worthwhile only when the
-    /// host enabled resilient background responses and this specific request is a stored background
-    /// response. When any part is false, the request runs exactly as it does on a non-resilient host
-    /// (the recovery path is gated separately on <c>ResponseContext.IsRecovery</c>).
-    /// </summary>
-    private bool ShouldPersistForResilience(CreateResponse request)
-        => this._resilientBackground && request.Background == true && request.Store == true;
 
     /// <inheritdoc/>
     public override async IAsyncEnumerable<ResponseStreamEvent> CreateAsync(
@@ -208,15 +204,30 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         // 3. Create the SDK event stream builder.
-        // On recovery, AgentServer supplies the last ResponseObject snapshot that it persisted. This
-        // handler does not emit ResponseEventStream.Checkpoint(), so an interrupted turn normally
-        // receives the response.created snapshot, which may contain no completed output items. Seed
-        // from whatever snapshot is available to preserve its response fields and any output
-        // watermark it does carry. This snapshot is not the workflow resume cursor. A workflow
-        // continues from the checkpoint referenced by its restored AgentSession.
+        // On recovery, AgentServer supplies the last ResponseObject snapshot that it persisted.
+        // Workflow response checkpoints carry the exact workflow checkpoint id represented by that
+        // snapshot, so recovery can select the matching workflow boundary rather than a newer
+        // checkpoint that may already exist in workflow storage.
         var stream = context.IsRecovery && context.PersistedResponse is { } persistedResponse
             ? new ResponseEventStream(context, persistedResponse)
             : new ResponseEventStream(context, request);
+
+        WorkflowSessionCheckpointRecovery? workflowCheckpointRecovery =
+            session?.GetService<WorkflowSessionCheckpointRecovery>();
+        if (context.IsRecovery
+            && sessionRestoredFromStore
+            && workflowCheckpointRecovery is not null)
+        {
+            string? checkpointId =
+                stream.InternalMetadata.TryGetValue(LatestWorkflowCheckpointIdMetadataKey, out string? persistedCheckpointId)
+                && !string.IsNullOrWhiteSpace(persistedCheckpointId)
+                    ? persistedCheckpointId
+                    : null;
+
+            // When metadata is absent, TryPrepare keeps the checkpoint already referenced by the
+            // restored session. Either path continues queued work without starting a new turn.
+            workflowCheckpointRecovery.TryPrepare(checkpointId);
+        }
 
         // 3. Emit lifecycle events
         yield return stream.EmitCreated();
@@ -433,10 +444,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
         //
         // On a resilient turn, save the AgentSession after completed response output items so a
-        // process crash can reload a recent session snapshot. This save is not a workflow checkpoint
-        // and it is not an AgentServer ResponseEventStream checkpoint. The workflow runtime writes
-        // its own checkpoints; AgentServer separately persists response events and selected
-        // ResponseObject snapshots.
+        // process crash can reload a recent session snapshot. Workflow supersteps use a stronger
+        // boundary below: save the session, record its workflow checkpoint id in internal response
+        // metadata, then ask AgentServer to persist the matching ResponseObject snapshot.
         bool isResilientTurn = this.ShouldPersistForResilience(request) || context.IsRecovery;
 
         bool emittedTerminal = false;
@@ -452,6 +462,47 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         bool steeringDetected = false;
         bool deferredForRecovery = false;
 
+        async ValueTask<ResponseStreamEvent?> PersistWorkflowCheckpointAsync(
+            CheckpointInfo checkpoint,
+            CancellationToken checkpointCancellationToken)
+        {
+            if (!isResilientTurn
+                || workflowCheckpointRecovery is null
+                || session is null
+                || string.IsNullOrWhiteSpace(agentSessionId)
+                || (stream.InternalMetadata.TryGetValue(LatestWorkflowCheckpointIdMetadataKey, out string? lastCheckpointId)
+                    && string.Equals(lastCheckpointId, checkpoint.CheckpointId, StringComparison.Ordinal)))
+            {
+                return null;
+            }
+
+            try
+            {
+                await sessionStore.SaveSessionAsync(
+                    agent,
+                    agentSessionId,
+                    session,
+                    resolvedUserId,
+                    checkpointCancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                if (this._logger.IsEnabled(LogLevel.Debug))
+                {
+                    this._logger.LogDebug(
+                        ex,
+                        "Workflow checkpoint {CheckpointId} was not paired with response {ResponseId} because its AgentSession could not be saved.",
+                        checkpoint.CheckpointId,
+                        context.ResponseId);
+                }
+
+                return null;
+            }
+
+            stream.InternalMetadata[LatestWorkflowCheckpointIdMetadataKey] = checkpoint.CheckpointId;
+            return stream.EmitInProgress();
+        }
+
         // Check whenever the agent is storing messages when it should not.
         bool CheckNotAllowedStoreUsage() =>
             // For IChatClients implementations when the backend is set to not store (store = false) the returned responseMessage.ConversationId comes null.
@@ -462,7 +513,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             agent.RunStreamingAsync(messages, session, options: options, cancellationToken: consentCts.Token),
             stream,
             session?.StateBag,
-            cancellationToken).GetAsyncEnumerator(cancellationToken);
+            persistWorkflowCheckpointHandler: PersistWorkflowCheckpointAsync,
+            cancellationToken: cancellationToken).GetAsyncEnumerator(cancellationToken);
         try
         {
             while (true)
@@ -602,12 +654,13 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 // yield is in the outer try (finally-only) — allowed by C#
                 yield return evt!;
 
-                // Best-effort session snapshot after a response output item closes. The agent may
-                // still be mutating the session, so serialization can fail without failing the turn.
-                // This does not mark a workflow or ResponseEventStream checkpoint. The final save
-                // below remains authoritative for a turn that reaches normal completion.
+                // Best-effort session snapshot for a non-workflow agent after a response output item
+                // closes. Workflow agents save only at the paired superstep boundary so their session
+                // cursor cannot advance independently of the response snapshot. The final save below
+                // remains authoritative for a turn that reaches normal completion.
                 if (isResilientTurn
                     && evt is ResponseOutputItemDoneEvent
+                    && workflowCheckpointRecovery is null
                     && session is not null
                     && !string.IsNullOrWhiteSpace(agentSessionId)
                     && !turnFailed)
@@ -714,6 +767,16 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         RandomNumberGenerator.Fill(bytes);
         return "oacr_" + Convert.ToHexString(bytes);
     }
+
+    /// <summary>
+    /// The resilience gate for the mid-turn session-save path: saving is worthwhile only when the
+    /// host enabled resilient background responses and this specific request is a background response
+    /// that did not explicitly disable storage. A null <c>store</c> value means the Responses API
+    /// default of true. When any part is false, the request runs exactly as it does on a non-resilient
+    /// host (the recovery path is gated separately on <c>ResponseContext.IsRecovery</c>).
+    /// </summary>
+    private bool ShouldPersistForResilience(CreateResponse request)
+        => this._resilientBackground && request.Background == true && request.Store != false;
 
     /// <summary>
     /// Resolves an <see cref="AIAgent"/> from the request.

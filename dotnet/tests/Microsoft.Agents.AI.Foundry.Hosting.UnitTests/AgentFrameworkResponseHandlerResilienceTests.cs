@@ -3,12 +3,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
+using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -109,8 +111,8 @@ public class AgentFrameworkResponseHandlerResilienceTests
     public async Task CreateAsync_Recovery_UsesAvailablePersistedResponseAsStreamSeedAsync()
     {
         // Arrange: AgentServer supplied a durable snapshot that happens to contain two output items.
-        // The handler does not create this checkpoint; this test verifies how it consumes a snapshot
-        // when one is available.
+        // This regular test agent has no workflow checkpoint metadata; the test verifies how the
+        // handler consumes the available response snapshot on recovery.
         var persisted = new ResponseObject("resp_" + new string('0', 46), "test");
         persisted.Output.Add(NewMessageItem("prior_1", "prior item one"));
         persisted.Output.Add(NewMessageItem("prior_2", "prior item two"));
@@ -133,6 +135,65 @@ public class AgentFrameworkResponseHandlerResilienceTests
         // emitted item. This does not assert that normal workflow recovery produces such a snapshot.
         var completed = events.OfType<ResponseCompletedEvent>().Single();
         Assert.Equal(3, completed.Response.Output.Count);
+    }
+
+    [Fact]
+    public async Task CreateAsync_NewWorkflowCheckpoint_DefaultStore_PersistsOneResponseCheckpointPerIdAsync()
+    {
+        // Arrange: the agent reports one workflow checkpoint twice, followed by a new checkpoint.
+        var store = new CountingSessionStore();
+        var handler = CreateHandler(
+            new CheckpointUpdateAgent(
+                await CreateWorkflowSessionAsync(),
+                "checkpoint-1",
+                "checkpoint-1",
+                "checkpoint-2"),
+            store,
+            resilient: true);
+        var request = NewBackgroundStoreRequest("start");
+        request.Store = null;
+        var context = CreateContext(isRecovery: false);
+
+        // Act
+        var events = await CollectEventsAsync(handler, request, context);
+
+        // Assert: each distinct workflow checkpoint advances the durable response snapshot once.
+        Assert.Equal(2, events.Count(e => e.GetType().Name == "ResponseCheckpointEvent"));
+        Assert.Equal(3, store.SaveAttempts);
+
+        var completed = events.OfType<ResponseCompletedEvent>().Single();
+        Assert.NotNull(completed.Response.Metadata);
+        string metadataJson = completed.Response.Metadata.AdditionalProperties["_internal_metadata"];
+        using JsonDocument metadata = JsonDocument.Parse(metadataJson);
+        Assert.Equal(
+            "checkpoint-2",
+            metadata.RootElement.GetProperty("_last_checkpoint_id").GetString());
+    }
+
+    [Fact]
+    public async Task CreateAsync_WorkflowCheckpoint_WhenSessionSaveFails_KeepsPriorResponseCheckpointAsync()
+    {
+        // Arrange: the workflow creates a checkpoint, but its matching AgentSession cannot be saved.
+        var store = new ThrowOnceSessionStore();
+        var handler = CreateHandler(
+            new CheckpointUpdateAgent(
+                await CreateWorkflowSessionAsync(),
+                "checkpoint-1"),
+            store,
+            resilient: true);
+        var request = NewBackgroundStoreRequest("start");
+        var context = CreateContext(isRecovery: false);
+
+        // Act
+        var events = await CollectEventsAsync(handler, request, context);
+
+        // Assert: the final save succeeds, but the response snapshot never claims the unsaved boundary.
+        Assert.DoesNotContain(events, e => e.GetType().Name == "ResponseCheckpointEvent");
+        Assert.Equal(2, store.SaveAttempts);
+
+        var completed = events.OfType<ResponseCompletedEvent>().Single();
+        Assert.True(
+            completed.Response.Metadata?.AdditionalProperties.ContainsKey("_internal_metadata") is not true);
     }
 
     [Fact]
@@ -168,6 +229,52 @@ public class AgentFrameworkResponseHandlerResilienceTests
 
         // Assert
         Assert.NotNull(constructor);
+    }
+
+    [Fact]
+    public void Constructor_OptionsSignature_IsPreferredForActivatorUtilities()
+    {
+        // Act
+        var constructor = typeof(AgentFrameworkResponseHandler).GetConstructor(
+            [
+                typeof(IServiceProvider),
+                typeof(ILogger<AgentFrameworkResponseHandler>),
+                typeof(IOptions<FoundryResponsesOptions>),
+                typeof(FoundryToolboxService),
+            ]);
+
+        // Assert
+        Assert.NotNull(constructor);
+        Assert.NotNull(
+            constructor.GetCustomAttribute<ActivatorUtilitiesConstructorAttribute>());
+    }
+
+    [Fact]
+    public async Task AddFoundryResponses_ResilientHandler_UsesConfiguredOptionsAsync()
+    {
+        // Arrange
+        var agent = new RecordingAgent();
+        var store = new CountingSessionStore();
+        var services = new ServiceCollection();
+        services.AddFoundryResponses(
+            agent,
+            store,
+            options => options.ResilientBackground = true);
+        services.AddLogging();
+        services.AddSingleton<HostedSessionIsolationKeyProvider>(
+            new FakeHostedSessionIsolationKeyProvider());
+        using ServiceProvider provider = services.BuildServiceProvider();
+        var handler = Assert.IsType<AgentFrameworkResponseHandler>(
+            provider.GetRequiredService<ResponseHandler>());
+        CreateResponse request = NewBackgroundStoreRequest("input");
+        ResponseContext context = CreateContext(isRecovery: false);
+
+        // Act
+        await CollectEventsAsync(handler, request, context);
+
+        // Assert: one incremental save plus the final save proves the handler read the configured
+        // resilience option rather than the compatibility constructor's default options.
+        Assert.True(store.SaveAttempts >= 2);
     }
 
     private static AgentFrameworkResponseHandler CreateHandler(AIAgent agent, AgentSessionStore store, bool resilient)
@@ -240,6 +347,18 @@ public class AgentFrameworkResponseHandlerResilienceTests
         }
 
         return events;
+    }
+
+    private static async Task<AgentSession> CreateWorkflowSessionAsync()
+    {
+        AIAgent workflowAgent = AgentWorkflowBuilder
+            .BuildSequential(
+                "checkpoint-session-workflow",
+                new RecordingAgent())
+            .AsAIAgent(
+                id: "checkpoint-session-agent",
+                name: "Checkpoint Session Agent");
+        return await workflowAgent.CreateSessionAsync();
     }
 
     /// <summary>
@@ -418,5 +537,53 @@ public class AgentFrameworkResponseHandlerResilienceTests
         {
             public int Phase { get; set; }
         }
+    }
+
+    private sealed class CheckpointUpdateAgent(
+        AgentSession workflowSession,
+        params string[] checkpointIds) : AIAgent
+    {
+        protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var step = 0;
+            foreach (string checkpointId in checkpointIds)
+            {
+                var checkpoint = new CheckpointInfo("workflow-session", checkpointId);
+                var completion = new SuperStepCompletionInfo([]) { Checkpoint = checkpoint };
+                yield return new AgentResponseUpdate
+                {
+                    RawRepresentation = new SuperStepCompletedEvent(step++, completion),
+                };
+            }
+
+            await Task.CompletedTask;
+        }
+
+        protected override Task<AgentResponse> RunCoreAsync(
+            IEnumerable<ChatMessage> messages,
+            AgentSession? session,
+            AgentRunOptions? options,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        protected override ValueTask<AgentSession> CreateSessionCoreAsync(
+            CancellationToken cancellationToken = default) =>
+            new(workflowSession);
+
+        protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+            AgentSession session,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(JsonSerializer.SerializeToElement(new { }, jsonSerializerOptions));
+
+        protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+            JsonElement serializedState,
+            JsonSerializerOptions? jsonSerializerOptions,
+            CancellationToken cancellationToken = default) =>
+            new(workflowSession);
     }
 }

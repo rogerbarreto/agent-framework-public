@@ -1,4 +1,4 @@
-# Hosted-Workflow-Resilient
+﻿# Hosted-Workflow-Resilient
 
 A sequential translation workflow hosted with resilient background Responses enabled. AgentServer
 re-invokes an interrupted background response, Foundry Hosting reloads the AgentSession, and the
@@ -27,8 +27,10 @@ executor identities for a stored workflow checkpoint to match.
 | AgentSession and workflow checkpoint reference | `FoundryAgentSessionStore` |
 | Workflow execution checkpoints | `FoundryJsonCheckpointStore` |
 
-The hosting adapter does not use `ResponseEventStream.Checkpoint()` as the workflow cursor.
-Workflow continuation comes from the checkpoint referenced by the restored AgentSession.
+At each completed workflow superstep, the hosting adapter saves the AgentSession, records the
+workflow checkpoint ID in AgentServer internal response metadata, and calls
+`ResponseEventStream.Checkpoint()`. Recovery selects that exact workflow checkpoint ID. The response
+output count is not used as the workflow cursor.
 
 ## Local development
 
@@ -105,5 +107,6 @@ The test suite deploys that scenario to a real Foundry project and validates bot
 
 ## Related samples
 
+- [Hosted-Workflow-Resilient-Long-Running](../Hosted-Workflow-Resilient-Long-Running/README.md): deterministic countdown recovery with exact output validation.
 - [Hosted-Workflow-Simple](../Hosted-Workflow-Simple/README.md): workflow hosting without resilient background execution.
 - [Hosted-Steering](../Hosted-Steering/README.md): mid-turn steering.

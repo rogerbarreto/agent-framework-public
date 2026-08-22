@@ -65,7 +65,11 @@ public class ServiceCollectionExtensionsTests
         var descriptor = services.FirstOrDefault(
             d => d.ServiceType == typeof(ResponseHandler));
         Assert.NotNull(descriptor);
-        Assert.Equal(typeof(AgentFrameworkResponseHandler), descriptor.ImplementationType);
+        Assert.NotNull(descriptor.ImplementationFactory);
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+        Assert.IsType<AgentFrameworkResponseHandler>(
+            provider.GetRequiredService<ResponseHandler>());
     }
 
     [Fact]
