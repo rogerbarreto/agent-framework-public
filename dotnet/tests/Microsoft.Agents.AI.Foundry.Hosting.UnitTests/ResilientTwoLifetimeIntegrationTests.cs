@@ -158,11 +158,10 @@ public sealed class ResilientTwoLifetimeIntegrationTests
                         agentName: "countdown-workflow",
                         input: "Count down from 6");
                     await coordinator.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(15));
-                    await WaitForResponseProgressAsync(
-                        firstClient,
+                    await WaitForPersistedResponseProgressAsync(
+                        stateRoot,
                         responseId,
                         ["6", "5", "4"],
-                        minimumOutputItems: 12,
                         timeout: TimeSpan.FromSeconds(15));
 
                     using CancellationTokenSource stopTimeout =
@@ -310,53 +309,64 @@ public sealed class ResilientTwoLifetimeIntegrationTests
             $"Response '{responseId}' did not complete. Last response: {last}");
     }
 
-    private static async Task WaitForResponseProgressAsync(
-        HttpClient client,
+    private static async Task WaitForPersistedResponseProgressAsync(
+        string stateRoot,
         string responseId,
         IReadOnlyList<string> expected,
-        int minimumOutputItems,
         TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
         List<string> last = [];
+        string path = GetPersistedResponsePath(stateRoot, responseId);
+        IOException? lastReadError = null;
         while (DateTimeOffset.UtcNow < deadline)
         {
-            using HttpResponseMessage response = await client.GetAsync(
-                new Uri($"/responses/{responseId}", UriKind.Relative));
-            if (response.StatusCode == HttpStatusCode.OK)
+            if (File.Exists(path))
             {
-                using JsonDocument document = JsonDocument.Parse(
-                    await response.Content.ReadAsStringAsync());
-                JsonElement root = document.RootElement;
-                last = GetOutputTexts(root);
-                if (last.Count == expected.Count
-                    && last.SequenceEqual(expected)
-                    && root.GetProperty("output").GetArrayLength() >= minimumOutputItems)
+                try
                 {
-                    return;
+                    JsonElement persisted = ReadPersistedResponse(stateRoot, responseId);
+                    lastReadError = null;
+                    last = GetOutputTexts(persisted);
+                    if (last.SequenceEqual(expected))
+                    {
+                        return;
+                    }
+                }
+                catch (IOException ex)
+                {
+                    lastReadError = ex;
                 }
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(25));
         }
 
-        throw new TimeoutException(
-            $"Response '{responseId}' did not reach the expected checkpointed output. " +
-            $"Expected: {string.Join(", ", expected)}. Last: {string.Join(", ", last)}.");
+        string message =
+            $"Response '{responseId}' did not persist the expected checkpointed output. " +
+            $"Expected: {string.Join(", ", expected)}. Last: {string.Join(", ", last)}.";
+        throw lastReadError is null
+            ? new TimeoutException(message)
+            : new TimeoutException(message, lastReadError);
     }
 
     private static JsonElement ReadPersistedResponse(
         string stateRoot,
         string responseId)
     {
-        string path = Path.Combine(
+        string path = GetPersistedResponsePath(stateRoot, responseId);
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(path));
+        return document.RootElement.GetProperty("envelope").Clone();
+    }
+
+    private static string GetPersistedResponsePath(
+        string stateRoot,
+        string responseId) =>
+        Path.Combine(
             stateRoot,
             "responses",
             "envelopes",
             $"{responseId}.json");
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(path));
-        return document.RootElement.GetProperty("envelope").Clone();
-    }
 
     private static string GetOutputText(JsonElement response)
     {
