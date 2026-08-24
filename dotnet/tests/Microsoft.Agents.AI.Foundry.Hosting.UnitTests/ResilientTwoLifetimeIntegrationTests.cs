@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.AI.AgentServer.Responses;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Agents.AI.Workflows.Checkpointing;
 using Microsoft.AspNetCore.Builder;
@@ -18,6 +19,9 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using CreateResponse = Azure.AI.AgentServer.Responses.Models.CreateResponse;
+using ResponseStreamEvent = Azure.AI.AgentServer.Responses.Models.ResponseStreamEvent;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
@@ -148,7 +152,8 @@ public sealed class ResilientTwoLifetimeIntegrationTests
             {
                 WebApplication firstHost = await StartServerAsync(
                     BuildCountdownWorkflowAgent(coordinator, checkpointStore),
-                    new FoundryAgentSessionStore(storeName: sessionStoreName));
+                    new FoundryAgentSessionStore(storeName: sessionStoreName),
+                    coordinator);
                 try
                 {
                     using HttpClient firstClient = GetClient(firstHost);
@@ -158,11 +163,8 @@ public sealed class ResilientTwoLifetimeIntegrationTests
                         agentName: "countdown-workflow",
                         input: "Count down from 6");
                     await coordinator.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(15));
-                    await WaitForPersistedResponseProgressAsync(
-                        stateRoot,
-                        responseId,
-                        ["6", "5", "4"],
-                        timeout: TimeSpan.FromSeconds(15));
+                    await coordinator.ExpectedCheckpointProcessed.Task.WaitAsync(
+                        TimeSpan.FromSeconds(15));
 
                     using CancellationTokenSource stopTimeout =
                         new(TimeSpan.FromSeconds(15));
@@ -223,7 +225,8 @@ public sealed class ResilientTwoLifetimeIntegrationTests
 
     private static async Task<WebApplication> StartServerAsync(
         AIAgent agent,
-        AgentSessionStore sessionStore)
+        AgentSessionStore sessionStore,
+        CountdownRecoveryCoordinator? recoveryCoordinator = null)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -234,6 +237,15 @@ public sealed class ResilientTwoLifetimeIntegrationTests
         builder.Services.AddSingleton<HostedSessionIsolationKeyProvider>(
             new FakeHostedSessionIsolationKeyProvider());
         builder.Services.AddLogging();
+        if (recoveryCoordinator is not null)
+        {
+            builder.Services.RemoveAll<ResponseHandler>();
+            builder.Services.AddSingleton<ResponseHandler>(serviceProvider =>
+                new CheckpointObservingResponseHandler(
+                    ActivatorUtilities.CreateInstance<AgentFrameworkResponseHandler>(
+                        serviceProvider),
+                    recoveryCoordinator));
+        }
 
         WebApplication app = builder.Build();
         app.MapFoundryResponses();
@@ -307,47 +319,6 @@ public sealed class ResilientTwoLifetimeIntegrationTests
 
         throw new TimeoutException(
             $"Response '{responseId}' did not complete. Last response: {last}");
-    }
-
-    private static async Task WaitForPersistedResponseProgressAsync(
-        string stateRoot,
-        string responseId,
-        IReadOnlyList<string> expected,
-        TimeSpan timeout)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        List<string> last = [];
-        string path = GetPersistedResponsePath(stateRoot, responseId);
-        IOException? lastReadError = null;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (File.Exists(path))
-            {
-                try
-                {
-                    JsonElement persisted = ReadPersistedResponse(stateRoot, responseId);
-                    lastReadError = null;
-                    last = GetOutputTexts(persisted);
-                    if (last.SequenceEqual(expected))
-                    {
-                        return;
-                    }
-                }
-                catch (IOException ex)
-                {
-                    lastReadError = ex;
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-        }
-
-        string message =
-            $"Response '{responseId}' did not persist the expected checkpointed output. " +
-            $"Expected: {string.Join(", ", expected)}. Last: {string.Join(", ", last)}.";
-        throw lastReadError is null
-            ? new TimeoutException(message)
-            : new TimeoutException(message, lastReadError);
     }
 
     private static JsonElement ReadPersistedResponse(
@@ -647,13 +618,53 @@ public sealed class ResilientTwoLifetimeIntegrationTests
     private sealed class CountdownRecoveryCoordinator(int target, int blockAt)
     {
         private int _blocked;
+        private int _processedCheckpoints;
 
         public int Target { get; } = target;
+
+        public int BlockAt { get; } = blockAt;
 
         public TaskCompletionSource Blocked { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource ExpectedCheckpointProcessed { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public bool ShouldBlock(int value) =>
-            value == blockAt && Interlocked.CompareExchange(ref this._blocked, 1, 0) == 0;
+            value == this.BlockAt && Interlocked.CompareExchange(ref this._blocked, 1, 0) == 0;
+
+        public void OnCheckpointProcessed()
+        {
+            int expectedCheckpointCount = this.Target - this.BlockAt + 1;
+            if (Interlocked.Increment(ref this._processedCheckpoints) == expectedCheckpointCount)
+            {
+                this.ExpectedCheckpointProcessed.TrySetResult();
+            }
+        }
+    }
+
+    private sealed class CheckpointObservingResponseHandler(
+        ResponseHandler inner,
+        CountdownRecoveryCoordinator coordinator) : ResponseHandler
+    {
+        public override async IAsyncEnumerable<ResponseStreamEvent> CreateAsync(
+            CreateResponse request,
+            ResponseContext context,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (ResponseStreamEvent responseEvent in inner
+                .CreateAsync(request, context, cancellationToken)
+                .WithCancellation(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                bool isCheckpoint =
+                    responseEvent.GetType().Name == "ResponseCheckpointEvent";
+                yield return responseEvent;
+                if (isCheckpoint)
+                {
+                    coordinator.OnCheckpointProcessed();
+                }
+            }
+        }
     }
 }
