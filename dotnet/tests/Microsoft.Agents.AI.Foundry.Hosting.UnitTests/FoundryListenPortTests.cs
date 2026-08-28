@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,8 +27,6 @@ namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 /// </remarks>
 public sealed class FoundryListenPortTests
 {
-    private const string AspNetCoreUrlsKey = "ASPNETCORE_URLS";
-
     [Fact]
     public void AddFoundryResponses_WhenHosted_ListensOnFoundryPort()
     {
@@ -38,7 +37,7 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
 
         // Assert
-        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -53,7 +52,7 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses(mockAgent.Object);
 
         // Assert
-        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -67,7 +66,7 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
 
         // Assert
-        Assert.Empty(GetCodeBackedPorts(services));
+        Assert.Null(GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -79,14 +78,14 @@ public sealed class FoundryListenPortTests
         // and fail every invocation with HTTP 424 session_not_ready.
         var services = CreateServices(settings: new Dictionary<string, string?>
         {
-            [AspNetCoreUrlsKey] = "http://+:80",
+            [WebHostDefaults.ServerUrlsKey] = "http://+:80",
         });
 
         // Act
         services.AddFoundryResponses();
 
         // Assert
-        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -102,7 +101,7 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
 
         // Assert
-        Assert.Equal([9099], GetCodeBackedPorts(services));
+        Assert.Equal("http://+:9099", GetConfiguredListenUrl(services));
     }
 
     [Theory]
@@ -119,12 +118,12 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
 
         // Act & Assert
-        var exception = Assert.Throws<InvalidOperationException>(() => GetCodeBackedPorts(services));
+        var exception = Assert.Throws<InvalidOperationException>(() => GetConfiguredListenUrl(services));
         Assert.Contains(port, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AddFoundryResponses_CalledTwiceWhenHosted_ListensOnFoundryPortOnce()
+    public void AddFoundryResponses_CalledTwiceWhenHosted_ConfiguresFoundryUrlIdempotently()
     {
         // Arrange
         var services = CreateServices();
@@ -133,9 +132,8 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
         services.AddFoundryResponses();
 
-        // Assert: a duplicate ListenAnyIP on the same port fails Kestrel startup with
-        // "address already in use", so the listener must be added exactly once.
-        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+        // Assert
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -149,7 +147,22 @@ public sealed class FoundryListenPortTests
         services.AddFoundryResponses();
 
         // Assert
-        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_WithStandaloneAgentServerCoreInstance_ListensOnFoundryPortOnce()
+    {
+        // Arrange
+        var services = CreateServices();
+        services.AddSingleton(new ServerVersionRegistry());
+        services.AddAgentServerCore();
+
+        // Act
+        services.AddFoundryResponses();
+
+        // Assert
+        Assert.Equal("http://+:8088", GetConfiguredListenUrl(services));
     }
 
     [Fact]
@@ -170,6 +183,7 @@ public sealed class FoundryListenPortTests
         // Assert
         try
         {
+            Assert.Equal("http://+:8088", GetConfiguredListenUrl(app.App.Services));
             Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(app.App.Services));
         }
         finally
@@ -196,16 +210,22 @@ public sealed class FoundryListenPortTests
         return services;
     }
 
-    /// <summary>
-    /// Builds the service provider, resolves the applied <see cref="KestrelServerOptions"/>, and
-    /// returns the ports of every code-configured listener (those added via <c>ListenAnyIP</c>).
-    /// </summary>
-    private static List<int> GetCodeBackedPorts(IServiceCollection services)
+    private static string? GetConfiguredListenUrl(IServiceCollection services)
     {
         using var provider = services.BuildServiceProvider();
-        return GetCodeBackedPorts(provider);
+        return GetConfiguredListenUrl(provider);
     }
 
+    private static string? GetConfiguredListenUrl(IServiceProvider provider)
+    {
+        // ASP.NET resolves startup filters before reading this URL and starting the server.
+        _ = provider.GetServices<IStartupFilter>();
+        return provider.GetRequiredService<IConfiguration>()[WebHostDefaults.ServerUrlsKey];
+    }
+
+    /// <summary>
+    /// Returns the ports of every code-configured listener, which are added via <c>ListenAnyIP</c>.
+    /// </summary>
     private static List<int> GetCodeBackedPorts(IServiceProvider provider)
     {
         var options = provider.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
