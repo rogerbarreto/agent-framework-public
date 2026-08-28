@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Net;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,9 +16,9 @@ namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
 /// <summary>
 /// Verifies that <c>AddFoundryResponses</c> adds a Kestrel listener on the Foundry hosted-runtime
-/// port for a plain <c>WebApplication.CreateBuilder</c> (Tier 3) host, so a source (ZIP) deployed
-/// agent passes the platform readiness probe with no Dockerfile pinning the port, and that it
-/// leaves the addresses of a host running outside Foundry alone.
+/// port for a plain <c>WebApplication.CreateBuilder</c> (Tier 3) host, does not duplicate the
+/// listener owned by <c>AgentHost.CreateBuilder</c> (Tier 2), and leaves the addresses of a host
+/// running outside Foundry alone.
 /// </summary>
 /// <remarks>
 /// Every case supplies its values through an in-memory <see cref="IConfiguration"/>, so no test
@@ -137,6 +138,46 @@ public sealed class FoundryListenPortTests
         Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
     }
 
+    [Fact]
+    public void AddFoundryResponses_WithStandaloneAgentServerCore_ListensOnFoundryPortOnce()
+    {
+        // Arrange
+        var services = CreateServices();
+        services.AddAgentServerCore();
+
+        // Act
+        services.AddFoundryResponses();
+
+        // Assert
+        Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(services));
+    }
+
+    [Fact]
+    public async Task AddFoundryResponses_WithAgentHostBuilder_ListensOnFoundryPortOnceAsync()
+    {
+        // Arrange
+        var builder = AgentHost.CreateBuilder(
+        [
+            $"--{FoundryHostingExtensions.FoundryHostingEnvironmentKey}=foundry",
+        ]);
+        var mockAgent = new Mock<AIAgent>();
+        mockAgent.SetupGet(a => a.Name).Returns("test-agent");
+
+        // Act
+        builder.Services.AddFoundryResponses(mockAgent.Object);
+        var app = builder.Build();
+
+        // Assert
+        try
+        {
+            Assert.Equal([FoundryHostingExtensions.DefaultListenPort], GetCodeBackedPorts(app.App.Services));
+        }
+        finally
+        {
+            await app.App.DisposeAsync();
+        }
+    }
+
     /// <summary>
     /// Builds a service collection whose <see cref="IConfiguration"/> carries the supplied values,
     /// marking the process as Foundry-hosted unless <paramref name="hosted"/> says otherwise.
@@ -162,6 +203,11 @@ public sealed class FoundryListenPortTests
     private static List<int> GetCodeBackedPorts(IServiceCollection services)
     {
         using var provider = services.BuildServiceProvider();
+        return GetCodeBackedPorts(provider);
+    }
+
+    private static List<int> GetCodeBackedPorts(IServiceProvider provider)
+    {
         var options = provider.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
 
         var property = typeof(KestrelServerOptions).GetProperty(

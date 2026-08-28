@@ -65,13 +65,14 @@ public static class FoundryHostingExtensions
     public static IServiceCollection AddFoundryResponses(this IServiceCollection services, Action<FoundryResponsesOptions>? configure = null)
     {
         _ = Throw.IfNull(services);
+        bool agentHostControlsListenPort = IsAgentHostBuilder(services);
         FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
         bool serverAdded = AddResponsesServerOnce(
             services,
             configuredOptions,
             configure is not null);
         services.AddHealthChecks();
-        ConfigureFoundryListenPort(services);
+        ConfigureFoundryListenPort(services, agentHostControlsListenPort);
         ConfigureFoundryResponsesOptions(
             services,
             configuredOptions,
@@ -121,13 +122,14 @@ public static class FoundryHostingExtensions
         _ = Throw.IfNull(services);
         _ = Throw.IfNull(agent);
 
+        bool agentHostControlsListenPort = IsAgentHostBuilder(services);
         FoundryResponsesOptions configuredOptions = CreateFoundryResponsesOptions(configure);
         bool serverAdded = AddResponsesServerOnce(
             services,
             configuredOptions,
             configure is not null);
         services.AddHealthChecks();
-        ConfigureFoundryListenPort(services);
+        ConfigureFoundryListenPort(services, agentHostControlsListenPort);
         ConfigureFoundryResponsesOptions(
             services,
             configuredOptions,
@@ -520,9 +522,10 @@ public static class FoundryHostingExtensions
     /// is resolved.
     /// </para>
     /// </remarks>
-    private static void ConfigureFoundryListenPort(IServiceCollection services)
+    private static void ConfigureFoundryListenPort(IServiceCollection services, bool agentHostControlsListenPort)
     {
-        if (services.Any(static d => d.ServiceType == typeof(FoundryListenPortMarker)))
+        if (agentHostControlsListenPort ||
+            services.Any(static d => d.ServiceType == typeof(FoundryListenPortMarker)))
         {
             return;
         }
@@ -539,6 +542,20 @@ public static class FoundryHostingExtensions
                 options.ListenAnyIP(ResolveListenPort(configuration));
             });
     }
+
+    /// <summary>
+    /// Detects the AgentServer builder, which configures its own Kestrel listener during
+    /// <c>AgentHostBuilder.Build()</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>AgentHostBuilder</c> registers its public <see cref="ServerVersionRegistry"/> instance
+    /// before callers add protocol services. A standalone <see cref="WebApplicationBuilder"/> does
+    /// not have that instance registration and still needs this package to configure the Foundry port.
+    /// </remarks>
+    private static bool IsAgentHostBuilder(IServiceCollection services) =>
+        services.Any(static descriptor =>
+            descriptor.ServiceType == typeof(ServerVersionRegistry) &&
+            descriptor.ImplementationInstance is ServerVersionRegistry);
 
     /// <summary>
     /// Reads the listen port from configuration, applying the same contract as
