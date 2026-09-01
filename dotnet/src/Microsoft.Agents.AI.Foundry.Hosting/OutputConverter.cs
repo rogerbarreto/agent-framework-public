@@ -15,6 +15,9 @@ using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
+using OpenAIContainerFileCitationMessageAnnotation = OpenAI.Responses.ContainerFileCitationMessageAnnotation;
+using OpenAIFileCitationMessageAnnotation = OpenAI.Responses.FileCitationMessageAnnotation;
+using OpenAIFilePathMessageAnnotation = OpenAI.Responses.FilePathMessageAnnotation;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -136,14 +139,6 @@ internal static class OutputConverter
                         {
                             accumulatedText!.Append(textContent.Text);
                             yield return currentTextBuilder!.EmitDelta(textContent.Text);
-                        }
-
-                        if (textContent.Annotations is { Count: > 0 })
-                        {
-                            foreach (var sdkAnnotation in ConvertToSdkAnnotations(textContent.Annotations))
-                            {
-                                (accumulatedAnnotations ??= []).Add(sdkAnnotation);
-                            }
                         }
 
                         break;
@@ -336,6 +331,27 @@ internal static class OutputConverter
                     default:
                         break;
                 }
+
+                var isTextContent = content is MeaiTextContent;
+                var isAnnotationOnlyContentForCurrentMessage =
+                    content.GetType() == typeof(AIContent) &&
+                    HasSameMessageId(update.MessageId, previousMessageId);
+
+                // MEAI OpenAI sends streaming citations in a separate annotation-only AIContent after
+                // the text deltas. Accumulate them because AgentServer emits annotations only after
+                // output_text.done, and de-duplicate providers that report the same citation twice.
+                if ((isTextContent || isAnnotationOnlyContentForCurrentMessage)
+                    && content.Annotations is { Count: > 0 }
+                    && currentMessageBuilder is not null)
+                {
+                    foreach (var sdkAnnotation in ConvertToSdkAnnotations(content.Annotations))
+                    {
+                        if (accumulatedAnnotations?.Any(existing => AreEquivalentAnnotations(existing, sdkAnnotation)) is not true)
+                        {
+                            (accumulatedAnnotations ??= []).Add(sdkAnnotation);
+                        }
+                    }
+                }
             }
         }
 
@@ -385,16 +401,70 @@ internal static class OutputConverter
     private static bool IsSameMessage(string? currentId, string? previousId) =>
         currentId is not { Length: > 0 } || previousId is not { Length: > 0 } || currentId == previousId;
 
+    private static bool HasSameMessageId(string? currentId, string? previousId) =>
+        currentId is { Length: > 0 } && currentId == previousId;
+
+    private static bool AreEquivalentAnnotations(Annotation left, Annotation right) =>
+        (left, right) switch
+        {
+            (UrlCitationBody leftUrl, UrlCitationBody rightUrl) =>
+                leftUrl.Url == rightUrl.Url &&
+                leftUrl.StartIndex == rightUrl.StartIndex &&
+                leftUrl.EndIndex == rightUrl.EndIndex &&
+                leftUrl.Title == rightUrl.Title,
+            (FileCitationBody leftFile, FileCitationBody rightFile) =>
+                leftFile.FileId == rightFile.FileId &&
+                leftFile.Index == rightFile.Index &&
+                leftFile.Filename == rightFile.Filename,
+            (ContainerFileCitationBody leftContainerFile, ContainerFileCitationBody rightContainerFile) =>
+                leftContainerFile.ContainerId == rightContainerFile.ContainerId &&
+                leftContainerFile.FileId == rightContainerFile.FileId &&
+                leftContainerFile.StartIndex == rightContainerFile.StartIndex &&
+                leftContainerFile.EndIndex == rightContainerFile.EndIndex &&
+                leftContainerFile.Filename == rightContainerFile.Filename,
+            (FilePath leftFilePath, FilePath rightFilePath) =>
+                leftFilePath.FileId == rightFilePath.FileId &&
+                leftFilePath.Index == rightFilePath.Index,
+            _ => false,
+        };
+
     /// <summary>
     /// Converts MEAI <see cref="AIAnnotation"/> instances to Responses SDK <see cref="Annotation"/> objects.
-    /// Only <see cref="CitationAnnotation"/> with a URL and at least one <see cref="TextSpanAnnotatedRegion"/>
-    /// with explicit start/end indices is converted; all other shapes are skipped.
+    /// Only supported <see cref="CitationAnnotation"/> shapes are converted; all others are skipped.
     /// </summary>
     private static IEnumerable<Annotation> ConvertToSdkAnnotations(IList<AIAnnotation> annotations)
     {
         foreach (var ann in annotations)
         {
-            if (ann is not CitationAnnotation citation || citation.Url is null)
+            if (ann is not CitationAnnotation citation)
+            {
+                continue;
+            }
+
+            if (citation.RawRepresentation is OpenAIContainerFileCitationMessageAnnotation containerFileCitation)
+            {
+                yield return new ContainerFileCitationBody(
+                    containerFileCitation.ContainerId,
+                    containerFileCitation.FileId,
+                    containerFileCitation.StartIndex,
+                    containerFileCitation.EndIndex,
+                    containerFileCitation.Filename);
+                continue;
+            }
+
+            if (citation.RawRepresentation is OpenAIFileCitationMessageAnnotation fileCitation)
+            {
+                yield return new FileCitationBody(fileCitation.FileId, fileCitation.Index, fileCitation.Filename);
+                continue;
+            }
+
+            if (citation.RawRepresentation is OpenAIFilePathMessageAnnotation filePath)
+            {
+                yield return new FilePath(filePath.FileId, filePath.Index);
+                continue;
+            }
+
+            if (citation.Url is null)
             {
                 continue;
             }
