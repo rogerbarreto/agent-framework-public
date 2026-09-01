@@ -18,6 +18,11 @@ using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 using OpenAIContainerFileCitationMessageAnnotation = OpenAI.Responses.ContainerFileCitationMessageAnnotation;
 using OpenAIFileCitationMessageAnnotation = OpenAI.Responses.FileCitationMessageAnnotation;
 using OpenAIFilePathMessageAnnotation = OpenAI.Responses.FilePathMessageAnnotation;
+using OpenAIMessageResponseItem = OpenAI.Responses.MessageResponseItem;
+using OpenAIStreamingResponseOutputItemAddedUpdate = OpenAI.Responses.StreamingResponseOutputItemAddedUpdate;
+using OpenAIStreamingResponseOutputItemDoneUpdate = OpenAI.Responses.StreamingResponseOutputItemDoneUpdate;
+using OpenAIStreamingResponseOutputTextDeltaUpdate = OpenAI.Responses.StreamingResponseOutputTextDeltaUpdate;
+using OpenAIStreamingResponseTextAnnotationAddedUpdate = OpenAI.Responses.StreamingResponseTextAnnotationAddedUpdate;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -103,13 +108,14 @@ internal static class OutputConverter
                 continue;
             }
 
+            string? currentMessageId = ResolveMessageId(update);
             foreach (var content in update.Contents)
             {
                 switch (content)
                 {
                     case MeaiTextContent textContent:
                     {
-                        if (!IsSameMessage(update.MessageId, previousMessageId) && currentMessageBuilder is not null)
+                        if (!IsSameMessage(currentMessageId, previousMessageId) && currentMessageBuilder is not null)
                         {
                             foreach (var evt in CloseCurrentMessage(currentMessageBuilder, currentTextBuilder, accumulatedText, accumulatedAnnotations))
                             {
@@ -122,7 +128,10 @@ internal static class OutputConverter
                             accumulatedAnnotations = null;
                         }
 
-                        previousMessageId = update.MessageId;
+                        if (currentMessageId is { Length: > 0 })
+                        {
+                            previousMessageId = currentMessageId;
+                        }
 
                         if (currentMessageBuilder is null)
                         {
@@ -335,7 +344,7 @@ internal static class OutputConverter
                 var isTextContent = content is MeaiTextContent;
                 var isAnnotationOnlyContentForCurrentMessage =
                     content.GetType() == typeof(AIContent) &&
-                    HasSameMessageId(update.MessageId, previousMessageId);
+                    IsSameAnnotationMessage(currentMessageId, previousMessageId);
 
                 // MEAI OpenAI sends streaming citations in a separate annotation-only AIContent after
                 // the text deltas. Accumulate them because AgentServer emits annotations only after
@@ -401,8 +410,31 @@ internal static class OutputConverter
     private static bool IsSameMessage(string? currentId, string? previousId) =>
         currentId is not { Length: > 0 } || previousId is not { Length: > 0 } || currentId == previousId;
 
-    private static bool HasSameMessageId(string? currentId, string? previousId) =>
-        currentId is { Length: > 0 } && currentId == previousId;
+    private static bool IsSameAnnotationMessage(string? currentId, string? previousId) =>
+        currentId is { Length: > 0 }
+            ? currentId == previousId
+            : previousId is not { Length: > 0 };
+
+    private static string? ResolveMessageId(AgentResponseUpdate update)
+    {
+        if (update.MessageId is { Length: > 0 })
+        {
+            return update.MessageId;
+        }
+
+        object? rawRepresentation = update.RawRepresentation is ChatResponseUpdate chatUpdate
+            ? chatUpdate.RawRepresentation
+            : update.RawRepresentation;
+
+        return rawRepresentation switch
+        {
+            OpenAIStreamingResponseOutputTextDeltaUpdate textDelta => textDelta.ItemId,
+            OpenAIStreamingResponseTextAnnotationAddedUpdate annotationAdded => annotationAdded.ItemId,
+            OpenAIStreamingResponseOutputItemAddedUpdate { Item: OpenAIMessageResponseItem message } => message.Id,
+            OpenAIStreamingResponseOutputItemDoneUpdate { Item: OpenAIMessageResponseItem message } => message.Id,
+            _ => null,
+        };
+    }
 
     private static bool AreEquivalentAnnotations(Annotation left, Annotation right) =>
         (left, right) switch

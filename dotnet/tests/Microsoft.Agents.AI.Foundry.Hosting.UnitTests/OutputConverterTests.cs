@@ -14,6 +14,9 @@ using ContainerFileCitationMessageAnnotation = OpenAI.Responses.ContainerFileCit
 using FileCitationMessageAnnotation = OpenAI.Responses.FileCitationMessageAnnotation;
 using FilePathMessageAnnotation = OpenAI.Responses.FilePathMessageAnnotation;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
+using OpenAIResponseItem = OpenAI.Responses.ResponseItem;
+using OpenAIStreamingResponseOutputItemDoneUpdate = OpenAI.Responses.StreamingResponseOutputItemDoneUpdate;
+using OpenAIStreamingResponseOutputTextDeltaUpdate = OpenAI.Responses.StreamingResponseOutputTextDeltaUpdate;
 
 #pragma warning disable OPENAI001 // Experimental Responses API surfaces
 
@@ -1568,6 +1571,92 @@ public class OutputConverterTests
 
         // Assert
         Assert.Empty(events.OfType<ResponseOutputTextAnnotationAddedEvent>());
+    }
+
+    /// <summary>Generic updates without message IDs can attach annotations to the only open message.</summary>
+    [Fact]
+    public async Task ConvertUpdatesToEventsAsync_TextAndAnnotationWithoutMessageIds_EmitsAnnotationAsync()
+    {
+        // Arrange
+        var (stream, _) = CreateTestStream();
+        var annotation = new CitationAnnotation
+        {
+            Url = new Uri("https://example.com/doc"),
+            Title = "Example Document",
+            AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
+        };
+        var updates = new[]
+        {
+            new AgentResponseUpdate
+            {
+                Contents = [new MeaiTextContent("Hello")]
+            },
+            new AgentResponseUpdate
+            {
+                Contents = [new AIContent { Annotations = [annotation] }]
+            },
+        };
+
+        // Act
+        var events = new List<ResponseStreamEvent>();
+        await foreach (var evt in OutputConverter.ConvertUpdatesToEventsAsync(ToAsync(updates), stream))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        Assert.Single(events.OfType<ResponseOutputTextAnnotationAddedEvent>());
+    }
+
+    /// <summary>OpenAI item IDs recover correlation when flattened message IDs are absent.</summary>
+    [Fact]
+    public async Task ConvertUpdatesToEventsAsync_OpenAIRawItemIds_EmitsAnnotationAsync()
+    {
+        // Arrange
+        var (stream, _) = CreateTestStream();
+        var annotation = new CitationAnnotation
+        {
+            Url = new Uri("https://example.com/doc"),
+            Title = "Example Document",
+            AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
+        };
+        var completedMessage = OpenAIResponseItem.CreateAssistantMessageItem("Hello");
+        completedMessage.Id = "msg_raw";
+        var updates = new[]
+        {
+            new AgentResponseUpdate
+            {
+                Contents = [new MeaiTextContent("Hello")],
+                RawRepresentation = new ChatResponseUpdate
+                {
+                    RawRepresentation = new OpenAIStreamingResponseOutputTextDeltaUpdate
+                    {
+                        ItemId = "msg_raw"
+                    }
+                }
+            },
+            new AgentResponseUpdate
+            {
+                Contents = [new AIContent { Annotations = [annotation] }],
+                RawRepresentation = new ChatResponseUpdate
+                {
+                    RawRepresentation = new OpenAIStreamingResponseOutputItemDoneUpdate
+                    {
+                        Item = completedMessage
+                    }
+                }
+            },
+        };
+
+        // Act
+        var events = new List<ResponseStreamEvent>();
+        await foreach (var evt in OutputConverter.ConvertUpdatesToEventsAsync(ToAsync(updates), stream))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        Assert.Single(events.OfType<ResponseOutputTextAnnotationAddedEvent>());
     }
 
     /// <summary>An annotation on non-text content is not attached to the open text message.</summary>
