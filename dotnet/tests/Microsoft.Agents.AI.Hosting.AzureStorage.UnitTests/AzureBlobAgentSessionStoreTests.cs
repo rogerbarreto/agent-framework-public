@@ -78,10 +78,11 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         var loadingStore = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
 
         // Act
-        await savingStore.SaveSessionAsync(savingAgent, "session-1", session);
-        AgentSession restored = await loadingStore.GetSessionAsync(loadingAgent, "session-1");
+        await savingStore.SaveSessionAsync(savingAgent, "session-1", session, userId: "user-1");
+        AgentSession? restored = await loadingStore.GetSessionAsync(loadingAgent, "session-1", userId: "user-1");
 
         // Assert
+        Assert.NotNull(restored);
         Assert.Equal("saved", restored.StateBag.GetValue<string>("marker"));
     }
 
@@ -101,10 +102,10 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         secondSession.StateBag.SetValue("marker", "second");
 
         // Act
-        await store.SaveSessionAsync(agent, firstId, firstSession);
-        await store.SaveSessionAsync(agent, secondId, secondSession);
-        AgentSession restoredFirst = await store.GetSessionAsync(agent, firstId);
-        AgentSession restoredSecond = await store.GetSessionAsync(agent, secondId);
+        await store.SaveSessionAsync(agent, firstId, firstSession, userId: null);
+        await store.SaveSessionAsync(agent, secondId, secondSession, userId: null);
+        AgentSession? restoredFirst = await store.GetSessionAsync(agent, firstId, userId: null);
+        AgentSession? restoredSecond = await store.GetSessionAsync(agent, secondId, userId: null);
         List<string> blobNames = [];
         await foreach (BlobItem blob in this._containerClient.GetBlobsAsync())
         {
@@ -112,6 +113,8 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         }
 
         // Assert
+        Assert.NotNull(restoredFirst);
+        Assert.NotNull(restoredSecond);
         Assert.Equal("first", restoredFirst.StateBag.GetValue<string>("marker"));
         Assert.Equal("second", restoredSecond.StateBag.GetValue<string>("marker"));
         Assert.Equal(2, blobNames.Count);
@@ -119,22 +122,66 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DeleteSessionAsync_RemovesStoredSessionAndIgnoresMissingSessionAsync()
+    public async Task GetSessionAsync_MissingSession_ReturnsNullAsync()
     {
         // Arrange
         AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
         var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
-        AgentSession session = await agent.CreateSessionAsync();
-        session.StateBag.SetValue("marker", "saved");
-        await store.SaveSessionAsync(agent, "session-to-delete", session);
 
         // Act
-        await store.DeleteSessionAsync(agent, "session-to-delete");
-        AgentSession restored = await store.GetSessionAsync(agent, "session-to-delete");
-        await store.DeleteSessionAsync(agent, "session-to-delete");
+        AgentSession? restored = await store.GetSessionAsync(agent, "missing", userId: "user-1");
 
         // Assert
-        Assert.Null(restored.StateBag.GetValue<string>("marker"));
+        Assert.Null(restored);
+    }
+
+    [Fact]
+    public async Task SaveAndGetSessionAsync_IsolatesUsersAsync()
+    {
+        // Arrange
+        AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
+        var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
+        AgentSession first = await agent.CreateSessionAsync();
+        first.StateBag.SetValue("marker", "first");
+        AgentSession second = await agent.CreateSessionAsync();
+        second.StateBag.SetValue("marker", "second");
+
+        // Act
+        await store.SaveSessionAsync(agent, "session-1", first, userId: "user-1");
+        await store.SaveSessionAsync(agent, "session-1", second, userId: "user-2");
+        AgentSession? restoredFirst = await store.GetSessionAsync(agent, "session-1", userId: "user-1");
+        AgentSession? restoredSecond = await store.GetSessionAsync(agent, "session-1", userId: "user-2");
+
+        // Assert
+        Assert.NotNull(restoredFirst);
+        Assert.NotNull(restoredSecond);
+        Assert.Equal("first", restoredFirst.StateBag.GetValue<string>("marker"));
+        Assert.Equal("second", restoredSecond.StateBag.GetValue<string>("marker"));
+    }
+
+    [Fact]
+    public async Task GetSessionAsync_LegacyScopedKey_RestoresSessionAsync()
+    {
+        // Arrange
+        const string UserId = @"domain\user:1";
+        const string ConversationId = "session-1";
+        const string LegacyScopedConversationId = @"domain\\user\:1::session-1";
+        AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
+        var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
+        AgentSession session = await agent.CreateSessionAsync();
+        session.StateBag.SetValue("marker", "legacy");
+        await store.SaveSessionAsync(
+            agent,
+            LegacyScopedConversationId,
+            session,
+            userId: null);
+
+        // Act
+        AgentSession? restored = await store.GetSessionAsync(agent, ConversationId, UserId);
+
+        // Assert
+        Assert.NotNull(restored);
+        Assert.Equal("legacy", restored.StateBag.GetValue<string>("marker"));
     }
 
     [Fact]
@@ -149,9 +196,9 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         second.StateBag.SetValue("marker", "second");
 
         // Act
-        await store.SaveSessionAsync(agent, "session-1", first);
-        await store.SaveSessionAsync(agent, "session-1", second);
-        AgentSession restored = await store.GetSessionAsync(agent, "session-1");
+        await store.SaveSessionAsync(agent, "session-1", first, userId: null);
+        await store.SaveSessionAsync(agent, "session-1", second, userId: null);
+        AgentSession? restored = await store.GetSessionAsync(agent, "session-1", userId: null);
         List<BlobItem> blobs = [];
         await foreach (BlobItem blob in this._containerClient.GetBlobsAsync())
         {
@@ -159,6 +206,7 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         }
 
         // Assert
+        Assert.NotNull(restored);
         BlobItem storedBlob = Assert.Single(blobs);
         Assert.Equal("application/json", storedBlob.Properties.ContentType);
         Assert.Equal("second", restored.StateBag.GetValue<string>("marker"));
@@ -177,7 +225,7 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
 
         // Act
         RequestFailedException exception = await Assert.ThrowsAsync<RequestFailedException>(
-            () => store.GetSessionAsync(agent, "session-1").AsTask());
+            () => store.GetSessionAsync(agent, "session-1", userId: null).AsTask());
 
         // Assert
         Assert.Equal(BlobErrorCode.ContainerNotFound.ToString(), exception.ErrorCode);
@@ -191,15 +239,18 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
         AgentSession original = await agent.CreateSessionAsync();
         original.StateBag.SetValue("marker", "saved");
-        await store.SaveSessionAsync(agent, "session-1", original);
+        await store.SaveSessionAsync(agent, "session-1", original, userId: null);
 
         // Act
-        AgentSession first = await store.GetSessionAsync(agent, "session-1");
-        AgentSession second = await store.GetSessionAsync(agent, "session-1");
+        AgentSession? first = await store.GetSessionAsync(agent, "session-1", userId: null);
+        AgentSession? second = await store.GetSessionAsync(agent, "session-1", userId: null);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
         first.StateBag.SetValue("marker", "changed");
-        AgentSession third = await store.GetSessionAsync(agent, "session-1");
+        AgentSession? third = await store.GetSessionAsync(agent, "session-1", userId: null);
 
         // Assert
+        Assert.NotNull(third);
         Assert.NotSame(first, second);
         Assert.Equal("saved", second.StateBag.GetValue<string>("marker"));
         Assert.Equal("saved", third.StateBag.GetValue<string>("marker"));
@@ -217,7 +268,7 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         {
             AgentSession session = await agent.CreateSessionAsync();
             session.StateBag.SetValue("marker", index.ToString());
-            writes.Add(store.SaveSessionAsync(agent, $"session-{index}", session).AsTask());
+            writes.Add(store.SaveSessionAsync(agent, $"session-{index}", session, userId: null).AsTask());
         }
 
         // Act

@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
@@ -35,6 +36,11 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override async ValueTask SaveSessionAsync(AIAgent agent, string conversationId, AgentSession session, string? userId, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ArgumentNullException.ThrowIfNull(session);
+        ValidateUserId(userId);
+
         var key = GetKey(agent, conversationId, userId);
         this._sessions[key] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
@@ -42,6 +48,10 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, string conversationId, string? userId, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ValidateUserId(userId);
+
         var key = GetKey(agent, conversationId, userId);
         if (!this._sessions.TryGetValue(key, out var existingSession))
         {
@@ -65,11 +75,19 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
             key += $"a-{agent.Name}:";
         }
 
-        if (!string.IsNullOrWhiteSpace(userId))
+        if (userId is not null)
         {
             key += $"u-{userId}:";
         }
 
         return key + $"c-{conversationId}";
+    }
+
+    private static void ValidateUserId(string? userId)
+    {
+        if (userId is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+        }
     }
 }

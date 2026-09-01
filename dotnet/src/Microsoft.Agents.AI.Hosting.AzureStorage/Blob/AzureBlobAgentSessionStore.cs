@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,6 +10,7 @@ using System.Threading.Tasks;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting.AzureStorage;
@@ -28,6 +30,7 @@ namespace Microsoft.Agents.AI.Hosting.AzureStorage;
 /// default.
 /// </para>
 /// </remarks>
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 {
     private const int MaxBlobNameLength = 1024;
@@ -77,18 +80,20 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     /// <inheritdoc />
     public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string sessionStoreId,
+        string conversationId,
         AgentSession session,
+        string? userId,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agent);
-        Throw.IfNull(sessionStoreId);
+        Throw.IfNull(conversationId);
         Throw.IfNull(session);
+        ValidateUserId(userId);
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
         JsonElement serializedSession = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
-        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(sessionStoreId));
+        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(conversationId, userId));
         await blobClient.UploadAsync(
             BinaryData.FromString(serializedSession.GetRawText()),
             s_uploadOptions,
@@ -96,18 +101,30 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     }
 
     /// <inheritdoc />
-    public override async ValueTask<AgentSession> GetSessionAsync(
+    public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string sessionStoreId,
+        string conversationId,
+        string? userId,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agent);
-        Throw.IfNull(sessionStoreId);
+        Throw.IfNull(conversationId);
+        ValidateUserId(userId);
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(sessionStoreId));
+        return await this.TryGetSessionAsync(
+            agent,
+            this.GetBlobName(conversationId, userId),
+            cancellationToken).ConfigureAwait(false);
+    }
 
+    private async ValueTask<AgentSession?> TryGetSessionAsync(
+        AIAgent agent,
+        string blobName,
+        CancellationToken cancellationToken)
+    {
+        BlobClient blobClient = this._containerClient.GetBlobClient(blobName);
         try
         {
             Response<BlobDownloadResult> response = await blobClient.DownloadContentAsync(cancellationToken).ConfigureAwait(false);
@@ -116,30 +133,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
         }
         catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.BlobNotFound.ToString())
         {
-            return await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc />
-    public override async ValueTask DeleteSessionAsync(
-        AIAgent agent,
-        string sessionStoreId,
-        CancellationToken cancellationToken = default)
-    {
-        Throw.IfNull(agent);
-        Throw.IfNull(sessionStoreId);
-
-        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(sessionStoreId));
-
-        try
-        {
-            await blobClient.DeleteIfExistsAsync(
-                DeleteSnapshotsOption.IncludeSnapshots,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch (RequestFailedException ex) when (ex.ErrorCode == BlobErrorCode.ContainerNotFound.ToString())
-        {
-            // A missing container cannot contain the requested session, so deletion remains idempotent.
+            return null;
         }
     }
 
@@ -177,14 +171,28 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     private async Task CreateContainerIfNotExistsAsync()
         => await this._containerClient.CreateIfNotExistsAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
-    private string GetBlobName(string sessionStoreId)
+    private string GetBlobName(string conversationId, string? userId)
     {
-        string sessionKey = ComputeKey(sessionStoreId);
+        string scopedConversationId = userId is null
+            ? conversationId
+            : $"{EscapeIsolationKey(userId)}::{conversationId}";
+        string sessionKey = ComputeKey(scopedConversationId);
         string baseName = $"v1/{this._agentKey}/{sessionKey}.json";
 
         return this._blobNamePrefix is null
             ? baseName
             : $"{this._blobNamePrefix}/{baseName}";
+    }
+
+    private static string EscapeIsolationKey(string userId)
+        => userId.Replace("\\", "\\\\").Replace(":", "\\:");
+
+    private static void ValidateUserId(string? userId)
+    {
+        if (userId is not null)
+        {
+            _ = Throw.IfNullOrWhitespace(userId);
+        }
     }
 
     private static async Task WaitWithCancellationAsync(Task task, CancellationToken cancellationToken)

@@ -55,7 +55,11 @@ public class AIHostAgent : DelegatingAIAgent
         _ = Throw.IfNullOrWhitespace(conversationId);
 
         MarkFeatureUsed();
-        return this._sessionStore.GetSessionAsync(this.InnerAgent, conversationId, cancellationToken);
+        return this._sessionStore.GetOrCreateSessionAsync(
+            this.InnerAgent,
+            conversationId,
+            userId: null,
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -73,7 +77,12 @@ public class AIHostAgent : DelegatingAIAgent
         _ = Throw.IfNull(session);
 
         MarkFeatureUsed();
-        return this._sessionStore.SaveSessionAsync(this.InnerAgent, conversationId, session, cancellationToken);
+        return this._sessionStore.SaveSessionAsync(
+            this.InnerAgent,
+            conversationId,
+            session,
+            userId: null,
+            cancellationToken: cancellationToken);
     }
 
     /// <inheritdoc />

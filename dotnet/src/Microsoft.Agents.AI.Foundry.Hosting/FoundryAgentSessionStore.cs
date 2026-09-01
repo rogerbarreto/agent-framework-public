@@ -132,6 +132,7 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         _ = Throw.IfNull(agent);
         _ = Throw.IfNullOrWhitespace(conversationId);
         _ = Throw.IfNull(session);
+        ValidateUserId(userId);
 
         string agentIdentity = ResolveAgentIdentity(agent);
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -159,6 +160,7 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     {
         _ = Throw.IfNull(agent);
         _ = Throw.IfNullOrWhitespace(conversationId);
+        ValidateUserId(userId);
 
         string logicalKey = BuildLogicalKey(ResolveAgentIdentity(agent), conversationId, userId);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
@@ -193,7 +195,7 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     {
         StringBuilder builder = new();
         AppendComponent(builder, 'a', Throw.IfNullOrWhitespace(agentIdentity));
-        AppendComponent(builder, 'u', string.IsNullOrWhiteSpace(userId) ? null : userId);
+        AppendComponent(builder, 'u', userId);
         AppendComponent(builder, 'c', Throw.IfNullOrWhitespace(conversationId));
         builder.Length--;
         return builder.ToString();
@@ -227,6 +229,14 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         }
 
         builder.Append('|');
+    }
+
+    private static void ValidateUserId(string? userId)
+    {
+        if (userId is not null)
+        {
+            _ = Throw.IfNullOrWhitespace(userId);
+        }
     }
 
     /// <summary>

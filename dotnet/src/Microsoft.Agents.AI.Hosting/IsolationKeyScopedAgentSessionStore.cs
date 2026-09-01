@@ -1,16 +1,18 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Shared.DiagnosticIds;
 
 namespace Microsoft.Agents.AI.Hosting;
 
 /// <summary>
-/// A delegating <see cref="AgentSessionStore"/> that scopes session keys by an isolation key
-/// provided by an <see cref="AgentIsolationKeyProvider"/>, ensuring that sessions are isolated
-/// per logical partition (e.g., user, tenant, or composite key).
+/// A delegating <see cref="AgentSessionStore"/> that supplies the per-user partition key from an
+/// <see cref="AgentIsolationKeyProvider"/>.
 /// </summary>
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
 {
     private readonly AgentIsolationKeyProvider? _keyProvider;
@@ -54,63 +56,57 @@ public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
                     ? await this._keyProvider.GetIsolationKeyAsync(cancellationToken).ConfigureAwait(false)
                     : null;
 
-        if (this._strict && key == null)
+        if (string.IsNullOrWhiteSpace(key))
         {
-            throw new InvalidOperationException("Agent isolation key is required but was not provided by the configured AgentIsolationKeyProvider.");
+            if (this._strict)
+            {
+                throw new InvalidOperationException("Agent isolation key is required but was not provided by the configured AgentIsolationKeyProvider.");
+            }
+
+            return null;
         }
 
         return key;
     }
 
     /// <summary>
-    /// Escapes special characters in the isolation key to ensure unambiguous scoped session store IDs.
+    /// Resolves the user partition passed to the inner store. A key supplied by the provider takes precedence
+    /// over the caller value because it represents the current hosting context.
     /// </summary>
-    /// <param name="key">The raw isolation key.</param>
-    /// <returns>The escaped isolation key.</returns>
-    /// <remarks>
-    /// Backslashes are escaped first (\ becomes \\), then colons (: becomes \:).
-    /// This ensures the scoped session store ID format {key}::{sessionStoreId} can be parsed correctly.
-    /// </remarks>
-    private static string EscapeIsolationKey(string key) => key.Replace("\\", "\\\\").Replace(":", "\\:");
+    private async ValueTask<string?> GetUserIdAsync(string? userId, CancellationToken cancellationToken)
+        => await this.GetIsolationKeyAsync(cancellationToken).ConfigureAwait(false) ?? userId;
 
-    /// <summary>
-    /// Constructs a scoped session store ID by prefixing the bare session store ID with the escaped isolation key.
-    /// </summary>
-    /// <param name="bareSessionStoreId">The original session store ID.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>
-    /// The scoped session store ID in the format {escapedKey}::{sessionStoreId}, or the bare session store ID
-    /// if no isolation key is available and non-strict mode is enabled.
-    /// </returns>
-    private async ValueTask<string> GetScopedSessionStoreIdAsync(string bareSessionStoreId, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public override async ValueTask<AgentSession?> GetSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        string? userId,
+        CancellationToken cancellationToken = default)
     {
-        string? key = await this.GetIsolationKeyAsync(cancellationToken).ConfigureAwait(false);
-        if (key == null)
-        {
-            return bareSessionStoreId;
-        }
-
-        return $"{EscapeIsolationKey(key)}::{bareSessionStoreId}";
+        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
+        return await this.InnerStore.GetSessionAsync(agent, conversationId, resolvedUserId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
+    public override async ValueTask<AgentSession> GetOrCreateSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        string? userId,
+        CancellationToken cancellationToken = default)
     {
-        string scopedSessionStoreId = await this.GetScopedSessionStoreIdAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
-        return await this.InnerStore.GetSessionAsync(agent, scopedSessionStoreId, cancellationToken).ConfigureAwait(false);
+        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
+        return await this.InnerStore.GetOrCreateSessionAsync(agent, conversationId, resolvedUserId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask SaveSessionAsync(AIAgent agent, string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
+    public override async ValueTask SaveSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        AgentSession session,
+        string? userId,
+        CancellationToken cancellationToken = default)
     {
-        string scopedSessionStoreId = await this.GetScopedSessionStoreIdAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
-        await this.InnerStore.SaveSessionAsync(agent, scopedSessionStoreId, session, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public override async ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
-    {
-        string scopedSessionStoreId = await this.GetScopedSessionStoreIdAsync(sessionStoreId, cancellationToken).ConfigureAwait(false);
-        await this.InnerStore.DeleteSessionAsync(agent, scopedSessionStoreId, cancellationToken).ConfigureAwait(false);
+        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
+        await this.InnerStore.SaveSessionAsync(agent, conversationId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
     }
 }

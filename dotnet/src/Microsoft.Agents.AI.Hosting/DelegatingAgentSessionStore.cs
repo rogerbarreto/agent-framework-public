@@ -1,8 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting;
@@ -23,6 +25,7 @@ namespace Microsoft.Agents.AI.Hosting;
 /// interface.
 /// </para>
 /// </remarks>
+[Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public abstract class DelegatingAgentSessionStore : AgentSessionStore
 {
     /// <summary>
@@ -53,33 +56,27 @@ public abstract class DelegatingAgentSessionStore : AgentSessionStore
     protected AgentSessionStore InnerStore { get; }
 
     /// <inheritdoc/>
-    public override ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
-        => this.InnerStore.GetSessionAsync(agent, sessionStoreId, cancellationToken);
+    public override ValueTask<AgentSession?> GetSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        string? userId,
+        CancellationToken cancellationToken = default)
+        => this.InnerStore.GetSessionAsync(agent, conversationId, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public override ValueTask SaveSessionAsync(AIAgent agent, string sessionStoreId, AgentSession session, CancellationToken cancellationToken = default)
-        => this.InnerStore.SaveSessionAsync(agent, sessionStoreId, session, cancellationToken);
+    public override ValueTask<AgentSession> GetOrCreateSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        string? userId,
+        CancellationToken cancellationToken = default)
+        => this.InnerStore.GetOrCreateSessionAsync(agent, conversationId, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public override ValueTask DeleteSessionAsync(AIAgent agent, string sessionStoreId, CancellationToken cancellationToken = default)
-        => this.InnerStore.DeleteSessionAsync(agent, sessionStoreId, cancellationToken);
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// This implementation first checks if this instance satisfies the service request.
-    /// If not, it chains the request to the inner store, allowing services to be retrieved
-    /// from any store in the delegation chain.
-    /// </remarks>
-    public override object? GetService(Type serviceType, object? serviceKey = null)
-    {
-        // First, check if this instance satisfies the request
-        object? service = base.GetService(serviceType, serviceKey);
-        if (service is not null)
-        {
-            return service;
-        }
-
-        // Chain to the inner store
-        return this.InnerStore.GetService(serviceType, serviceKey);
-    }
+    public override ValueTask SaveSessionAsync(
+        AIAgent agent,
+        string conversationId,
+        AgentSession session,
+        string? userId,
+        CancellationToken cancellationToken = default)
+        => this.InnerStore.SaveSessionAsync(agent, conversationId, session, userId, cancellationToken);
 }

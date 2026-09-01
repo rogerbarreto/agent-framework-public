@@ -196,7 +196,7 @@ public sealed class A2AServerServiceCollectionExtensionsTests
         var services = new ServiceCollection();
         services.AddKeyedSingleton(AgentName, (_, _) => CreateAgentMock(AgentName).Object);
 
-        var mockSessionStore = new Mock<AgentSessionStore>();
+        var mockSessionStore = new Mock<AgentSessionStore> { CallBase = true };
         services.AddKeyedSingleton(AgentName, mockSessionStore.Object);
 
         // Act
@@ -423,11 +423,12 @@ public sealed class A2AServerServiceCollectionExtensionsTests
         var services = new ServiceCollection();
         services.AddKeyedSingleton(AgentName, (_, _) => CreateAgentMock(AgentName).Object);
 
-        var mockSessionStore = new Mock<AgentSessionStore>();
+        var mockSessionStore = new Mock<AgentSessionStore> { CallBase = true };
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
                 It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
@@ -435,6 +436,7 @@ public sealed class A2AServerServiceCollectionExtensionsTests
                 It.IsAny<AIAgent>(),
                 It.IsAny<string>(),
                 It.IsAny<AgentSession>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -453,6 +455,7 @@ public sealed class A2AServerServiceCollectionExtensionsTests
             x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
                 It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         Assert.Equal(SendMessageResponseCase.Message, response.PayloadCase);

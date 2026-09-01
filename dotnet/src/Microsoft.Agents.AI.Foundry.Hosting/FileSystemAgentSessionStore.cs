@@ -152,6 +152,7 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
         ArgumentNullException.ThrowIfNull(session);
+        ValidateUserId(userId);
 
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -212,6 +213,7 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ValidateUserId(userId);
 
         string path = this.GetSessionPath(agent, conversationId, userId);
         if (!File.Exists(path))
@@ -256,7 +258,7 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
             dir = Path.Combine(dir, "a-" + Sanitize(agent.Name!));
         }
 
-        if (!string.IsNullOrWhiteSpace(userId))
+        if (userId is not null)
         {
             // The user id is the platform-injected, untrusted partition key. Reject (do not sanitize)
             // anything that is not a single safe path component so a forged value cannot escape the root.
@@ -306,6 +308,14 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
             || !string.IsNullOrEmpty(Path.GetPathRoot(segment)))
         {
             throw new InvalidOperationException($"Invalid {kind}: '{segment}'.");
+        }
+    }
+
+    private static void ValidateUserId(string? userId)
+    {
+        if (userId is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         }
     }
 
