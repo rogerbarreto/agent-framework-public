@@ -144,6 +144,9 @@ application that needs concurrent runs against the same id to be serialized owns
 minted `resp_*` id when the protocol creates a continuation id. No agent-side holder is needed because
 the convenience method already performs lookup or creation.
 
+Storage implementations must encode `userId` and the conversation identifier without collisions. A
+scoped tuple and an unscoped conversation identifier must never resolve to the same storage key.
+
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory
 `sessionId -> CheckpointInfo` cursor. Because the checkpoint store is already `sessionId`-keyed but
 `CheckpointInfo` carries no ordering, the holder remembers the head checkpoint per session so

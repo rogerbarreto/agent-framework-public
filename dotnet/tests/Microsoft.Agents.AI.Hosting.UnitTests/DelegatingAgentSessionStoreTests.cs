@@ -183,24 +183,18 @@ public class DelegatingAgentSessionStoreTests
     }
 
     /// <summary>
-    /// Verify that GetOrCreateSessionAsync delegates to a specialized inner store implementation.
+    /// Verify that GetOrCreateSessionAsync honors a derived GetSessionAsync override.
     /// </summary>
     [Fact]
-    public async Task GetOrCreateSessionAsyncDelegatesToInnerStoreAsync()
+    public async Task GetOrCreateSessionAsyncUsesOverriddenGetSessionAsyncAsync()
     {
         // Arrange
         const string ExpectedConversationId = "test-conversation-id";
         const string ExpectedUserId = "test-user-id";
-        this._innerStoreMock
-            .Setup(x => x.GetOrCreateSessionAsync(
-                this._agentMock.Object,
-                ExpectedConversationId,
-                ExpectedUserId,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(this._testSession);
+        var store = new OverridingGetSessionStore(this._innerStoreMock.Object, this._testSession);
 
         // Act
-        AgentSession session = await this._delegatingStore.GetOrCreateSessionAsync(
+        AgentSession session = await store.GetOrCreateSessionAsync(
             this._agentMock.Object,
             ExpectedConversationId,
             ExpectedUserId);
@@ -209,11 +203,11 @@ public class DelegatingAgentSessionStoreTests
         Assert.Same(this._testSession, session);
         this._innerStoreMock.Verify(
             x => x.GetOrCreateSessionAsync(
-                this._agentMock.Object,
-                ExpectedConversationId,
-                ExpectedUserId,
+                It.IsAny<AIAgent>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
-            Times.Once);
+            Times.Never);
     }
 
     /// <summary>
@@ -263,6 +257,17 @@ public class DelegatingAgentSessionStoreTests
     private sealed class TestDelegatingAgentSessionStore(AgentSessionStore innerStore) : DelegatingAgentSessionStore(innerStore)
     {
         public new AgentSessionStore InnerStore => base.InnerStore;
+    }
+
+    private sealed class OverridingGetSessionStore(AgentSessionStore innerStore, AgentSession session)
+        : DelegatingAgentSessionStore(innerStore)
+    {
+        public override ValueTask<AgentSession?> GetSessionAsync(
+            AIAgent agent,
+            string conversationId,
+            string? userId,
+            CancellationToken cancellationToken = default)
+            => new(session);
     }
 
     private sealed class TestAgentSession : AgentSession;

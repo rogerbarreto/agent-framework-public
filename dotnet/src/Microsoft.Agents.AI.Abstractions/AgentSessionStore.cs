@@ -55,6 +55,12 @@ public abstract class AgentSessionStore
     /// A task whose result contains the restored session, or <see langword="null"/> when nothing is stored for
     /// the given identifiers. This method never creates a session.
     /// </returns>
+    /// <remarks>
+    /// Each successful lookup must return an independent <see cref="AgentSession"/> instance. Callers may
+    /// mutate the returned session and may run concurrent branches from the same identifiers without those
+    /// branches observing one another's changes or modifying the stored state. Implementations that cache a
+    /// live session must return an independent copy rather than the shared instance.
+    /// </remarks>
     public abstract ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
         string conversationId,
@@ -69,6 +75,11 @@ public abstract class AgentSessionStore
     /// <param name="userId">The per-user partition key; see <see cref="GetSessionAsync"/> for its meaning.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task whose result is always a usable session.</returns>
+    /// <remarks>
+    /// The default implementation calls <see cref="GetSessionAsync"/> and creates a session through
+    /// <see cref="AIAgent.CreateSessionAsync"/> only when the lookup returns <see langword="null"/>.
+    /// Implementations that override <see cref="GetSessionAsync"/> receive this behavior automatically.
+    /// </remarks>
     public virtual async ValueTask<AgentSession> GetOrCreateSessionAsync(
         AIAgent agent,
         string conversationId,

@@ -46,6 +46,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     private readonly string _agentKey;
     private readonly string? _blobNamePrefix;
     private readonly bool _createContainerIfNotExists;
+    private readonly bool _enableLegacyKeyFallback;
     private Task? _containerInitializationTask;
 
     /// <summary>
@@ -67,6 +68,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         options ??= new AzureBlobAgentSessionStoreOptions();
         this._createContainerIfNotExists = options.CreateContainerIfNotExists;
+        this._enableLegacyKeyFallback = options.EnableLegacyKeyFallback;
         this._blobNamePrefix = NormalizePrefix(options.BlobNamePrefix);
 
         if (this._blobNamePrefix is { Length: > MaxBlobNameLength - BaseBlobNameLength - 1 })
@@ -113,9 +115,18 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        return await this.TryGetSessionAsync(
+        AgentSession? session = await this.TryGetSessionAsync(
             agent,
             this.GetBlobName(conversationId, userId),
+            cancellationToken).ConfigureAwait(false);
+        if (session is not null || !this._enableLegacyKeyFallback)
+        {
+            return session;
+        }
+
+        return await this.TryGetSessionAsync(
+            agent,
+            this.GetLegacyBlobName(conversationId, userId),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -173,15 +184,44 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
     private string GetBlobName(string conversationId, string? userId)
     {
-        string scopedConversationId = userId is null
+        string sessionKey = ComputeKey(BuildLogicalKey(conversationId, userId));
+        string baseName = $"v2/{this._agentKey}/{sessionKey}.json";
+
+        return this._blobNamePrefix is null
+            ? baseName
+            : $"{this._blobNamePrefix}/{baseName}";
+    }
+
+    internal string GetLegacyBlobName(string conversationId, string? userId)
+    {
+        string legacyConversationId = userId is null
             ? conversationId
             : $"{EscapeIsolationKey(userId)}::{conversationId}";
-        string sessionKey = ComputeKey(scopedConversationId);
+        string sessionKey = ComputeKey(legacyConversationId);
         string baseName = $"v1/{this._agentKey}/{sessionKey}.json";
 
         return this._blobNamePrefix is null
             ? baseName
             : $"{this._blobNamePrefix}/{baseName}";
+    }
+
+    private static string BuildLogicalKey(string conversationId, string? userId)
+    {
+        StringBuilder builder = new();
+        AppendComponent(builder, 'u', userId);
+        AppendComponent(builder, 'c', conversationId);
+        return builder.ToString();
+    }
+
+    private static void AppendComponent(StringBuilder builder, char prefix, string? value)
+    {
+        builder.Append(prefix).Append(value?.Length ?? -1).Append(':');
+        if (value is not null)
+        {
+            builder.Append(value);
+        }
+
+        builder.Append('|');
     }
 
     private static string EscapeIsolationKey(string userId)

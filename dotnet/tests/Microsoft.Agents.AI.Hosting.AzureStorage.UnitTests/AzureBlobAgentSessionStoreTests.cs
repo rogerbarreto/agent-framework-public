@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -160,21 +161,43 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SaveAndGetSessionAsync_ScopedAndUnscopedIdentifiersDoNotCollideAsync()
+    {
+        // Arrange
+        AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
+        var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
+        AgentSession scoped = await agent.CreateSessionAsync();
+        scoped.StateBag.SetValue("marker", "scoped");
+        AgentSession unscoped = await agent.CreateSessionAsync();
+        unscoped.StateBag.SetValue("marker", "unscoped");
+
+        // Act
+        await store.SaveSessionAsync(agent, "conversation", scoped, userId: "tenant");
+        await store.SaveSessionAsync(agent, "tenant::conversation", unscoped, userId: null);
+        AgentSession? restoredScoped = await store.GetSessionAsync(agent, "conversation", userId: "tenant");
+        AgentSession? restoredUnscoped = await store.GetSessionAsync(agent, "tenant::conversation", userId: null);
+
+        // Assert
+        Assert.NotNull(restoredScoped);
+        Assert.NotNull(restoredUnscoped);
+        Assert.Equal("scoped", restoredScoped.StateBag.GetValue<string>("marker"));
+        Assert.Equal("unscoped", restoredUnscoped.StateBag.GetValue<string>("marker"));
+    }
+
+    [Fact]
     public async Task GetSessionAsync_LegacyScopedKey_RestoresSessionAsync()
     {
         // Arrange
         const string UserId = @"domain\user:1";
         const string ConversationId = "session-1";
-        const string LegacyScopedConversationId = @"domain\\user\:1::session-1";
         AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
-        var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
+        var store = new AzureBlobAgentSessionStore(
+            this._containerClient,
+            "assistant",
+            new AzureBlobAgentSessionStoreOptions { EnableLegacyKeyFallback = true });
         AgentSession session = await agent.CreateSessionAsync();
         session.StateBag.SetValue("marker", "legacy");
-        await store.SaveSessionAsync(
-            agent,
-            LegacyScopedConversationId,
-            session,
-            userId: null);
+        await this.WriteLegacySessionAsync(store, agent, ConversationId, session, UserId);
 
         // Act
         AgentSession? restored = await store.GetSessionAsync(agent, ConversationId, UserId);
@@ -182,6 +205,22 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         // Assert
         Assert.NotNull(restored);
         Assert.Equal("legacy", restored.StateBag.GetValue<string>("marker"));
+    }
+
+    [Fact]
+    public async Task GetSessionAsync_LegacyKeyFallbackDisabled_ReturnsNullAsync()
+    {
+        // Arrange
+        AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
+        var store = new AzureBlobAgentSessionStore(this._containerClient, "assistant");
+        AgentSession session = await agent.CreateSessionAsync();
+        await this.WriteLegacySessionAsync(store, agent, "session-1", session, "user-1");
+
+        // Act
+        AgentSession? restored = await store.GetSessionAsync(agent, "session-1", "user-1");
+
+        // Assert
+        Assert.Null(restored);
     }
 
     [Fact]
@@ -326,6 +365,19 @@ public sealed class AzureBlobAgentSessionStoreTests : IAsyncLifetime
         // Act & Assert
         Assert.Throws<ArgumentException>(
             () => new AzureBlobAgentSessionStore(this._containerClient, "assistant", options));
+    }
+
+    private async Task WriteLegacySessionAsync(
+        AzureBlobAgentSessionStore store,
+        AIAgent agent,
+        string conversationId,
+        AgentSession session,
+        string? userId)
+    {
+        JsonElement serializedSession = await agent.SerializeSessionAsync(session);
+        await this._containerClient.CreateIfNotExistsAsync();
+        BlobClient blobClient = this._containerClient.GetBlobClient(store.GetLegacyBlobName(conversationId, userId));
+        await blobClient.UploadAsync(BinaryData.FromString(serializedSession.GetRawText()));
     }
 
     private static async Task<bool> IsAzuriteAvailableAsync()

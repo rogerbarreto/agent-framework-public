@@ -64,14 +64,6 @@ public abstract class DelegatingAgentSessionStore : AgentSessionStore
         => this.InnerStore.GetSessionAsync(agent, conversationId, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public override ValueTask<AgentSession> GetOrCreateSessionAsync(
-        AIAgent agent,
-        string conversationId,
-        string? userId,
-        CancellationToken cancellationToken = default)
-        => this.InnerStore.GetOrCreateSessionAsync(agent, conversationId, userId, cancellationToken);
-
-    /// <inheritdoc/>
     public override ValueTask SaveSessionAsync(
         AIAgent agent,
         string conversationId,
