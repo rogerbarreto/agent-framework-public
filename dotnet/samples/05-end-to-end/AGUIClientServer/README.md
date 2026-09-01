@@ -43,6 +43,17 @@ dotnet run --urls "http://localhost:5100"
 
 The server will start and listen on `http://localhost:5100`.
 
+The local server accepts anonymous requests and uses:
+
+```csharp
+.WithInMemorySessionStore(withIsolation: false);
+```
+
+`WithInMemorySessionStore()` enables per-user isolation by default. That default requires an
+`AgentIsolationKeyProvider`, normally backed by the authenticated caller's claims. This anonymous
+local sample has no user identity, so it disables isolation explicitly. In production, authenticate
+callers and register `UseClaimsBasedAgentIsolation(...)` instead.
+
 ### Step 2: Testing with the REST Client (Optional)
 
 Before running the client, you can test the server using the included `.http` file:
@@ -133,7 +144,7 @@ IChatClient chatClient = new OpenAIClient(
 builder
     .AddAIAgent("AGUIAssistant", "You are a helpful assistant.", chatClient)
     .WithAITool(new HostedWebSearchTool())
-    .WithInMemorySessionStore();
+    .WithInMemorySessionStore(withIsolation: false);
 
 app.MapAGUIServer("AGUIAssistant", "/");
 ```

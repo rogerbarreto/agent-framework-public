@@ -2,14 +2,15 @@
 
 // This sample demonstrates basic usage of the DevUI in an ASP.NET Core application with AI agents.
 
+using System.ClientModel.Primitives;
 using System.ComponentModel;
-using Azure.AI.OpenAI;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
+using OpenAI;
 
 namespace DevUI_Step01_BasicUsage;
 
@@ -44,12 +45,17 @@ internal static class Program
 
         // Set up the Azure OpenAI client
         var endpoint = builder.Configuration["AZURE_OPENAI_ENDPOINT"] ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
+        // OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
+        if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
+        }
         var deploymentName = builder.Configuration["AZURE_OPENAI_DEPLOYMENT_NAME"] ?? "gpt-5.4-mini";
 
         // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
         // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
         // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
-        var chatClient = new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential())
+        var chatClient = new OpenAIClient(new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"), new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
             .GetChatClient(deploymentName)
             .AsIChatClient();
 

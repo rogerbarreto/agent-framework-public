@@ -4,7 +4,7 @@
 // The agent can then be consumed from various M365 channels.
 // See the README.md for more information.
 
-using Azure.AI.OpenAI;
+using System.ClientModel.Primitives;
 using Azure.Identity;
 using M365Agent;
 using M365Agent.Agents;
@@ -35,13 +35,18 @@ if (builder.Configuration.GetSection("AIServices").GetValue<bool>("UseAzureOpenA
 {
     var deploymentName = builder.Configuration.GetSection("AIServices:AzureOpenAI").GetValue<string>("DeploymentName")!;
     var endpoint = builder.Configuration.GetSection("AIServices:AzureOpenAI").GetValue<string>("Endpoint")!;
+    // OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
+    if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
+    {
+        endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
+    }
 
     // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
     // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
     // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
-    chatClient = new AzureOpenAIClient(
-        new Uri(endpoint),
-        new DefaultAzureCredential())
+    chatClient = new OpenAIClient(
+        new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
+        new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
          .GetChatClient(deploymentName)
          .AsIChatClient();
 }

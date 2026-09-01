@@ -15,8 +15,8 @@
 //   - AZURE_OPENAI_ENDPOINT   - your Azure OpenAI endpoint
 //   - AZURE_OPENAI_DEPLOYMENT - the model deployment name (default: "gpt-4o")
 
+using System.ClientModel.Primitives;
 using System.ComponentModel;
-using Azure.AI.OpenAI;
 using Azure.Identity;
 using DotNetEnv;
 using Microsoft.Agents.AI;
@@ -25,6 +25,7 @@ using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
+using OpenAI;
 
 // Load .env file if present (for local development)
 Env.TraversePath().Load();
@@ -34,13 +35,21 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------------------------
 // 1. Create the shared Azure OpenAI chat client
 // ---------------------------------------------------------------------------
-var endpoint = new Uri(System.Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set."));
-var deployment = System.Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT") ?? "gpt-4o";
+var endpointValue = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
+// OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
+if (!new Uri(endpointValue).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
+{
+    endpointValue = $"{endpointValue.TrimEnd('/')}/openai/v1";
+}
+var endpoint = new Uri(endpointValue);
+var deployment = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT") ?? "gpt-4o";
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
 // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
-var azureClient = new AzureOpenAIClient(endpoint, new DefaultAzureCredential());
+var azureClient = new OpenAIClient(
+    new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
+    new OpenAIClientOptions { Endpoint = endpoint });
 IChatClient chatClient = azureClient.GetResponsesClient().AsIChatClient(deployment);
 
 // ---------------------------------------------------------------------------

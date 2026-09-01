@@ -16,6 +16,11 @@ builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.T
 builder.Services.AddAGUIServer();
 
 string endpoint = builder.Configuration["AZURE_OPENAI_ENDPOINT"] ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
+// OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
+if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
+{
+    endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
+}
 string deploymentName = builder.Configuration["AZURE_OPENAI_DEPLOYMENT_NAME"] ?? throw new InvalidOperationException("AZURE_OPENAI_DEPLOYMENT_NAME is not set.");
 
 const string AgentName = "AGUIAssistant";
@@ -30,9 +35,8 @@ IChatClient chatClient = new OpenAIClient(
     .GetResponsesClient()
     .AsIChatClientWithStoredOutputDisabled(model: deploymentName);
 
-// WARNING: When adding session persistence (e.g., WithInMemorySessionStore), or running in production,
-// make sure to also register an AgentIsolationKeyProvider to scope sessions by principal in multi-user
-// deployments, e.g.:
+// This local sample accepts anonymous requests, so it disables per-user session isolation below.
+// In production, authenticate callers and register an AgentIsolationKeyProvider, e.g.:
 // builder.Services.UseClaimsBasedAgentIsolation(new() { ClaimType = ClaimTypes.NameIdentifier });
 
 // Register the agent with the host and configure it to use an in-memory session store
@@ -58,7 +62,7 @@ builder
             name: "get_server_weather_forecast",
             description: "Gets the forecast for a specific location and date",
             AGUIServerSerializerContext.Default.Options))
-    .WithInMemorySessionStore();
+    .WithInMemorySessionStore(withIsolation: false);
 
 WebApplication app = builder.Build();
 
