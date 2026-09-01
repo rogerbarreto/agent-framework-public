@@ -67,6 +67,11 @@ The server (`Server/Program.cs`) creates a simple chat agent:
 
 ```csharp
 // Create OpenAI client targeting Azure OpenAI
+if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
+{
+    endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
+}
+
 OpenAIClient openAIClient = new OpenAIClient(
     new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
     new OpenAIClientOptions { Endpoint = new Uri(endpoint) });

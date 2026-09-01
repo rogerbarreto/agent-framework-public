@@ -35,8 +35,9 @@ IChatClient chatClient = new OpenAIClient(
     .GetResponsesClient()
     .AsIChatClientWithStoredOutputDisabled(model: deploymentName);
 
-// This local sample accepts anonymous requests, so it disables per-user session isolation below.
-// In production, authenticate callers and register an AgentIsolationKeyProvider, e.g.:
+// WARNING: When adding session persistence (e.g., WithInMemorySessionStore), or running in production,
+// make sure to also register an AgentIsolationKeyProvider to scope sessions by principal in multi-user
+// deployments, e.g.:
 // builder.Services.UseClaimsBasedAgentIsolation(new() { ClaimType = ClaimTypes.NameIdentifier });
 
 // Register the agent with the host and configure it to use an in-memory session store
@@ -62,7 +63,7 @@ builder
             name: "get_server_weather_forecast",
             description: "Gets the forecast for a specific location and date",
             AGUIServerSerializerContext.Default.Options))
-    .WithInMemorySessionStore(withIsolation: false);
+    .WithInMemorySessionStore();
 
 WebApplication app = builder.Build();
 
