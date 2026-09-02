@@ -42,12 +42,9 @@ if (args.Length > 0 && args[0] == "--server")
     return;
 }
 
-var endpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-// OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
-if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-{
-    endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
-}
+Uri endpoint = AzureOpenAIEndpoint.From(
+    Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT"))
+    ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
 var deploymentName = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT_NAME") ?? "gpt-5.4-mini";
 
 // Launch this same assembly as a stdio MCP server in a child process.
@@ -68,7 +65,7 @@ var mcpTools = await mcpClient.ListAgentToolsWithTasksAsync();
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 AIAgent agent = new OpenAIClient(
     new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
-    new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
+    new OpenAIClientOptions { Endpoint = endpoint })
      .GetChatClient(deploymentName)
      .AsAIAgent(
         instructions: "You answer data-analysis questions by invoking the available tools. Always invoke a tool when one matches the request.",

@@ -34,19 +34,15 @@ IChatClient chatClient;
 if (builder.Configuration.GetSection("AIServices").GetValue<bool>("UseAzureOpenAI"))
 {
     var deploymentName = builder.Configuration.GetSection("AIServices:AzureOpenAI").GetValue<string>("DeploymentName")!;
-    var endpoint = builder.Configuration.GetSection("AIServices:AzureOpenAI").GetValue<string>("Endpoint")!;
-    // OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
-    if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-    {
-        endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
-    }
+    Uri endpoint = AzureOpenAIEndpoint.From(builder.Configuration.GetSection("AIServices:AzureOpenAI").GetValue<string>("Endpoint"))
+        ?? throw new InvalidOperationException("AIServices:AzureOpenAI:Endpoint is not set.");
 
     // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
     // In production, consider using a specific credential (e.g., ManagedIdentityCredential) to avoid
     // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
     chatClient = new OpenAIClient(
         new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
-        new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
+        new OpenAIClientOptions { Endpoint = endpoint })
          .GetChatClient(deploymentName)
          .AsIChatClient();
 }

@@ -35,13 +35,9 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------------------------
 // 1. Create the shared Azure OpenAI chat client
 // ---------------------------------------------------------------------------
-var endpointValue = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT") ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-// OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
-if (!new Uri(endpointValue).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-{
-    endpointValue = $"{endpointValue.TrimEnd('/')}/openai/v1";
-}
-var endpoint = new Uri(endpointValue);
+Uri endpoint = AzureOpenAIEndpoint.From(
+    Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT"))
+    ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
 var deployment = Environment.GetEnvironmentVariable("AZURE_OPENAI_DEPLOYMENT") ?? "gpt-4o";
 
 // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.

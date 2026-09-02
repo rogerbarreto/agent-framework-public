@@ -23,13 +23,9 @@ builder.Services.AddAGUIServer();
 
 WebApplication app = builder.Build();
 
-string endpoint = builder.Configuration["AZURE_OPENAI_ENDPOINT"]
+Uri endpoint = AzureOpenAIEndpoint.From(
+    builder.Configuration["AZURE_OPENAI_ENDPOINT"])
     ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-// OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
-if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-{
-    endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
-}
 string deploymentName = builder.Configuration["AZURE_OPENAI_DEPLOYMENT_NAME"]
     ?? throw new InvalidOperationException("AZURE_OPENAI_DEPLOYMENT_NAME is not set.");
 
@@ -90,7 +86,7 @@ AITool[] tools =
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 ChatClient chatClient = new OpenAIClient(
     new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
-    new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
+    new OpenAIClientOptions { Endpoint = endpoint })
     .GetChatClient(deploymentName);
 
 ChatClientAgent agent = chatClient.AsAIAgent(

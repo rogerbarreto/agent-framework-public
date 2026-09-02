@@ -67,14 +67,12 @@ The server (`Server/Program.cs`) creates a simple chat agent:
 
 ```csharp
 // Create OpenAI client targeting Azure OpenAI
-if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-{
-    endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
-}
+Uri openAIEndpoint = AzureOpenAIEndpoint.From(endpoint)
+    ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
 
 OpenAIClient openAIClient = new OpenAIClient(
     new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
-    new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
+    new OpenAIClientOptions { Endpoint = openAIEndpoint });
 
 ChatClient chatClient = openAIClient.GetChatClient(deploymentName);
 

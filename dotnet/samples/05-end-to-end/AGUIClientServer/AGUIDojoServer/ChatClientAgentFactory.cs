@@ -22,12 +22,9 @@ internal static class ChatClientAgentFactory
 
     public static void Initialize(IConfiguration configuration)
     {
-        string endpoint = configuration["AZURE_OPENAI_ENDPOINT"] ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
-        // OpenAI SDK needs the Azure OpenAI v1 route. Accept a resource root or a full /openai/v1 endpoint.
-        if (!new Uri(endpoint).AbsolutePath.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase))
-        {
-            endpoint = $"{endpoint.TrimEnd('/')}/openai/v1";
-        }
+        Uri endpoint = AzureOpenAIEndpoint.From(
+            configuration["AZURE_OPENAI_ENDPOINT"])
+            ?? throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is not set.");
         s_deploymentName = configuration["AZURE_OPENAI_DEPLOYMENT_NAME"] ?? throw new InvalidOperationException("AZURE_OPENAI_DEPLOYMENT_NAME is not set.");
 
         // WARNING: DefaultAzureCredential is convenient for development but requires careful consideration in production.
@@ -35,7 +32,7 @@ internal static class ChatClientAgentFactory
         // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
         s_azureOpenAIClient = new OpenAIClient(
             new BearerTokenPolicy(new DefaultAzureCredential(), "https://ai.azure.com/.default"),
-            new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
+            new OpenAIClientOptions { Endpoint = endpoint });
     }
 
     public static ChatClientAgent CreateAgenticChat()
