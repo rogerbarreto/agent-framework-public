@@ -15,9 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Azure.AI.OpenAI consumers require the OpenAI 2.10-compatible MEAI dependency line. -->
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" VersionOverride="10.6.0" />
-    <PackageReference Include="OpenAI" VersionOverride="2.10.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
   </ItemGroup>
 
   <ItemGroup>
