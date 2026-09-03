@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
-namespace Microsoft.Agents.AI.Hosting;
+namespace Microsoft.Agents.AI;
 
 /// <summary>
 /// Provides an abstract base class for agent session stores that delegate operations to an inner store

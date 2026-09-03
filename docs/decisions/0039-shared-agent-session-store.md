@@ -51,6 +51,9 @@ Chosen option: **Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Ab
 The duplicate types in `Microsoft.Agents.AI.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting` are removed.
 Both packages reference the shared type directly.
 
+`DelegatingAgentSessionStore` lives in the `Microsoft.Agents.AI` package beside `ChatClientAgent`, providing
+the common decorator base without requiring a hosting-protocol package.
+
 The conventional Hosting implementations adopt the same behavior. `IsolationKeyScopedAgentSessionStore`
 adds the value from `AgentIsolationKeyProvider` under the `isolation` partition while preserving existing
 partitions. Protocol-specific hosting can add named partitions such as `user`, `tenant`, or `chat` before

@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 
-namespace Microsoft.Agents.AI.Hosting.UnitTests;
+namespace Microsoft.Agents.AI.UnitTests;
 
 /// <summary>
 /// Unit tests for the <see cref="DelegatingAgentSessionStore"/> class.
@@ -40,7 +40,7 @@ public class DelegatingAgentSessionStoreTests
                 It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
                 It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
+            .Returns(default(ValueTask));
 
         this._delegatingStore = new TestDelegatingAgentSessionStore(this._innerStoreMock.Object);
     }
@@ -122,7 +122,7 @@ public class DelegatingAgentSessionStoreTests
                 It.Is<AgentSessionStoreKey>(key => key.Equals(expectedKey)),
                 It.Is<AgentSession>(s => s == expectedSession),
                 It.Is<CancellationToken>(ct => ct == expectedCancellationToken)))
-            .Returns(ValueTask.CompletedTask);
+            .Returns(default(ValueTask));
 
         // Act
         await this._delegatingStore.SaveSessionAsync(
@@ -205,7 +205,7 @@ public class DelegatingAgentSessionStoreTests
         // Arrange
         var expectedKey = new AgentSessionStoreKey("test-conversation-id");
         var expectedSession = new TestAgentSession();
-        var taskCompletionSource = new TaskCompletionSource();
+        var taskCompletionSource = new TaskCompletionSource<bool>();
 
         var innerStoreMock = new Mock<AgentSessionStore>();
         innerStoreMock
@@ -226,7 +226,7 @@ public class DelegatingAgentSessionStoreTests
 
         // Assert
         Assert.False(resultTask.IsCompleted);
-        taskCompletionSource.SetResult();
+        taskCompletionSource.SetResult(true);
         Assert.True(resultTask.IsCompleted);
         await resultTask;
     }
