@@ -54,9 +54,8 @@ sessions by user. `AIHostAgent` uses `GetOrCreateSessionAsync` when it needs a r
 
 Azure Blob Storage hashes a tagged, length-prefixed encoding of `userId` and `conversationId` under a
 version 2 path. This prevents a scoped session from sharing a blob with an unscoped conversation whose
-identifier contains the old delimiter. Reading version 1 keys is available only through
-`EnableLegacyKeyFallback`, which defaults to `false`. It is intended for a controlled migration after all
-application instances write version 2 keys and only when scoped and unscoped identifiers cannot coexist.
+identifier contains the old delimiter. Version 1 keys are not read because the package is still preview and
+the version 1 format cannot distinguish those two cases safely.
 
 ## Consequences
 
@@ -72,7 +71,6 @@ Negative:
 - This is a source-breaking change for implementations of the preview Hosting contract.
 - Callers must pass `userId: null` explicitly when no user partition exists.
 - Consumers that need deletion must use a storage-specific API until a separate shared deletion capability is defined.
-- Existing Azure Blob sessions require an explicit, controlled version 1 fallback during migration.
 
 ## More Information
 

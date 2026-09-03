@@ -46,7 +46,6 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     private readonly string _agentKey;
     private readonly string? _blobNamePrefix;
     private readonly bool _createContainerIfNotExists;
-    private readonly bool _enableLegacyKeyFallback;
     private Task? _containerInitializationTask;
 
     /// <summary>
@@ -68,7 +67,6 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         options ??= new AzureBlobAgentSessionStoreOptions();
         this._createContainerIfNotExists = options.CreateContainerIfNotExists;
-        this._enableLegacyKeyFallback = options.EnableLegacyKeyFallback;
         this._blobNamePrefix = NormalizePrefix(options.BlobNamePrefix);
 
         if (this._blobNamePrefix is { Length: > MaxBlobNameLength - BaseBlobNameLength - 1 })
@@ -115,18 +113,9 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        AgentSession? session = await this.TryGetSessionAsync(
-            agent,
-            this.GetBlobName(conversationId, userId),
-            cancellationToken).ConfigureAwait(false);
-        if (session is not null || !this._enableLegacyKeyFallback)
-        {
-            return session;
-        }
-
         return await this.TryGetSessionAsync(
             agent,
-            this.GetLegacyBlobName(conversationId, userId),
+            this.GetBlobName(conversationId, userId),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -192,19 +181,6 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
             : $"{this._blobNamePrefix}/{baseName}";
     }
 
-    internal string GetLegacyBlobName(string conversationId, string? userId)
-    {
-        string legacyConversationId = userId is null
-            ? conversationId
-            : $"{EscapeIsolationKey(userId)}::{conversationId}";
-        string sessionKey = ComputeKey(legacyConversationId);
-        string baseName = $"v1/{this._agentKey}/{sessionKey}.json";
-
-        return this._blobNamePrefix is null
-            ? baseName
-            : $"{this._blobNamePrefix}/{baseName}";
-    }
-
     private static string BuildLogicalKey(string conversationId, string? userId)
     {
         StringBuilder builder = new();
@@ -223,9 +199,6 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         builder.Append('|');
     }
-
-    private static string EscapeIsolationKey(string userId)
-        => userId.Replace("\\", "\\\\").Replace(":", "\\:");
 
     private static void ValidateUserId(string? userId)
     {

@@ -22,7 +22,4 @@
     <ProjectReference Include="..\Microsoft.Agents.AI.Hosting\Microsoft.Agents.AI.Hosting.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="Microsoft.Agents.AI.Hosting.AzureStorage.UnitTests" />
-  </ItemGroup>
 </Project>

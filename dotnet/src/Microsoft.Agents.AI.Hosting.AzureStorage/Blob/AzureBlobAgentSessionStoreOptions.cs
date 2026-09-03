@@ -17,17 +17,6 @@ public sealed class AzureBlobAgentSessionStoreOptions
     public bool CreateContainerIfNotExists { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether reads may fall back to the legacy version 1 blob key.
-    /// </summary>
-    /// <remarks>
-    /// Defaults to <see langword="false"/> because the legacy key can map a scoped session and an unscoped
-    /// session to the same blob. Enable this only during a controlled migration after every application
-    /// instance writes the current key format and only when scoped and unscoped session identifiers cannot
-    /// coexist. Sessions loaded through the fallback are written with the current key on their next save.
-    /// </remarks>
-    public bool EnableLegacyKeyFallback { get; set; }
-
-    /// <summary>
     /// Gets or sets the blob name prefix to use for organizing sessions.
     /// </summary>
     /// <remarks>
