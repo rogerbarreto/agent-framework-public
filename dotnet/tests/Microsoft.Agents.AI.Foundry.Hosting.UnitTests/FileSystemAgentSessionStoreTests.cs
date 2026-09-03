@@ -80,7 +80,7 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
         var agent = new TestAgent();
         string agentDirectory = AgentDirectory(store, "name:test-agent");
         Directory.CreateDirectory(agentDirectory);
-        File.WriteAllText(Path.Combine(agentDirectory, $"k-{key.StableStorageKey}.json"), string.Empty);
+        File.WriteAllText(SessionPath(store, "name:test-agent", key), string.Empty);
 
         AgentSession? session = await store.GetSessionAsync(agent, key);
 
@@ -97,7 +97,7 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
 
         await store.SaveSessionAsync(new TestAgent("{\"workflow\":\"x\"}"), key, NewSession());
 
-        Assert.True(File.Exists(Path.Combine(AgentDirectory(store, "name:test-agent"), $"k-{key.StableStorageKey}.json")));
+        Assert.True(File.Exists(SessionPath(store, "name:test-agent", key)));
     }
 
     [Fact]
@@ -126,8 +126,8 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
         await store.SaveSessionAsync(agentA, key, NewSession());
         await store.SaveSessionAsync(agentB, key, NewSession());
 
-        string pathA = Path.Combine(AgentDirectory(store, "name:AgentA"), $"k-{key.StableStorageKey}.json");
-        string pathB = Path.Combine(AgentDirectory(store, "name:AgentB"), $"k-{key.StableStorageKey}.json");
+        string pathA = SessionPath(store, "name:AgentA", key);
+        string pathB = SessionPath(store, "name:AgentB", key);
         Assert.Contains("\"a\"", File.ReadAllText(pathA), StringComparison.Ordinal);
         Assert.Contains("\"b\"", File.ReadAllText(pathB), StringComparison.Ordinal);
     }
@@ -142,7 +142,7 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
         await store.SaveSessionAsync(new TestAgent(), key, NewSession());
 
         string file = Assert.Single(Directory.GetFiles(store.RootDirectory, "*.json", SearchOption.AllDirectories));
-        Assert.Equal($"k-{key.StableStorageKey}.json", Path.GetFileName(file));
+        Assert.Equal(Path.GetFileName(SessionPath(store, "name:test-agent", key)), Path.GetFileName(file));
         Assert.StartsWith(Path.GetFullPath(this._root) + Path.DirectorySeparatorChar, Path.GetFullPath(file), StringComparison.Ordinal);
     }
 
@@ -189,7 +189,7 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
 
         await Task.WhenAll(tasks);
 
-        Assert.True(File.Exists(Path.Combine(AgentDirectory(store, "name:test-agent"), $"k-{key.StableStorageKey}.json")));
+        Assert.True(File.Exists(SessionPath(store, "name:test-agent", key)));
         Assert.Empty(Directory.GetFiles(store.RootDirectory, "*.tmp", SearchOption.AllDirectories));
     }
 
@@ -303,7 +303,16 @@ public sealed class FileSystemAgentSessionStoreTests : IDisposable
     private static string AgentDirectory(FileSystemAgentSessionStore store, string identity)
         => Path.Combine(
             store.RootDirectory,
-            "a-" + new AgentSessionStoreKey(identity).StableStorageKey);
+            "a-" + FoundryAgentSessionKeyEncoder.BuildAgentStorageKey(identity));
+
+    private static string SessionPath(
+        FileSystemAgentSessionStore store,
+        string identity,
+        AgentSessionStoreKey key)
+        => Path.Combine(
+            AgentDirectory(store, identity),
+            "k-" + FoundryAgentSessionKeyEncoder.BuildStorageKey(
+                FoundryAgentSessionKeyEncoder.BuildLogicalKey(identity, key)) + ".json");
 
     private sealed class TestSession : AgentSession;
 

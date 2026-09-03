@@ -31,7 +31,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class InMemoryAgentSessionStore : AgentSessionStore
 {
-    private readonly ConcurrentDictionary<string, JsonElement> _sessions = new();
+    private readonly ConcurrentDictionary<(string AgentIdentity, AgentSessionStoreKey Key), JsonElement> _sessions = new();
 
     /// <inheritdoc/>
     public override async ValueTask SaveSessionAsync(
@@ -44,7 +44,7 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(session);
 
-        string storageKey = GetKey(agent, key);
+        var storageKey = GetKey(agent, key);
         this._sessions[storageKey] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
@@ -65,6 +65,8 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
         return await agent.DeserializeSessionAsync(existingSession, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private static string GetKey(AIAgent agent, AgentSessionStoreKey key)
-        => $"{FoundryHostingAgent.GetSessionStorageIdentity(agent, allowInstanceId: true)}:{key.StableStorageKey}";
+    private static (string AgentIdentity, AgentSessionStoreKey Key) GetKey(
+        AIAgent agent,
+        AgentSessionStoreKey key)
+        => (FoundryHostingAgent.GetSessionStorageIdentity(agent, allowInstanceId: true), key);
 }

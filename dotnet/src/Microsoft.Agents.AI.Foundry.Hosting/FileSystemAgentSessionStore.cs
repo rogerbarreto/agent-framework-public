@@ -246,10 +246,12 @@ public sealed class FileSystemAgentSessionStore : AgentSessionStore
         // Persistent storage requires the stable name or keyed registration carried by the hosted
         // wrapper. Hashing it avoids case-insensitive and platform-specific directory collisions.
         string agentIdentity = FoundryHostingAgent.GetSessionStorageIdentity(agent);
-        string agentKey = new AgentSessionStoreKey(agentIdentity).StableStorageKey;
+        string agentKey = FoundryAgentSessionKeyEncoder.BuildAgentStorageKey(agentIdentity);
+        string sessionKey = FoundryAgentSessionKeyEncoder.BuildStorageKey(
+            FoundryAgentSessionKeyEncoder.BuildLogicalKey(agentIdentity, key));
         string dir = Path.Combine(this.RootDirectory, "a-" + agentKey);
 
-        string path = Path.Combine(dir, "k-" + key.StableStorageKey + ".json");
+        string path = Path.Combine(dir, "k-" + sessionKey + ".json");
 
         // Defense in depth: regardless of per-segment handling, the fully-resolved path must remain
         // under the storage root. Reject anything that escapes (CWE-22).

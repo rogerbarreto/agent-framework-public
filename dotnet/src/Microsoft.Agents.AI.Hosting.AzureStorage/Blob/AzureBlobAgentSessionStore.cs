@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
@@ -170,12 +171,28 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
     private string GetBlobName(AgentSessionStoreKey key)
     {
-        string baseName = $"v2/{this._agentKey}/{key.StableStorageKey}.json";
+        string baseName = $"v2/{this._agentKey}/{ComputeSessionKey(key)}.json";
 
         return this._blobNamePrefix is null
             ? baseName
             : $"{this._blobNamePrefix}/{baseName}";
     }
+
+    private static string ComputeSessionKey(AgentSessionStoreKey key)
+    {
+        StringBuilder builder = new();
+        AppendComponent(builder, 's', key.SessionId);
+        foreach (KeyValuePair<string, string> partition in key.Partitions)
+        {
+            AppendComponent(builder, 'n', partition.Key);
+            AppendComponent(builder, 'v', partition.Value);
+        }
+
+        return ComputeKey(builder.ToString());
+    }
+
+    private static void AppendComponent(StringBuilder builder, char prefix, string value)
+        => builder.Append(prefix).Append(value.Length).Append(':').Append(value).Append('|');
 
     private static async Task WaitWithCancellationAsync(Task task, CancellationToken cancellationToken)
     {

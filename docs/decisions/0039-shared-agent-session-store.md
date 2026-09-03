@@ -45,8 +45,7 @@ Chosen option: **Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Ab
 - `AgentSessionStoreKey.SessionId` identifies the logical session.
 - `AgentSessionStoreKey.Partitions` holds zero or more named isolation dimensions. Every partition is
   part of identity and implementations cannot ignore unknown partitions.
-- Partition order does not affect identity. Abstractions provides a stable, opaque storage key derived
-  from the session id and every partition.
+- Partition order does not affect identity. Physical encoding remains the responsibility of each store.
 - `DeleteSessionAsync` and service inspection are not part of the shared contract.
 
 The duplicate types in `Microsoft.Agents.AI.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting` are removed.
@@ -57,8 +56,8 @@ adds the value from `AgentIsolationKeyProvider` under the `isolation` partition 
 partitions. Protocol-specific hosting can add named partitions such as `user`, `tenant`, or `chat` before
 loading the session. `AIHostAgent` uses `GetOrCreateSessionAsync` when it needs a ready session.
 
-Azure Blob Storage and the filesystem store use `AgentSessionStoreKey.StableStorageKey`. Foundry State
-Store incorporates the same session id and partition collection into its item identity. Version 1 Azure
+Azure Blob Storage, filesystem storage, and Foundry State Store each encode the session id and every
+partition into their own collision-safe physical key. Version 1 Azure
 Blob keys are not read because the package is still preview and the previous format cannot distinguish
 all partition combinations safely.
 

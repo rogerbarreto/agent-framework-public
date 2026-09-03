@@ -3,8 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,8 +51,6 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class FoundryAgentSessionStore : AgentSessionStore
 {
-    private static readonly UTF8Encoding s_strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
     /// <summary>
     /// The default state-store name used to hold every agent session persisted by this store.
     /// </summary>
@@ -137,11 +133,11 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
         BinaryData sessionData = ToBinaryData(serialized);
 
-        string logicalKey = BuildLogicalKey(agentIdentity, key);
+        string logicalKey = FoundryAgentSessionKeyEncoder.BuildLogicalKey(agentIdentity, key);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         await store.SetItemAsync(
-            BuildItemKey(logicalKey),
+            FoundryAgentSessionKeyEncoder.BuildStorageKey(logicalKey),
             new Dictionary<string, BinaryData>
             {
                 [SessionField] = sessionData,
@@ -159,12 +155,16 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         _ = Throw.IfNull(agent);
         _ = Throw.IfNull(key);
 
-        string logicalKey = BuildLogicalKey(FoundryHostingAgent.GetSessionStorageIdentity(agent), key);
+        string logicalKey = FoundryAgentSessionKeyEncoder.BuildLogicalKey(
+            FoundryHostingAgent.GetSessionStorageIdentity(agent),
+            key);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         // GetItemAsync already answers null for an item that is not there, which is exactly the
         // "nothing stored" result this method contracts to return.
-        StateStoreItem? item = await store.GetItemAsync(BuildItemKey(logicalKey), cancellationToken).ConfigureAwait(false);
+        StateStoreItem? item = await store.GetItemAsync(
+            FoundryAgentSessionKeyEncoder.BuildStorageKey(logicalKey),
+            cancellationToken).ConfigureAwait(false);
         if (!FoundryStateStoreJson.TryGetField(item, SessionField, out BinaryData? sessionData))
         {
             return null;
@@ -183,57 +183,6 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// </summary>
     private ValueTask<FoundryStateStore> GetStoreAsync(CancellationToken cancellationToken)
         => this._binding.GetAsync(cancellationToken);
-
-    /// <summary>
-    /// Builds an unambiguous readable partition key from the hosted agent identity, end user, and
-    /// conversation. Each component carries its length so delimiters inside values cannot collide.
-    /// </summary>
-    internal static string BuildLogicalKey(string agentIdentity, AgentSessionStoreKey key)
-    {
-        _ = Throw.IfNull(key);
-
-        StringBuilder builder = new();
-        AppendComponent(builder, 'a', Throw.IfNullOrWhitespace(agentIdentity));
-        AppendComponent(builder, 's', key.SessionId);
-        foreach (KeyValuePair<string, string> partition in key.Partitions)
-        {
-            AppendComponent(builder, 'n', partition.Key);
-            AppendComponent(builder, 'v', partition.Value);
-        }
-        builder.Length--;
-        return builder.ToString();
-    }
-
-    private static void AppendComponent(StringBuilder builder, char prefix, string? value)
-    {
-        builder.Append(prefix).Append(value?.Length ?? -1).Append(':');
-        if (value is not null)
-        {
-            builder.Append(value);
-        }
-
-        builder.Append('|');
-    }
-
-    /// <summary>
-    /// Reduces a logical key to a fixed-length item key. The platform limits an item key to 128
-    /// characters, which an agent identity plus a session id and its partitions can exceed, so the
-    /// logical key is hashed rather than truncated: truncation would let two different sessions
-    /// share a key and therefore overwrite each other's session.
-    /// </summary>
-    internal static string BuildItemKey(string logicalKey)
-    {
-        byte[] hash;
-        try
-        {
-            hash = SHA256.HashData(s_strictUtf8.GetBytes(logicalKey));
-        }
-        catch (EncoderFallbackException exception)
-        {
-            throw new ArgumentException("Session keys and agent identities must contain valid UTF-16 text.", nameof(logicalKey), exception);
-        }
-        return $"s-{Convert.ToBase64String(hash).TrimEnd('=').Replace('+', '-').Replace('/', '_')}";
-    }
 
     private static BinaryData ToBinaryData(JsonElement element) => FoundryStateStoreJson.ToBinaryData(element);
 

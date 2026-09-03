@@ -142,7 +142,8 @@ minted `resp_*` id when the protocol creates a continuation id. No agent-side ho
 the convenience method already performs lookup or creation.
 
 `AgentSessionStoreKey` contains a session id plus arbitrary named partitions. Every partition contributes
-to identity, independent of dictionary order. Stores must not ignore unknown partitions. Provider-specific
+to identity, independent of dictionary order. Stores must not ignore unknown partitions. Physical key
+encoding belongs to each store implementation. Provider-specific
 metadata such as Foundry tags is not part of the key or the Abstractions contract.
 
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory

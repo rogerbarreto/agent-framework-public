@@ -52,11 +52,10 @@ public sealed class AgentSessionStoreKeyTests
         // Act and assert
         Assert.Equal(first, second);
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
-        Assert.Equal(first.StableStorageKey, second.StableStorageKey);
     }
 
     [Fact]
-    public void StableStorageKey_DistinguishesPartitionNamesValuesAndMissingPartitions()
+    public void Equality_DistinguishesPartitionNamesValuesAndMissingPartitions()
     {
         // Arrange
         var unpartitioned = new AgentSessionStoreKey("tenant::session");
@@ -64,8 +63,8 @@ public sealed class AgentSessionStoreKeyTests
         var userPartition = new AgentSessionStoreKey("session").WithPartition("user", "tenant");
 
         // Act and assert
-        Assert.NotEqual(unpartitioned.StableStorageKey, tenantPartition.StableStorageKey);
-        Assert.NotEqual(tenantPartition.StableStorageKey, userPartition.StableStorageKey);
+        Assert.NotEqual(unpartitioned, tenantPartition);
+        Assert.NotEqual(tenantPartition, userPartition);
     }
 
     [Fact]
@@ -116,28 +115,5 @@ public sealed class AgentSessionStoreKeyTests
             () => new AgentSessionStoreKey(
                 "session-1",
                 new Dictionary<string, string> { [name] = value }));
-    }
-
-    [Fact]
-    public void Constructor_InvalidUtf16SessionId_Throws()
-    {
-        // Arrange
-        string invalid = new((char)0xD800, 1);
-
-        // Act and assert
-        Assert.Throws<ArgumentException>(() => new AgentSessionStoreKey(invalid));
-    }
-
-    [Fact]
-    public void Constructor_InvalidUtf16Partition_Throws()
-    {
-        // Arrange
-        string invalid = new((char)0xD800, 1);
-
-        // Act and assert
-        Assert.Throws<ArgumentException>(
-            () => new AgentSessionStoreKey(
-                "session-1",
-                new Dictionary<string, string> { ["tenant"] = invalid }));
     }
 }

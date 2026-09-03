@@ -304,7 +304,7 @@ public sealed class FoundryAgentSessionStoreTests
         string expected)
     {
         // Act
-        string key = FoundryAgentSessionStore.BuildLogicalKey(agentIdentity, Key(sessionId));
+        string key = FoundryAgentSessionKeyEncoder.BuildLogicalKey(agentIdentity, Key(sessionId));
 
         // Assert
         Assert.Equal(expected, key);
@@ -314,30 +314,30 @@ public sealed class FoundryAgentSessionStoreTests
     public void BuildLogicalKey_DelimitersInsideComponents_DoNotCollide()
     {
         // Act
-        string first = FoundryAgentSessionStore.BuildLogicalKey(
+        string first = FoundryAgentSessionKeyEncoder.BuildLogicalKey(
             "name:Concierge",
             Key("x:c-y", "user", "alice"));
-        string second = FoundryAgentSessionStore.BuildLogicalKey(
+        string second = FoundryAgentSessionKeyEncoder.BuildLogicalKey(
             "name:Concierge",
             Key("y", "user", "alice:c-x"));
 
         // Assert
         Assert.NotEqual(first, second);
         Assert.NotEqual(
-            FoundryAgentSessionStore.BuildItemKey(first),
-            FoundryAgentSessionStore.BuildItemKey(second));
+            FoundryAgentSessionKeyEncoder.BuildStorageKey(first),
+            FoundryAgentSessionKeyEncoder.BuildStorageKey(second));
     }
 
     [Fact]
     public void BuildItemKey_StaysWithinThePlatformKeyLimitForAnyInput()
     {
         // Arrange
-        var logicalKey = FoundryAgentSessionStore.BuildLogicalKey(
+        var logicalKey = FoundryAgentSessionKeyEncoder.BuildLogicalKey(
             $"name:{new string('a', 200)}",
             Key(new string('s', 200), "user", new string('u', 200)));
 
         // Act
-        var itemKey = FoundryAgentSessionStore.BuildItemKey(logicalKey);
+        var itemKey = FoundryAgentSessionKeyEncoder.BuildStorageKey(logicalKey);
 
         // Assert
         Assert.InRange(itemKey.Length, 1, 128);
@@ -347,9 +347,9 @@ public sealed class FoundryAgentSessionStoreTests
     public void BuildItemKey_IsStableAndDistinctPerLogicalKey()
     {
         // Arrange / Act
-        var first = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|s6:conv-1|n4:user|v5:alice");
-        var same = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|s6:conv-1|n4:user|v5:alice");
-        var other = FoundryAgentSessionStore.BuildItemKey("a14:name:Concierge|s6:conv-1|n4:user|v3:bob");
+        var first = FoundryAgentSessionKeyEncoder.BuildStorageKey("a14:name:Concierge|s6:conv-1|n4:user|v5:alice");
+        var same = FoundryAgentSessionKeyEncoder.BuildStorageKey("a14:name:Concierge|s6:conv-1|n4:user|v5:alice");
+        var other = FoundryAgentSessionKeyEncoder.BuildStorageKey("a14:name:Concierge|s6:conv-1|n4:user|v3:bob");
 
         // Assert
         Assert.Equal(first, same);

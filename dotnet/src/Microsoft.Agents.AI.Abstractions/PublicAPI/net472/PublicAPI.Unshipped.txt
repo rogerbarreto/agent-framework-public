@@ -9,7 +9,6 @@
 [MAAI001]Microsoft.Agents.AI.AgentSessionStoreKey.Equals(Microsoft.Agents.AI.AgentSessionStoreKey? other) -> bool
 [MAAI001]Microsoft.Agents.AI.AgentSessionStoreKey.Partitions.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
 [MAAI001]Microsoft.Agents.AI.AgentSessionStoreKey.SessionId.get -> string!
-[MAAI001]Microsoft.Agents.AI.AgentSessionStoreKey.StableStorageKey.get -> string!
 [MAAI001]Microsoft.Agents.AI.AgentSessionStoreKey.WithPartition(string! name, string! value) -> Microsoft.Agents.AI.AgentSessionStoreKey!
 [MAAI001]override Microsoft.Agents.AI.AgentSessionStoreKey.Equals(object? obj) -> bool
 [MAAI001]override Microsoft.Agents.AI.AgentSessionStoreKey.GetHashCode() -> int

@@ -4,8 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Shared.DiagnosticIds;
 using Microsoft.Shared.Diagnostics;
 
@@ -28,8 +26,6 @@ namespace Microsoft.Agents.AI;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
 {
-    private static readonly UTF8Encoding s_strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
     private readonly int _hashCode;
 
     /// <summary>
@@ -43,7 +39,7 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
         string sessionId,
         IReadOnlyDictionary<string, string>? partitions = null)
     {
-        this.SessionId = ValidateIdentityComponent(sessionId, nameof(sessionId));
+        this.SessionId = Throw.IfNullOrWhitespace(sessionId);
 
         var partitionCopy = new SortedDictionary<string, string>(StringComparer.Ordinal);
         if (partitions is not null)
@@ -51,16 +47,14 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
             foreach (KeyValuePair<string, string> partition in partitions)
             {
                 partitionCopy.Add(
-                    ValidateIdentityComponent(partition.Key, nameof(partitions)),
-                    ValidateIdentityComponent(partition.Value, nameof(partitions)));
+                    Throw.IfNullOrWhitespace(partition.Key, nameof(partitions)),
+                    Throw.IfNullOrWhitespace(partition.Value, nameof(partitions)));
             }
         }
 
         this.Partitions = new ReadOnlyDictionary<string, string>(partitionCopy);
 
-        string canonicalValue = this.BuildCanonicalValue();
-        this.StableStorageKey = ComputeStableStorageKey(canonicalValue);
-        this._hashCode = StringComparer.Ordinal.GetHashCode(canonicalValue);
+        this._hashCode = this.ComputeHashCode();
     }
 
     /// <summary>
@@ -84,8 +78,8 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
     /// </returns>
     public AgentSessionStoreKey WithPartition(string name, string value)
     {
-        name = ValidateIdentityComponent(name, nameof(name));
-        value = ValidateIdentityComponent(value, nameof(value));
+        name = Throw.IfNullOrWhitespace(name);
+        value = Throw.IfNullOrWhitespace(value);
 
         if (this.Partitions.TryGetValue(name, out string? existingValue)
             && string.Equals(existingValue, value, StringComparison.Ordinal))
@@ -102,17 +96,6 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
 
         return new AgentSessionStoreKey(this.SessionId, partitions);
     }
-
-    /// <summary>
-    /// Gets a deterministic, opaque value suitable for addressing this key in persistent storage.
-    /// </summary>
-    /// <value>
-    /// A versioned Base64URL-encoded SHA-256 hash of the session identifier and every partition.
-    /// </value>
-    /// <remarks>
-    /// This value is stable across processes and does not expose the original session or partition values.
-    /// </remarks>
-    public string StableStorageKey { get; }
 
     /// <inheritdoc/>
     public bool Equals(AgentSessionStoreKey? other)
@@ -147,49 +130,18 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
     /// <inheritdoc/>
     public override int GetHashCode() => this._hashCode;
 
-    private string BuildCanonicalValue()
+    private int ComputeHashCode()
     {
-        StringBuilder builder = new();
-        builder.Append("v1|s").Append(this.SessionId.Length).Append(':').Append(this.SessionId);
-        builder.Append("|p").Append(this.Partitions.Count).Append('|');
-
-        foreach (KeyValuePair<string, string> partition in this.Partitions)
+        unchecked
         {
-            builder.Append('n').Append(partition.Key.Length).Append(':').Append(partition.Key);
-            builder.Append('v').Append(partition.Value.Length).Append(':').Append(partition.Value);
-            builder.Append('|');
-        }
+            int hashCode = StringComparer.Ordinal.GetHashCode(this.SessionId);
+            foreach (KeyValuePair<string, string> partition in this.Partitions)
+            {
+                hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Key);
+                hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Value);
+            }
 
-        return builder.ToString();
-    }
-
-    private static string ComputeStableStorageKey(string canonicalValue)
-    {
-        byte[] input = s_strictUtf8.GetBytes(canonicalValue);
-#if NET8_0_OR_GREATER
-        byte[] hash = SHA256.HashData(input);
-#else
-        byte[] hash;
-        using (SHA256 sha256 = SHA256.Create())
-        {
-            hash = sha256.ComputeHash(input);
-        }
-#endif
-        return $"ask1_{Convert.ToBase64String(hash).TrimEnd('=').Replace('+', '-').Replace('/', '_')}";
-    }
-
-    private static string ValidateIdentityComponent(string value, string paramName)
-    {
-        value = Throw.IfNullOrWhitespace(value, paramName);
-
-        try
-        {
-            _ = s_strictUtf8.GetByteCount(value);
-            return value;
-        }
-        catch (EncoderFallbackException exception)
-        {
-            throw new ArgumentException("Session key values must contain valid UTF-16 text.", paramName, exception);
+            return hashCode;
         }
     }
 }
