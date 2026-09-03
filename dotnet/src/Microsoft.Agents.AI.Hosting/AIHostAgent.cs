@@ -51,15 +51,25 @@ public class AIHostAgent : DelegatingAIAgent
     /// <returns>A task that represents the asynchronous operation. The task result contains the agent session associated with the
     /// specified conversation. If no session exists, a new session is created and returned.</returns>
     public ValueTask<AgentSession> GetOrCreateSessionAsync(string conversationId, CancellationToken cancellationToken = default)
+        => this.GetOrCreateSessionAsync(new AgentSessionStoreKey(conversationId), cancellationToken);
+
+    /// <summary>
+    /// Gets an existing agent session for the specified storage key, or creates a new one if none exists.
+    /// </summary>
+    /// <param name="key">The key that identifies and partitions the session.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous operation.</param>
+    /// <returns>A task whose result contains the stored or newly created agent session.</returns>
+    public ValueTask<AgentSession> GetOrCreateSessionAsync(
+        AgentSessionStoreKey key,
+        CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrWhitespace(conversationId);
+        _ = Throw.IfNull(key);
 
         MarkFeatureUsed();
         return this._sessionStore.GetOrCreateSessionAsync(
             this.InnerAgent,
-            conversationId,
-            userId: null,
-            cancellationToken: cancellationToken);
+            key,
+            cancellationToken);
     }
 
     /// <summary>
@@ -72,17 +82,29 @@ public class AIHostAgent : DelegatingAIAgent
     /// <exception cref="ArgumentException"><paramref name="conversationId"/> is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is <see langword="null"/>.</exception>
     public ValueTask SaveSessionAsync(string conversationId, AgentSession session, CancellationToken cancellationToken = default)
+        => this.SaveSessionAsync(new AgentSessionStoreKey(conversationId), session, cancellationToken);
+
+    /// <summary>
+    /// Persists a session under the specified storage key.
+    /// </summary>
+    /// <param name="key">The key that identifies and partitions the session.</param>
+    /// <param name="session">The session to persist.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous save operation.</returns>
+    public ValueTask SaveSessionAsync(
+        AgentSessionStoreKey key,
+        AgentSession session,
+        CancellationToken cancellationToken = default)
     {
-        _ = Throw.IfNullOrWhitespace(conversationId);
+        _ = Throw.IfNull(key);
         _ = Throw.IfNull(session);
 
         MarkFeatureUsed();
         return this._sessionStore.SaveSessionAsync(
             this.InnerAgent,
-            conversationId,
+            key,
             session,
-            userId: null,
-            cancellationToken: cancellationToken);
+            cancellationToken);
     }
 
     /// <inheritdoc />

@@ -9,7 +9,7 @@ namespace Microsoft.Agents.AI.Hosting;
 
 /// <summary>
 /// This store implementation does not have any store under the hood and therefore does not store sessions.
-/// <see cref="GetSessionAsync(AIAgent, string, string?, CancellationToken)"/> always returns <see langword="null"/>.
+/// <see cref="GetSessionAsync(AIAgent, AgentSessionStoreKey, CancellationToken)"/> always returns <see langword="null"/>.
 /// </summary>
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class NoopAgentSessionStore : AgentSessionStore
@@ -17,9 +17,8 @@ public sealed class NoopAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default)
     {
         return default;
@@ -28,8 +27,7 @@ public sealed class NoopAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
         return new((AgentSession?)null);

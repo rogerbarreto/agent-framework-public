@@ -20,17 +20,14 @@ public sealed class AgentSessionStoreTests
         var storedSession = new TestAgentSession();
         var store = new TestAgentSessionStore(storedSession);
         var agent = new Mock<AIAgent>();
+        var key = new AgentSessionStoreKey("conversation-1").WithPartition("user", "user-1");
 
         // Act
-        AgentSession session = await store.GetOrCreateSessionAsync(
-            agent.Object,
-            "conversation-1",
-            "user-1");
+        AgentSession session = await store.GetOrCreateSessionAsync(agent.Object, key);
 
         // Assert
         Assert.Same(storedSession, session);
-        Assert.Equal("conversation-1", store.LastConversationId);
-        Assert.Equal("user-1", store.LastUserId);
+        Assert.Same(key, store.LastKey);
         agent.Protected().Verify(
             "CreateSessionCoreAsync",
             Times.Never(),
@@ -44,15 +41,13 @@ public sealed class AgentSessionStoreTests
         var createdSession = new TestAgentSession();
         var store = new TestAgentSessionStore(session: null);
         var agent = new Mock<AIAgent>();
+        var key = new AgentSessionStoreKey("conversation-1");
         agent.Protected()
             .Setup<ValueTask<AgentSession>>("CreateSessionCoreAsync", ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(createdSession);
 
         // Act
-        AgentSession session = await store.GetOrCreateSessionAsync(
-            agent.Object,
-            "conversation-1",
-            userId: null);
+        AgentSession session = await store.GetOrCreateSessionAsync(agent.Object, key);
 
         // Assert
         Assert.Same(createdSession, session);
@@ -70,31 +65,26 @@ public sealed class AgentSessionStoreTests
 
         // Act and assert
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => store.GetOrCreateSessionAsync(null!, "conversation-1", userId: null).AsTask());
+            () => store.GetOrCreateSessionAsync(null!, new AgentSessionStoreKey("conversation-1")).AsTask());
     }
 
     private sealed class TestAgentSessionStore(AgentSession? session) : AgentSessionStore
     {
-        public string? LastConversationId { get; private set; }
-
-        public string? LastUserId { get; private set; }
+        public AgentSessionStoreKey? LastKey { get; private set; }
 
         public override ValueTask<AgentSession?> GetSessionAsync(
             AIAgent agent,
-            string conversationId,
-            string? userId,
+            AgentSessionStoreKey key,
             CancellationToken cancellationToken = default)
         {
-            this.LastConversationId = conversationId;
-            this.LastUserId = userId;
+            this.LastKey = key;
             return new(session);
         }
 
         public override ValueTask SaveSessionAsync(
             AIAgent agent,
-            string conversationId,
+            AgentSessionStoreKey key,
             AgentSession session,
-            string? userId,
             CancellationToken cancellationToken = default)
             => default;
     }

@@ -22,21 +22,14 @@ public abstract class AgentSessionStore
     /// Saves an agent session to persistent storage.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation.</param>
+    /// <param name="key">The key that identifies and partitions the session.</param>
     /// <param name="session">The session to save.</param>
-    /// <param name="userId">
-    /// The per-user partition key that scopes this session to its owner. Pass <see langword="null"/> only
-    /// when there is no user context, such as in a single-user application or local development.
-    /// Non-null values must not be empty or contain only whitespace. The parameter is required so every
-    /// caller consciously decides the session scope.
-    /// </param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous save operation.</returns>
     public abstract ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -44,12 +37,7 @@ public abstract class AgentSessionStore
     /// for the given identifiers.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation to retrieve.</param>
-    /// <param name="userId">
-    /// The per-user partition key that scopes this session to its owner. It must match the value used when the
-    /// session was saved. Pass <see langword="null"/> only when there is no user context. Non-null values must
-    /// not be empty or contain only whitespace.
-    /// </param>
+    /// <param name="key">The key that identifies and partitions the session.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>
     /// A task whose result contains the restored session, or <see langword="null"/> when nothing is stored for
@@ -63,16 +51,14 @@ public abstract class AgentSessionStore
     /// </remarks>
     public abstract ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves the stored session for the given identifiers, or creates a new one when none is stored.
     /// </summary>
     /// <param name="agent">The agent that owns this session.</param>
-    /// <param name="conversationId">The unique identifier for the conversation to retrieve.</param>
-    /// <param name="userId">The per-user partition key; see <see cref="GetSessionAsync"/> for its meaning.</param>
+    /// <param name="key">The key that identifies and partitions the session.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests.</param>
     /// <returns>A task whose result is always a usable session.</returns>
     /// <remarks>
@@ -82,13 +68,12 @@ public abstract class AgentSessionStore
     /// </remarks>
     public virtual async ValueTask<AgentSession> GetOrCreateSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
 
-        return await this.GetSessionAsync(agent, conversationId, userId, cancellationToken).ConfigureAwait(false)
+        return await this.GetSessionAsync(agent, key, cancellationToken).ConfigureAwait(false)
             ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
     }
 }

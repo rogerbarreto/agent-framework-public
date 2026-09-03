@@ -22,24 +22,10 @@ public class InMemoryAgentSessionStoreTests
         var agent = new Mock<AIAgent>();
 
         // Act
-        AgentSession? session = await store.GetSessionAsync(agent.Object, "missing", userId: null);
+        AgentSession? session = await store.GetSessionAsync(agent.Object, new AgentSessionStoreKey("missing"));
 
         // Assert
         Assert.Null(session);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData(" ")]
-    public async Task GetSessionAsync_BlankUserId_ThrowsAsync(string userId)
-    {
-        // Arrange
-        var store = new InMemoryAgentSessionStore();
-        var agent = new Mock<AIAgent>();
-
-        // Act and assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => store.GetSessionAsync(agent.Object, "conversation-1", userId).AsTask());
     }
 
     [Fact]
@@ -49,14 +35,15 @@ public class InMemoryAgentSessionStoreTests
         // and a stored session that carries some state to copy.
         AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
         var store = new InMemoryAgentSessionStore();
+        var key = new AgentSessionStoreKey("s1").WithPartition("user", "user-1");
 
         AgentSession original = await agent.CreateSessionAsync();
         original.StateBag.SetValue("marker", "v1");
-        await store.SaveSessionAsync(agent, "s1", original, userId: "user-1");
+        await store.SaveSessionAsync(agent, key, original);
 
         // Act: two concurrent branches read the same stored id.
-        AgentSession? branchA = await store.GetSessionAsync(agent, "s1", userId: "user-1");
-        AgentSession? branchB = await store.GetSessionAsync(agent, "s1", userId: "user-1");
+        AgentSession? branchA = await store.GetSessionAsync(agent, key);
+        AgentSession? branchB = await store.GetSessionAsync(agent, key);
 
         // Assert: each branch is an independent instance carrying the same content.
         Assert.NotNull(branchA);
@@ -69,7 +56,7 @@ public class InMemoryAgentSessionStoreTests
         branchA.StateBag.SetValue("marker", "mutated");
         Assert.Equal("v1", branchB.StateBag.GetValue<string>("marker"));
 
-        AgentSession? branchC = await store.GetSessionAsync(agent, "s1", userId: "user-1");
+        AgentSession? branchC = await store.GetSessionAsync(agent, key);
         Assert.NotNull(branchC);
         Assert.Equal("v1", branchC.StateBag.GetValue<string>("marker"));
     }
@@ -80,13 +67,15 @@ public class InMemoryAgentSessionStoreTests
         // Arrange
         AIAgent agent = new ChatClientAgent(new NotInvokedChatClient(), name: "assistant");
         var store = new InMemoryAgentSessionStore();
+        var user1Key = new AgentSessionStoreKey("s1").WithPartition("user", "user-1");
+        var user2Key = new AgentSessionStoreKey("s1").WithPartition("user", "user-2");
         AgentSession session = await agent.CreateSessionAsync();
         session.StateBag.SetValue("marker", "user-1");
-        await store.SaveSessionAsync(agent, "s1", session, userId: "user-1");
+        await store.SaveSessionAsync(agent, user1Key, session);
 
         // Act
-        AgentSession? matchingUser = await store.GetSessionAsync(agent, "s1", userId: "user-1");
-        AgentSession? differentUser = await store.GetSessionAsync(agent, "s1", userId: "user-2");
+        AgentSession? matchingUser = await store.GetSessionAsync(agent, user1Key);
+        AgentSession? differentUser = await store.GetSessionAsync(agent, user2Key);
 
         // Assert
         Assert.NotNull(matchingUser);

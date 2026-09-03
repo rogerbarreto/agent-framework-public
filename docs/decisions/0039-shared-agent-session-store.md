@@ -22,7 +22,7 @@ on a specific hosting protocol package instead of the core agent abstractions.
 - One storage contract must work across all hosting packages.
 - Storage implementations must depend only on `Microsoft.Agents.AI.Abstractions`.
 - A lookup must distinguish a missing value from a stored value without creating state as a side effect.
-- Every caller must explicitly decide whether the session is partitioned by user.
+- The contract must support any number of isolation dimensions without privileging user identity.
 - Existing Foundry storage behavior and per-user isolation must remain unchanged.
 
 ## Considered Options
@@ -30,6 +30,7 @@ on a specific hosting protocol package instead of the core agent abstractions.
 1. Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Abstractions`.
 2. Promote the conventional Hosting contract and adapt Foundry Hosting to it.
 3. Add a third contract and keep adapters for both existing contracts.
+4. Represent session identity as an immutable key with arbitrary named partitions.
 
 ## Decision Outcome
 
@@ -40,22 +41,29 @@ Chosen option: **Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Ab
 - The abstraction and every public implementation start as experimental under diagnostic `MAAI001`.
 - `GetSessionAsync` returns `AgentSession?` and returns `null` when no session is stored.
 - `GetOrCreateSessionAsync` performs the explicit lookup or creation operation.
-- `SaveSessionAsync` and both lookup methods require a `string? userId` argument with no default value.
-  A non-null value must not be empty or contain only whitespace.
+- `SaveSessionAsync` and both lookup methods receive an `AgentSessionStoreKey`.
+- `AgentSessionStoreKey.SessionId` identifies the logical session.
+- `AgentSessionStoreKey.Partitions` holds zero or more named isolation dimensions. Every partition is
+  part of identity and implementations cannot ignore unknown partitions.
+- Partition order does not affect identity. Abstractions provides a stable, opaque storage key derived
+  from the session id and every partition.
 - `DeleteSessionAsync` and service inspection are not part of the shared contract.
 
 The duplicate types in `Microsoft.Agents.AI.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting` are removed.
 Both packages reference the shared type directly.
 
 The conventional Hosting implementations adopt the same behavior. `IsolationKeyScopedAgentSessionStore`
-passes the key from `AgentIsolationKeyProvider` as the `userId` argument while leaving `conversationId`
-unchanged. The in-memory and Azure Blob stores return `null` for a missing session and partition saved
-sessions by user. `AIHostAgent` uses `GetOrCreateSessionAsync` when it needs a ready session.
+adds the value from `AgentIsolationKeyProvider` under the `isolation` partition while preserving existing
+partitions. Protocol-specific hosting can add named partitions such as `user`, `tenant`, or `chat` before
+loading the session. `AIHostAgent` uses `GetOrCreateSessionAsync` when it needs a ready session.
 
-Azure Blob Storage hashes a tagged, length-prefixed encoding of `userId` and `conversationId` under a
-version 2 path. This prevents a scoped session from sharing a blob with an unscoped conversation whose
-identifier contains the old delimiter. Version 1 keys are not read because the package is still preview and
-the version 1 format cannot distinguish those two cases safely.
+Azure Blob Storage and the filesystem store use `AgentSessionStoreKey.StableStorageKey`. Foundry State
+Store incorporates the same session id and partition collection into its item identity. Version 1 Azure
+Blob keys are not read because the package is still preview and the previous format cannot distinguish
+all partition combinations safely.
+
+Provider-specific metadata does not belong in `AgentSessionStoreKey`. For example, Foundry item tags can
+be exposed by an overload or options type on `FoundryAgentSessionStore` without adding tags to Abstractions.
 
 ## Consequences
 
@@ -63,16 +71,16 @@ Positive:
 
 - Storage implementations can be shared by Foundry Hosting, conventional Hosting, and future protocols.
 - Missing session handling is explicit and consistent.
-- User isolation is represented by its own argument instead of being encoded into a conversation identifier.
+- Isolation dimensions are explicit, composable, and independent from any hosting protocol.
 - `Microsoft.Agents.AI.Abstractions` owns the contract alongside `AIAgent` and `AgentSession`.
 
 Negative:
 
 - This is a source-breaking change for implementations of the preview Hosting contract.
-- Callers must pass `userId: null` explicitly when no user partition exists.
+- Callers must construct an `AgentSessionStoreKey`; unpartitioned sessions use only `SessionId`.
 - Consumers that need deletion must use a storage-specific API until a separate shared deletion capability is defined.
 
 ## More Information
 
-- [ADR-0031](0031-hosted-per-user-session-storage-isolation.md) defines the explicit user partition used by the promoted contract.
+- [ADR-0031](0031-hosted-per-user-session-storage-isolation.md) records the earlier Foundry-specific user partition.
 - [ADR-0032](0032-dotnet-hosting-protocol-helpers.md) records the previous conventional Hosting contract.

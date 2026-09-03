@@ -105,7 +105,8 @@ Negative:
 
 [ADR-0039](0039-shared-agent-session-store.md) promotes this `AgentSessionStore` contract to
 `Microsoft.Agents.AI.Abstractions` and makes it the common contract for Foundry Hosting and conventional
-Hosting. The required user partition and lookup behavior defined here remain unchanged.
+Hosting. It supersedes the required `userId` parameter with `AgentSessionStoreKey.Partitions`. Foundry
+Hosting adds the resolved user identity as a named partition before loading or saving a session.
 
 ## Update (2026-07-01): local runs no longer fail closed; sample dev provider removed
 

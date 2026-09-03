@@ -34,26 +34,30 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
     private readonly ConcurrentDictionary<string, JsonElement> _sessions = new();
 
     /// <inheritdoc/>
-    public override async ValueTask SaveSessionAsync(AIAgent agent, string conversationId, AgentSession session, string? userId, CancellationToken cancellationToken = default)
+    public override async ValueTask SaveSessionAsync(
+        AIAgent agent,
+        AgentSessionStoreKey key,
+        AgentSession session,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(session);
-        ValidateUserId(userId);
 
-        var key = GetKey(agent, conversationId, userId);
-        this._sessions[key] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
+        string storageKey = GetKey(agent, key);
+        this._sessions[storageKey] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, string conversationId, string? userId, CancellationToken cancellationToken = default)
+    public override async ValueTask<AgentSession?> GetSessionAsync(
+        AIAgent agent,
+        AgentSessionStoreKey key,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
-        ValidateUserId(userId);
+        ArgumentNullException.ThrowIfNull(key);
 
-        var key = GetKey(agent, conversationId, userId);
-        if (!this._sessions.TryGetValue(key, out var existingSession))
+        if (!this._sessions.TryGetValue(GetKey(agent, key), out var existingSession))
         {
             return null;
         }
@@ -61,33 +65,6 @@ public sealed class InMemoryAgentSessionStore : AgentSessionStore
         return await agent.DeserializeSessionAsync(existingSession, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    // Keyed with the same a-/u-/c- prefix scheme as FileSystemAgentSessionStore so the in-memory store
-    // partitions per agent and per user identically. Like FileSystemAgentSessionStore, the agent segment
-    // uses agent.Name (a stable identity) and is omitted when no name is set; agent.Id is intentionally
-    // NOT used because it is regenerated on every startup for in-memory-defined agents, which would break
-    // session continuity for a transient or recreated agent. The user segment is omitted when no user id
-    // is supplied.
-    private static string GetKey(AIAgent agent, string conversationId, string? userId)
-    {
-        string key = string.Empty;
-        if (!string.IsNullOrEmpty(agent.Name))
-        {
-            key += $"a-{agent.Name}:";
-        }
-
-        if (userId is not null)
-        {
-            key += $"u-{userId}:";
-        }
-
-        return key + $"c-{conversationId}";
-    }
-
-    private static void ValidateUserId(string? userId)
-    {
-        if (userId is not null)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(userId);
-        }
-    }
+    private static string GetKey(AIAgent agent, AgentSessionStoreKey key)
+        => $"{FoundryHostingAgent.GetSessionStorageIdentity(agent, allowInstanceId: true)}:{key.StableStorageKey}";
 }

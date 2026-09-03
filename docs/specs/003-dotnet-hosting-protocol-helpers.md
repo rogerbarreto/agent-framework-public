@@ -96,21 +96,18 @@ public abstract class AgentSessionStore
 {
     public abstract ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default);
 
     public virtual ValueTask<AgentSession> GetOrCreateSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default);
 
     public abstract ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default);
 }
 ```
@@ -135,17 +132,18 @@ public sealed class HostedWorkflowState
 }
 ```
 
-For agents, the application uses `AgentSessionStore` directly. `GetSessionAsync(agent, id, userId)`
-returns `null` on a miss, while `GetOrCreateSessionAsync(agent, id, userId)` returns a ready session.
+For agents, the application uses `AgentSessionStore` directly. `GetSessionAsync(agent, key)`
+returns `null` on a miss, while `GetOrCreateSessionAsync(agent, key)` returns a ready session.
 Each successful lookup returns an independent instance, so concurrent calls can fork the same stored
 state without observing another branch's changes. The store performs no cross-call locking. An
 application that needs concurrent runs against the same id to be serialized owns that coordination.
-`SaveSessionAsync(agent, id, session, userId)` persists the post-run state, including under a newly
+`SaveSessionAsync(agent, key, session)` persists the post-run state, including under a newly
 minted `resp_*` id when the protocol creates a continuation id. No agent-side holder is needed because
 the convenience method already performs lookup or creation.
 
-Storage implementations must encode `userId` and the conversation identifier without collisions. A
-scoped tuple and an unscoped conversation identifier must never resolve to the same storage key.
+`AgentSessionStoreKey` contains a session id plus arbitrary named partitions. Every partition contributes
+to identity, independent of dictionary order. Stores must not ignore unknown partitions. Provider-specific
+metadata such as Foundry tags is not part of the key or the Abstractions contract.
 
 `HostedWorkflowState` defaults to `CheckpointManager.CreateInMemory()` and an in-memory
 `sessionId -> CheckpointInfo` cursor. Because the checkpoint store is already `sessionId`-keyed but
@@ -187,8 +185,8 @@ parsing a structured payload into a typed record), without coupling the holder t
 - Authenticate the caller before using any `GetSessionId(...)` result.
 - Authorize and bind the candidate id to the authenticated principal/tenant before using it as an
   `AgentSessionStore` key or a workflow checkpoint session id.
-- For multi-user hosts, pass a trusted `userId`, or wrap the store with
-  `IsolationKeyScopedAgentSessionStore` so `AgentIsolationKeyProvider` supplies it.
+- Multi-user hosts must add a trusted identity partition, or wrap the store with
+  `IsolationKeyScopedAgentSessionStore` so `AgentIsolationKeyProvider` supplies one.
 - Persist session/checkpoint state only after the run or stream has completed.
 
 ## E2E Code Samples
@@ -209,11 +207,8 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
     string sessionId = Authorize(http.User, candidate) ?? OpenAIResponses.CreateResponseId();
 
     var run = OpenAIResponses.ToAgentRunRequest(body);
-    var session = await sessionStore.GetOrCreateSessionAsync(
-        agent,
-        sessionId,
-        userId: null,
-        cancellationToken: ct);
+    var key = new AgentSessionStoreKey(sessionId);
+    var session = await sessionStore.GetOrCreateSessionAsync(agent, key, ct);
 
     string responseId = OpenAIResponses.CreateResponseId();
 
@@ -228,20 +223,18 @@ app.MapPost("/responses", async (HttpContext http, CancellationToken ct) =>
         }
         await sessionStore.SaveSessionAsync(
             agent,
-            responseId,
+            new AgentSessionStoreKey(responseId),
             session,
-            userId: null,
-            cancellationToken: ct);
+            ct);
         return Results.Empty;
     }
 
     var result = await agent.RunAsync(run.Messages, session, run.Options, ct);
     await sessionStore.SaveSessionAsync(
         agent,
-        responseId,
+        new AgentSessionStoreKey(responseId),
         session,
-        userId: null,
-        cancellationToken: ct);
+        ct);
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, sessionId));
 });
 ```

@@ -30,17 +30,15 @@ public class DelegatingAgentSessionStoreTests
         this._innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(this._testSession);
 
         this._innerStoreMock
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -81,23 +79,20 @@ public class DelegatingAgentSessionStoreTests
     public async Task GetSessionAsyncDelegatesToInnerStoreAsync()
     {
         // Arrange
-        const string ExpectedConversationId = "test-conversation-id";
-        const string ExpectedUserId = "test-user-id";
+        var expectedKey = new AgentSessionStoreKey("test-conversation-id").WithPartition("user", "test-user-id");
         var expectedCancellationToken = new CancellationToken();
 
         this._innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 It.Is<AIAgent>(a => a == this._agentMock.Object),
-                It.Is<string>(c => c == ExpectedConversationId),
-                It.Is<string>(u => u == ExpectedUserId),
+                It.Is<AgentSessionStoreKey>(key => key.Equals(expectedKey)),
                 It.Is<CancellationToken>(ct => ct == expectedCancellationToken)))
             .ReturnsAsync(this._testSession);
 
         // Act
         var session = await this._delegatingStore.GetSessionAsync(
             this._agentMock.Object,
-            ExpectedConversationId,
-            ExpectedUserId,
+            expectedKey,
             expectedCancellationToken);
 
         // Assert
@@ -105,8 +100,7 @@ public class DelegatingAgentSessionStoreTests
         this._innerStoreMock.Verify(
             x => x.GetSessionAsync(
                 this._agentMock.Object,
-                ExpectedConversationId,
-                ExpectedUserId,
+                expectedKey,
                 expectedCancellationToken),
             Times.Once);
     }
@@ -118,35 +112,31 @@ public class DelegatingAgentSessionStoreTests
     public async Task SaveSessionAsyncDelegatesToInnerStoreAsync()
     {
         // Arrange
-        const string ExpectedConversationId = "test-conversation-id";
-        const string ExpectedUserId = "test-user-id";
+        var expectedKey = new AgentSessionStoreKey("test-conversation-id").WithPartition("user", "test-user-id");
         var expectedCancellationToken = new CancellationToken();
         var expectedSession = new TestAgentSession();
 
         this._innerStoreMock
             .Setup(x => x.SaveSessionAsync(
                 It.Is<AIAgent>(a => a == this._agentMock.Object),
-                It.Is<string>(c => c == ExpectedConversationId),
+                It.Is<AgentSessionStoreKey>(key => key.Equals(expectedKey)),
                 It.Is<AgentSession>(s => s == expectedSession),
-                It.Is<string>(u => u == ExpectedUserId),
                 It.Is<CancellationToken>(ct => ct == expectedCancellationToken)))
             .Returns(ValueTask.CompletedTask);
 
         // Act
         await this._delegatingStore.SaveSessionAsync(
             this._agentMock.Object,
-            ExpectedConversationId,
+            expectedKey,
             expectedSession,
-            ExpectedUserId,
             expectedCancellationToken);
 
         // Assert
         this._innerStoreMock.Verify(
             x => x.SaveSessionAsync(
                 this._agentMock.Object,
-                ExpectedConversationId,
+                expectedKey,
                 expectedSession,
-                ExpectedUserId,
                 expectedCancellationToken),
             Times.Once);
     }
@@ -158,22 +148,21 @@ public class DelegatingAgentSessionStoreTests
     public async Task GetSessionAsyncAwaitsInnerStoreResultAsync()
     {
         // Arrange
-        const string ExpectedConversationId = "test-conversation-id";
+        var expectedKey = new AgentSessionStoreKey("test-conversation-id");
         var taskCompletionSource = new TaskCompletionSource<AgentSession?>();
 
         var innerStoreMock = new Mock<AgentSessionStore>();
         innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .Returns(new ValueTask<AgentSession?>(taskCompletionSource.Task));
 
         var delegatingStore = new TestDelegatingAgentSessionStore(innerStoreMock.Object);
 
         // Act
-        var resultTask = delegatingStore.GetSessionAsync(this._agentMock.Object, ExpectedConversationId, userId: null);
+        var resultTask = delegatingStore.GetSessionAsync(this._agentMock.Object, expectedKey);
 
         // Assert
         Assert.False(resultTask.IsCompleted);
@@ -189,23 +178,20 @@ public class DelegatingAgentSessionStoreTests
     public async Task GetOrCreateSessionAsyncUsesOverriddenGetSessionAsyncAsync()
     {
         // Arrange
-        const string ExpectedConversationId = "test-conversation-id";
-        const string ExpectedUserId = "test-user-id";
+        var expectedKey = new AgentSessionStoreKey("test-conversation-id").WithPartition("user", "test-user-id");
         var store = new OverridingGetSessionStore(this._innerStoreMock.Object, this._testSession);
 
         // Act
         AgentSession session = await store.GetOrCreateSessionAsync(
             this._agentMock.Object,
-            ExpectedConversationId,
-            ExpectedUserId);
+            expectedKey);
 
         // Assert
         Assert.Same(this._testSession, session);
         this._innerStoreMock.Verify(
             x => x.GetOrCreateSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -217,7 +203,7 @@ public class DelegatingAgentSessionStoreTests
     public async Task SaveSessionAsyncAwaitsInnerStoreCompletionAsync()
     {
         // Arrange
-        const string ExpectedConversationId = "test-conversation-id";
+        var expectedKey = new AgentSessionStoreKey("test-conversation-id");
         var expectedSession = new TestAgentSession();
         var taskCompletionSource = new TaskCompletionSource();
 
@@ -225,9 +211,8 @@ public class DelegatingAgentSessionStoreTests
         innerStoreMock
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(new ValueTask(taskCompletionSource.Task));
 
@@ -236,9 +221,8 @@ public class DelegatingAgentSessionStoreTests
         // Act
         var resultTask = delegatingStore.SaveSessionAsync(
             this._agentMock.Object,
-            ExpectedConversationId,
-            expectedSession,
-            userId: null);
+            expectedKey,
+            expectedSession);
 
         // Assert
         Assert.False(resultTask.IsCompleted);
@@ -264,8 +248,7 @@ public class DelegatingAgentSessionStoreTests
     {
         public override ValueTask<AgentSession?> GetSessionAsync(
             AIAgent agent,
-            string conversationId,
-            string? userId,
+            AgentSessionStoreKey key,
             CancellationToken cancellationToken = default)
             => new(session);
     }

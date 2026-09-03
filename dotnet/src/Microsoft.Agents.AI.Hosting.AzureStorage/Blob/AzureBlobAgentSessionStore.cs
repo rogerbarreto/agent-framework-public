@@ -40,6 +40,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     {
         HttpHeaders = new BlobHttpHeaders { ContentType = "application/json" },
     };
+    private static readonly UTF8Encoding s_strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly BlobContainerClient _containerClient;
     private readonly object _containerInitializationLock = new();
@@ -63,7 +64,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
         AzureBlobAgentSessionStoreOptions? options = null)
     {
         this._containerClient = Throw.IfNull(containerClient);
-        this._agentKey = ComputeKey(Throw.IfNullOrWhitespace(agentNamespace));
+        this._agentKey = ComputeAgentKey(Throw.IfNullOrWhitespace(agentNamespace));
 
         options ??= new AzureBlobAgentSessionStoreOptions();
         this._createContainerIfNotExists = options.CreateContainerIfNotExists;
@@ -80,20 +81,18 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     /// <inheritdoc />
     public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agent);
-        Throw.IfNull(conversationId);
+        Throw.IfNull(key);
         Throw.IfNull(session);
-        ValidateUserId(userId);
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
         JsonElement serializedSession = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
-        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(conversationId, userId));
+        BlobClient blobClient = this._containerClient.GetBlobClient(this.GetBlobName(key));
         await blobClient.UploadAsync(
             BinaryData.FromString(serializedSession.GetRawText()),
             s_uploadOptions,
@@ -103,19 +102,17 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     /// <inheritdoc />
     public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(agent);
-        Throw.IfNull(conversationId);
-        ValidateUserId(userId);
+        Throw.IfNull(key);
 
         await this.EnsureContainerExistsAsync(cancellationToken).ConfigureAwait(false);
 
         return await this.TryGetSessionAsync(
             agent,
-            this.GetBlobName(conversationId, userId),
+            this.GetBlobName(key),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -171,41 +168,13 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     private async Task CreateContainerIfNotExistsAsync()
         => await this._containerClient.CreateIfNotExistsAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
-    private string GetBlobName(string conversationId, string? userId)
+    private string GetBlobName(AgentSessionStoreKey key)
     {
-        string sessionKey = ComputeKey(BuildLogicalKey(conversationId, userId));
-        string baseName = $"v2/{this._agentKey}/{sessionKey}.json";
+        string baseName = $"v2/{this._agentKey}/{key.StableStorageKey}.json";
 
         return this._blobNamePrefix is null
             ? baseName
             : $"{this._blobNamePrefix}/{baseName}";
-    }
-
-    private static string BuildLogicalKey(string conversationId, string? userId)
-    {
-        StringBuilder builder = new();
-        AppendComponent(builder, 'u', userId);
-        AppendComponent(builder, 'c', conversationId);
-        return builder.ToString();
-    }
-
-    private static void AppendComponent(StringBuilder builder, char prefix, string? value)
-    {
-        builder.Append(prefix).Append(value?.Length ?? -1).Append(':');
-        if (value is not null)
-        {
-            builder.Append(value);
-        }
-
-        builder.Append('|');
-    }
-
-    private static void ValidateUserId(string? userId)
-    {
-        if (userId is not null)
-        {
-            _ = Throw.IfNullOrWhitespace(userId);
-        }
     }
 
     private static async Task WaitWithCancellationAsync(Task task, CancellationToken cancellationToken)
@@ -226,7 +195,7 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
     private static string ComputeKey(string value)
     {
-        byte[] input = Encoding.UTF8.GetBytes(value);
+        byte[] input = s_strictUtf8.GetBytes(value);
 #if NET8_0_OR_GREATER
         return Convert.ToHexString(SHA256.HashData(input));
 #else
@@ -243,6 +212,21 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
 
         return new string(result);
 #endif
+    }
+
+    private static string ComputeAgentKey(string agentNamespace)
+    {
+        try
+        {
+            return ComputeKey(agentNamespace);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw new ArgumentException(
+                "The agent namespace must contain valid UTF-16 text.",
+                nameof(agentNamespace),
+                exception);
+        }
     }
 
 #if !NET8_0_OR_GREATER

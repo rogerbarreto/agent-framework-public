@@ -13,7 +13,6 @@ namespace Microsoft.Agents.AI.Hosting.UnitTests;
 public class IsolationKeyScopedAgentSessionStoreTests
 {
     private const string TestIsolationKey = "test-key";
-    private const string TestConversationId = "test-conversation-id";
 
     private readonly Mock<AgentSessionStore> _innerStoreMock = new();
     private readonly Mock<AIAgent> _agentMock = new();
@@ -30,26 +29,24 @@ public class IsolationKeyScopedAgentSessionStoreTests
     }
 
     [Fact]
-    public async Task GetSessionAsync_PassesConversationAndIsolationKeySeparatelyAsync()
+    public async Task GetSessionAsync_AddsIsolationPartitionAsync()
     {
         // Arrange
         var expectedSession = new TestAgentSession();
+        var key = new AgentSessionStoreKey("session-1").WithPartition("tenant", "tenant-1");
         this._innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
-                TestIsolationKey,
+                It.Is<AgentSessionStoreKey>(actual =>
+                    actual.SessionId == "session-1"
+                    && actual.Partitions["tenant"] == "tenant-1"
+                    && actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedSession);
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(TestIsolationKey));
+        var store = this.CreateStore(TestIsolationKey);
 
         // Act
-        AgentSession? session = await store.GetSessionAsync(
-            this._agentMock.Object,
-            TestConversationId,
-            userId: null);
+        AgentSession? session = await store.GetSessionAsync(this._agentMock.Object, key);
 
         // Assert
         Assert.Same(expectedSession, session);
@@ -57,54 +54,46 @@ public class IsolationKeyScopedAgentSessionStoreTests
     }
 
     [Fact]
-    public async Task SaveSessionAsync_PassesConversationAndIsolationKeySeparatelyAsync()
+    public async Task SaveSessionAsync_AddsIsolationPartitionAsync()
     {
         // Arrange
+        var key = new AgentSessionStoreKey("session-1");
         var session = new TestAgentSession();
         this._innerStoreMock
             .Setup(x => x.SaveSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
+                It.Is<AgentSessionStoreKey>(actual =>
+                    actual.SessionId == "session-1"
+                    && actual.Partitions["isolation"] == TestIsolationKey),
                 session,
-                TestIsolationKey,
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(TestIsolationKey));
+        var store = this.CreateStore(TestIsolationKey);
 
         // Act
-        await store.SaveSessionAsync(
-            this._agentMock.Object,
-            TestConversationId,
-            session,
-            userId: null);
+        await store.SaveSessionAsync(this._agentMock.Object, key, session);
 
         // Assert
         this._innerStoreMock.VerifyAll();
     }
 
     [Fact]
-    public async Task GetOrCreateSessionAsync_PassesIsolationKeyToInnerStoreAsync()
+    public async Task GetOrCreateSessionAsync_ForwardsScopedKeyToSpecializedInnerStoreAsync()
     {
         // Arrange
         var expectedSession = new TestAgentSession();
+        var key = new AgentSessionStoreKey("session-1");
         this._innerStoreMock
             .Setup(x => x.GetOrCreateSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
-                TestIsolationKey,
+                It.Is<AgentSessionStoreKey>(actual =>
+                    actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedSession);
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(TestIsolationKey));
+        var store = this.CreateStore(TestIsolationKey);
 
         // Act
-        AgentSession session = await store.GetOrCreateSessionAsync(
-            this._agentMock.Object,
-            TestConversationId,
-            userId: null);
+        AgentSession session = await store.GetOrCreateSessionAsync(this._agentMock.Object, key);
 
         // Assert
         Assert.Same(expectedSession, session);
@@ -115,85 +104,70 @@ public class IsolationKeyScopedAgentSessionStoreTests
     public async Task GetSessionAsync_StrictModeWithoutIsolationKey_ThrowsAsync()
     {
         // Arrange
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(null),
+        var store = this.CreateStore(
+            isolationKey: null,
             new IsolationKeyScopedAgentSessionStoreOptions { Strict = true });
 
         // Act
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => store.GetSessionAsync(this._agentMock.Object, TestConversationId, userId: null).AsTask());
-
-        // Assert
-        Assert.Contains("Agent isolation key is required", exception.Message);
-    }
-
-    [Fact]
-    public async Task SaveSessionAsync_StrictModeWithoutIsolationKey_ThrowsAsync()
-    {
-        // Arrange
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(null),
-            new IsolationKeyScopedAgentSessionStoreOptions { Strict = true });
-
-        // Act
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => store.SaveSessionAsync(
+            () => store.GetSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
-                new TestAgentSession(),
-                userId: null).AsTask());
+                new AgentSessionStoreKey("session-1")).AsTask());
 
         // Assert
         Assert.Contains("Agent isolation key is required", exception.Message);
     }
 
     [Fact]
-    public async Task GetSessionAsync_NonStrictModePreservesCallerUserIdWhenKeyIsMissingAsync()
+    public async Task GetSessionAsync_NonStrictModePreservesExistingPartitionsAsync()
     {
         // Arrange
-        const string CallerUserId = "caller-user";
+        var key = new AgentSessionStoreKey("session-1").WithPartition("tenant", "tenant-1");
         this._innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
-                CallerUserId,
+                key,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((AgentSession?)null);
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(null),
+        var store = this.CreateStore(
+            isolationKey: null,
             new IsolationKeyScopedAgentSessionStoreOptions { Strict = false });
 
         // Act
-        await store.GetSessionAsync(this._agentMock.Object, TestConversationId, CallerUserId);
+        await store.GetSessionAsync(this._agentMock.Object, key);
 
         // Assert
         this._innerStoreMock.VerifyAll();
     }
 
     [Fact]
-    public async Task GetSessionAsync_IsolationKeyOverridesCallerUserIdAsync()
+    public async Task GetSessionAsync_IsolationProviderReplacesExistingIsolationPartitionAsync()
     {
         // Arrange
+        var key = new AgentSessionStoreKey("session-1").WithPartition("isolation", "caller-value");
         this._innerStoreMock
             .Setup(x => x.GetSessionAsync(
                 this._agentMock.Object,
-                TestConversationId,
-                TestIsolationKey,
+                It.Is<AgentSessionStoreKey>(actual =>
+                    actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((AgentSession?)null);
-        var store = new IsolationKeyScopedAgentSessionStore(
-            this._innerStoreMock.Object,
-            new TestAgentIsolationKeyProvider(TestIsolationKey));
+        var store = this.CreateStore(TestIsolationKey);
 
         // Act
-        await store.GetSessionAsync(this._agentMock.Object, TestConversationId, "caller-user");
+        await store.GetSessionAsync(this._agentMock.Object, key);
 
         // Assert
         this._innerStoreMock.VerifyAll();
     }
+
+    private IsolationKeyScopedAgentSessionStore CreateStore(
+        string? isolationKey,
+        IsolationKeyScopedAgentSessionStoreOptions? options = null)
+        => new(
+            this._innerStoreMock.Object,
+            new TestAgentIsolationKeyProvider(isolationKey),
+            options);
 
     private sealed class TestAgentIsolationKeyProvider(string? key) : AgentIsolationKeyProvider
     {

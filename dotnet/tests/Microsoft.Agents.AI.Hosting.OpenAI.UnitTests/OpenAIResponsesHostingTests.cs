@@ -218,9 +218,8 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
             string sessionStoreId = OpenAIResponses.GetSessionStoreId(run) ?? OpenAIResponses.CreateResponseId();
             AgentSession session = await sessionStore.GetOrCreateSessionAsync(
                 agent,
-                sessionStoreId,
-                userId: null,
-                cancellationToken: ct);
+                new AgentSessionStoreKey(sessionStoreId),
+                ct);
             string responseId = OpenAIResponses.CreateResponseId();
 
             // A stable conversation id is a mutable head (write back under the same id); a previous_response_id
@@ -240,20 +239,18 @@ public sealed class OpenAIResponsesHostingTests : IAsyncDisposable
 
                 await sessionStore.SaveSessionAsync(
                     agent,
-                    saveId,
+                    new AgentSessionStoreKey(saveId),
                     session,
-                    userId: null,
-                    cancellationToken: ct);
+                    ct);
                 return Results.Empty;
             }
 
             AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, ct);
             await sessionStore.SaveSessionAsync(
                 agent,
-                saveId,
+                new AgentSessionStoreKey(saveId),
                 session,
-                userId: null,
-                cancellationToken: ct);
+                ct);
             return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
         });
 

@@ -5,16 +5,19 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Shared.DiagnosticIds;
+using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Agents.AI.Hosting;
 
 /// <summary>
-/// A delegating <see cref="AgentSessionStore"/> that supplies the per-user partition key from an
+/// A delegating <see cref="AgentSessionStore"/> that adds an isolation partition from an
 /// <see cref="AgentIsolationKeyProvider"/>.
 /// </summary>
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
 {
+    private const string IsolationPartitionName = "isolation";
+
     private readonly AgentIsolationKeyProvider? _keyProvider;
     private readonly bool _strict;
 
@@ -70,43 +73,46 @@ public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
     }
 
     /// <summary>
-    /// Resolves the user partition passed to the inner store. A key supplied by the provider takes precedence
-    /// over the caller value because it represents the current hosting context.
+    /// Adds the isolation value from the current hosting context to the session key.
     /// </summary>
-    private async ValueTask<string?> GetUserIdAsync(string? userId, CancellationToken cancellationToken)
-        => await this.GetIsolationKeyAsync(cancellationToken).ConfigureAwait(false) ?? userId;
+    private async ValueTask<AgentSessionStoreKey> GetScopedKeyAsync(
+        AgentSessionStoreKey key,
+        CancellationToken cancellationToken)
+    {
+        _ = Throw.IfNull(key);
+
+        string? isolationKey = await this.GetIsolationKeyAsync(cancellationToken).ConfigureAwait(false);
+        return isolationKey is null ? key : key.WithPartition(IsolationPartitionName, isolationKey);
+    }
 
     /// <inheritdoc />
     public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
-        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
-        return await this.InnerStore.GetSessionAsync(agent, conversationId, resolvedUserId, cancellationToken).ConfigureAwait(false);
+        AgentSessionStoreKey scopedKey = await this.GetScopedKeyAsync(key, cancellationToken).ConfigureAwait(false);
+        return await this.InnerStore.GetSessionAsync(agent, scopedKey, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public override async ValueTask<AgentSession> GetOrCreateSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
-        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
-        return await this.InnerStore.GetOrCreateSessionAsync(agent, conversationId, resolvedUserId, cancellationToken).ConfigureAwait(false);
+        AgentSessionStoreKey scopedKey = await this.GetScopedKeyAsync(key, cancellationToken).ConfigureAwait(false);
+        return await this.InnerStore.GetOrCreateSessionAsync(agent, scopedKey, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default)
     {
-        string? resolvedUserId = await this.GetUserIdAsync(userId, cancellationToken).ConfigureAwait(false);
-        await this.InnerStore.SaveSessionAsync(agent, conversationId, session, resolvedUserId, cancellationToken).ConfigureAwait(false);
+        AgentSessionStoreKey scopedKey = await this.GetScopedKeyAsync(key, cancellationToken).ConfigureAwait(false);
+        await this.InnerStore.SaveSessionAsync(agent, scopedKey, session, cancellationToken).ConfigureAwait(false);
     }
 }

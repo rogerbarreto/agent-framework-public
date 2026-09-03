@@ -28,17 +28,16 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// </para>
 /// <para>
 /// Layout. All sessions live in one state store, named <see cref="DefaultStoreName"/> unless
-/// overridden, and each (agent, user, conversation) triple is one item in it. The item key is a
-/// hash of an unambiguous, length-prefixed encoding of the hosted registration identity, user id,
-/// and conversation id. Hashing is required because the platform limits an item key to 128
+/// overridden, and each agent and <see cref="AgentSessionStoreKey"/> pair is one item in it. The item
+/// key is a hash of an unambiguous encoding of the hosted registration identity and session key.
+/// Hashing is required because the platform limits an item key to 128
 /// characters. The readable encoding is stored alongside the session so an item can still be traced
 /// back to its partition.
 /// </para>
 /// <para>
-/// Per-user isolation is expressed through the item key rather than through the state store's own
-/// <c>userIsolation</c> option. That option is fixed when the store is created and resolves the
-/// user from the calling identity, whereas the user id handled here arrives per request and the
-/// container always calls the storage API with its own identity.
+/// Logical isolation is expressed through <see cref="AgentSessionStoreKey.Partitions"/> rather than
+/// through the state store's own <c>userIsolation</c> option. That option is fixed when the store is
+/// created, while session partitions may vary per request.
 /// </para>
 /// <para>
 /// The bound state store is resolved once, on first use, and reused for the lifetime of this
@@ -54,6 +53,8 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class FoundryAgentSessionStore : AgentSessionStore
 {
+    private static readonly UTF8Encoding s_strictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     /// <summary>
     /// The default state-store name used to hold every agent session persisted by this store.
     /// </summary>
@@ -124,21 +125,19 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(conversationId);
+        _ = Throw.IfNull(key);
         _ = Throw.IfNull(session);
-        ValidateUserId(userId);
 
-        string agentIdentity = ResolveAgentIdentity(agent);
+        string agentIdentity = FoundryHostingAgent.GetSessionStorageIdentity(agent);
         JsonElement serialized = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
         BinaryData sessionData = ToBinaryData(serialized);
 
-        string logicalKey = BuildLogicalKey(agentIdentity, conversationId, userId);
+        string logicalKey = BuildLogicalKey(agentIdentity, key);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         await store.SetItemAsync(
@@ -154,15 +153,13 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// <inheritdoc/>
     public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(conversationId);
-        ValidateUserId(userId);
+        _ = Throw.IfNull(key);
 
-        string logicalKey = BuildLogicalKey(ResolveAgentIdentity(agent), conversationId, userId);
+        string logicalKey = BuildLogicalKey(FoundryHostingAgent.GetSessionStorageIdentity(agent), key);
         FoundryStateStore store = await this.GetStoreAsync(cancellationToken).ConfigureAwait(false);
 
         // GetItemAsync already answers null for an item that is not there, which is exactly the
@@ -191,33 +188,20 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
     /// Builds an unambiguous readable partition key from the hosted agent identity, end user, and
     /// conversation. Each component carries its length so delimiters inside values cannot collide.
     /// </summary>
-    internal static string BuildLogicalKey(string agentIdentity, string conversationId, string? userId)
+    internal static string BuildLogicalKey(string agentIdentity, AgentSessionStoreKey key)
     {
+        _ = Throw.IfNull(key);
+
         StringBuilder builder = new();
         AppendComponent(builder, 'a', Throw.IfNullOrWhitespace(agentIdentity));
-        AppendComponent(builder, 'u', userId);
-        AppendComponent(builder, 'c', Throw.IfNullOrWhitespace(conversationId));
+        AppendComponent(builder, 's', key.SessionId);
+        foreach (KeyValuePair<string, string> partition in key.Partitions)
+        {
+            AppendComponent(builder, 'n', partition.Key);
+            AppendComponent(builder, 'v', partition.Value);
+        }
         builder.Length--;
         return builder.ToString();
-    }
-
-    private static string ResolveAgentIdentity(AIAgent agent)
-    {
-        _ = Throw.IfNull(agent);
-
-        if (agent.GetService<FoundryHostingAgent>() is { } hostingAgent)
-        {
-            return hostingAgent.SessionStorageIdentity;
-        }
-
-        if (string.IsNullOrWhiteSpace(agent.Name))
-        {
-            throw new InvalidOperationException(
-                $"Direct use of {nameof(FoundryAgentSessionStore)} requires an agent with a stable {nameof(AIAgent.Name)}. " +
-                "Foundry hosting supplies the keyed or default registration identity separately.");
-        }
-
-        return $"name:{agent.Name}";
     }
 
     private static void AppendComponent(StringBuilder builder, char prefix, string? value)
@@ -231,23 +215,23 @@ public sealed class FoundryAgentSessionStore : AgentSessionStore
         builder.Append('|');
     }
 
-    private static void ValidateUserId(string? userId)
-    {
-        if (userId is not null)
-        {
-            _ = Throw.IfNullOrWhitespace(userId);
-        }
-    }
-
     /// <summary>
     /// Reduces a logical key to a fixed-length item key. The platform limits an item key to 128
-    /// characters, which an agent name plus a user id plus a conversation id can exceed, so the
-    /// logical key is hashed rather than truncated: truncation would let two different conversations
+    /// characters, which an agent identity plus a session id and its partitions can exceed, so the
+    /// logical key is hashed rather than truncated: truncation would let two different sessions
     /// share a key and therefore overwrite each other's session.
     /// </summary>
     internal static string BuildItemKey(string logicalKey)
     {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(logicalKey));
+        byte[] hash;
+        try
+        {
+            hash = SHA256.HashData(s_strictUtf8.GetBytes(logicalKey));
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw new ArgumentException("Session keys and agent identities must contain valid UTF-16 text.", nameof(logicalKey), exception);
+        }
         return $"s-{Convert.ToBase64String(hash).TrimEnd('=').Replace('+', '-').Replace('/', '_')}";
     }
 

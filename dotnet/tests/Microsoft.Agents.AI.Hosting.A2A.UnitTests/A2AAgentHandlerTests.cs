@@ -1589,16 +1589,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -1621,9 +1619,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-stream"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-stream"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -1640,16 +1637,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -1669,9 +1664,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -1765,16 +1759,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -1799,16 +1791,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-1"),
-                It.Is<string?>(u => u == null),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-1"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-1"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-1"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -1974,16 +1964,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2019,9 +2007,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }
@@ -2038,16 +2025,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2083,9 +2068,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-stream"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-stream"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }
@@ -2102,16 +2086,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2153,9 +2135,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-cont"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-cont"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }
@@ -2172,16 +2153,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2206,9 +2185,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }
@@ -2225,16 +2203,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2259,9 +2235,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-stream"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-stream"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }
@@ -2278,16 +2253,14 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore
             .Setup(x => x.GetSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
-                It.IsAny<string?>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestAgentSession());
         mockSessionStore
             .Setup(x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.IsAny<string>(),
+                It.IsAny<AgentSessionStoreKey>(),
                 It.IsAny<AgentSession>(),
-                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
 
@@ -2317,9 +2290,8 @@ public sealed class A2AAgentHandlerTests
         mockSessionStore.Verify(
             x => x.SaveSessionAsync(
                 It.IsAny<AIAgent>(),
-                It.Is<string>(s => s == "ctx-cont"),
+                It.Is<AgentSessionStoreKey>(key => key.SessionId == "ctx-cont"),
                 It.IsAny<AgentSession>(),
-                It.Is<string?>(u => u == null),
                 It.Is<CancellationToken>(ct => ct == CancellationToken.None)),
             Times.Once);
     }

@@ -41,53 +41,34 @@ namespace Microsoft.Agents.AI.Hosting;
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
 public sealed class InMemoryAgentSessionStore : AgentSessionStore
 {
-    private readonly ConcurrentDictionary<(string AgentId, string? UserId, string ConversationId), JsonElement> _sessions = new();
+    private readonly ConcurrentDictionary<(string AgentId, AgentSessionStoreKey Key), JsonElement> _sessions = new();
 
     /// <inheritdoc/>
     public override async ValueTask SaveSessionAsync(
         AIAgent agent,
-        string conversationId,
+        AgentSessionStoreKey key,
         AgentSession session,
-        string? userId,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(conversationId);
+        _ = Throw.IfNull(key);
         _ = Throw.IfNull(session);
-        ValidateUserId(userId);
 
-        var key = GetKey(agent, conversationId, userId);
-        this._sessions[key] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var storageKey = (agent.Id, key);
+        this._sessions[storageKey] = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
-        string conversationId,
-        string? userId,
+        AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
         _ = Throw.IfNull(agent);
-        _ = Throw.IfNullOrWhitespace(conversationId);
-        ValidateUserId(userId);
+        _ = Throw.IfNull(key);
 
-        var key = GetKey(agent, conversationId, userId);
-        return this._sessions.TryGetValue(key, out JsonElement existingSession)
+        return this._sessions.TryGetValue((agent.Id, key), out JsonElement existingSession)
             ? await agent.DeserializeSessionAsync(existingSession, cancellationToken: cancellationToken).ConfigureAwait(false)
             : null;
-    }
-
-    private static (string AgentId, string? UserId, string ConversationId) GetKey(
-        AIAgent agent,
-        string conversationId,
-        string? userId)
-        => (agent.Id, userId, conversationId);
-
-    private static void ValidateUserId(string? userId)
-    {
-        if (userId is not null)
-        {
-            _ = Throw.IfNullOrWhitespace(userId);
-        }
     }
 }

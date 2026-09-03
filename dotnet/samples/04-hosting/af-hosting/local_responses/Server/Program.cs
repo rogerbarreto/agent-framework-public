@@ -65,12 +65,12 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     // this key to the principal before using it. This sample simply falls back to a fresh id.
     string? candidateSessionStoreId = OpenAIResponses.GetSessionStoreId(run);
     string sessionStoreId = Authorize(http, candidateSessionStoreId) ?? OpenAIResponses.CreateResponseId();
+    var sessionKey = new AgentSessionStoreKey(sessionStoreId);
 
     AgentSession session = await sessionStore.GetOrCreateSessionAsync(
         agent,
-        sessionStoreId,
-        userId: null,
-        cancellationToken: cancellationToken).ConfigureAwait(false);
+        sessionKey,
+        cancellationToken).ConfigureAwait(false);
     string responseId = OpenAIResponses.CreateResponseId();
 
     // Choose where to persist the post-run session, which depends on how the caller continued the thread:
@@ -96,7 +96,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
         }
 
         // Persist the post-run session under the selected continuation id (see saveId above).
-        await sessionStore.SaveSessionAsync(agent, saveId, session, userId: null, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await sessionStore.SaveSessionAsync(agent, new AgentSessionStoreKey(saveId), session, cancellationToken).ConfigureAwait(false);
 
         // The SSE body was already written straight to http.Response above, so return an empty result:
         // this returns from the handler (the non-streaming code below does not run) without writing a body.
@@ -104,7 +104,7 @@ app.MapPost("/responses", async (JsonElement body, HttpContext http, Cancellatio
     }
 
     AgentResponse result = await agent.RunAsync(run.Messages, session, run.Options, cancellationToken).ConfigureAwait(false);
-    await sessionStore.SaveSessionAsync(agent, saveId, session, userId: null, cancellationToken: cancellationToken).ConfigureAwait(false);
+    await sessionStore.SaveSessionAsync(agent, new AgentSessionStoreKey(saveId), session, cancellationToken).ConfigureAwait(false);
     return Results.Json(OpenAIResponses.WriteResponse(result, responseId, responseId));
 });
 
