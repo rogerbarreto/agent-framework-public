@@ -255,7 +255,7 @@ container, the test fixture, or their tooling changed:
 | `IT_HOSTED_AGENT_MODEL_DEPLOYMENT_NAME` | `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
 | `IT_HOSTED_AGENT_REGISTRY` | (consumed by `it-build-image.ps1`; not passed to tests) |
 | `secrets.AZURE_SEARCH_ENDPOINT` | `AZURE_SEARCH_ENDPOINT` (shared with `python-sample-validation.yml`) |
-| `secrets.AZURE_SEARCH_INDEX_NAME` | `AZURE_SEARCH_INDEX_NAME` (shared with `python-sample-validation.yml`) |
+| `FOUNDRY_HOSTED_AGENT_SEARCH_INDEX_NAME` | `AZURE_SEARCH_INDEX_NAME` |
 
 Like all integration tests in this workflow, the steps run only on `push` and merge-queue
 events, never on plain `pull_request`. The path-filter list lives in the `paths-filter`
