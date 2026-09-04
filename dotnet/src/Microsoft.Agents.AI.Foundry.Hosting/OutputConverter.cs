@@ -21,8 +21,8 @@ using OpenAIFilePathMessageAnnotation = OpenAI.Responses.FilePathMessageAnnotati
 using OpenAIMessageResponseItem = OpenAI.Responses.MessageResponseItem;
 using OpenAIStreamingResponseOutputItemAddedUpdate = OpenAI.Responses.StreamingResponseOutputItemAddedUpdate;
 using OpenAIStreamingResponseOutputItemDoneUpdate = OpenAI.Responses.StreamingResponseOutputItemDoneUpdate;
+using OpenAIStreamingResponseOutputTextAnnotationAddedUpdate = OpenAI.Responses.StreamingResponseOutputTextAnnotationAddedUpdate;
 using OpenAIStreamingResponseOutputTextDeltaUpdate = OpenAI.Responses.StreamingResponseOutputTextDeltaUpdate;
-using OpenAIStreamingResponseTextAnnotationAddedUpdate = OpenAI.Responses.StreamingResponseTextAnnotationAddedUpdate;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
@@ -428,8 +428,8 @@ internal static class OutputConverter
 
         return rawRepresentation switch
         {
+            OpenAIStreamingResponseOutputTextAnnotationAddedUpdate annotationAdded => annotationAdded.ItemId,
             OpenAIStreamingResponseOutputTextDeltaUpdate textDelta => textDelta.ItemId,
-            OpenAIStreamingResponseTextAnnotationAddedUpdate annotationAdded => annotationAdded.ItemId,
             OpenAIStreamingResponseOutputItemAddedUpdate { Item: OpenAIMessageResponseItem message } => message.Id,
             OpenAIStreamingResponseOutputItemDoneUpdate { Item: OpenAIMessageResponseItem message } => message.Id,
             _ => null,

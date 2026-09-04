@@ -16,6 +16,7 @@ using FilePathMessageAnnotation = OpenAI.Responses.FilePathMessageAnnotation;
 using MeaiTextContent = Microsoft.Extensions.AI.TextContent;
 using OpenAIResponseItem = OpenAI.Responses.ResponseItem;
 using OpenAIStreamingResponseOutputItemDoneUpdate = OpenAI.Responses.StreamingResponseOutputItemDoneUpdate;
+using OpenAIStreamingResponseOutputTextAnnotationAddedUpdate = OpenAI.Responses.StreamingResponseOutputTextAnnotationAddedUpdate;
 using OpenAIStreamingResponseOutputTextDeltaUpdate = OpenAI.Responses.StreamingResponseOutputTextDeltaUpdate;
 
 #pragma warning disable OPENAI001 // Experimental Responses API surfaces
@@ -1643,6 +1644,49 @@ public class OutputConverterTests
                     RawRepresentation = new OpenAIStreamingResponseOutputItemDoneUpdate
                     {
                         Item = completedMessage
+                    }
+                }
+            },
+        };
+
+        // Act
+        var events = new List<ResponseStreamEvent>();
+        await foreach (var evt in OutputConverter.ConvertUpdatesToEventsAsync(ToAsync(updates), stream))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        Assert.Single(events.OfType<ResponseOutputTextAnnotationAddedEvent>());
+    }
+
+    /// <summary>The OpenAI annotation event item ID correlates annotation content when the flattened ID is absent.</summary>
+    [Fact]
+    public async Task ConvertUpdatesToEventsAsync_OpenAIRawAnnotationItemId_EmitsAnnotationAsync()
+    {
+        // Arrange
+        var (stream, _) = CreateTestStream();
+        var annotation = new CitationAnnotation
+        {
+            Url = new Uri("https://example.com/doc"),
+            Title = "Example Document",
+            AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
+        };
+        var updates = new[]
+        {
+            new AgentResponseUpdate
+            {
+                MessageId = "msg_raw",
+                Contents = [new MeaiTextContent("Hello")]
+            },
+            new AgentResponseUpdate
+            {
+                Contents = [new AIContent { Annotations = [annotation] }],
+                RawRepresentation = new ChatResponseUpdate
+                {
+                    RawRepresentation = new OpenAIStreamingResponseOutputTextAnnotationAddedUpdate
+                    {
+                        ItemId = "msg_raw"
                     }
                 }
             },
