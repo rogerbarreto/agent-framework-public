@@ -4,14 +4,12 @@ using System.Globalization;
 
 internal sealed record VerificationOptions(
     int Target,
-    int InterruptAfterCount,
-    int DelaySeconds)
+    int InterruptAfterCount)
 {
     public static VerificationOptions Parse(string[] args)
     {
         int target = 20;
         int? interruptAfterCount = null;
-        int delaySeconds = 1;
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -23,9 +21,6 @@ internal sealed record VerificationOptions(
                     break;
                 case "--interrupt-after-count":
                     interruptAfterCount = ReadInteger(args, ref index, argument);
-                    break;
-                case "--delay-seconds":
-                    delaySeconds = ReadInteger(args, ref index, argument);
                     break;
                 default:
                     throw new ArgumentException($"Unknown argument '{argument}'.");
@@ -47,14 +42,7 @@ internal sealed record VerificationOptions(
                 "Interrupt count must be greater than zero and less than the target.");
         }
 
-        if (delaySeconds < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(args),
-                "Delay seconds must be zero or greater.");
-        }
-
-        return new(target, resolvedInterruptAfterCount, delaySeconds);
+        return new(target, resolvedInterruptAfterCount);
     }
 
     private static int ReadInteger(

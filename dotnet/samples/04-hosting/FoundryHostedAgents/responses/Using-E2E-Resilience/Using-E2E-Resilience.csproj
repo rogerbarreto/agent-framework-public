@@ -14,6 +14,7 @@
   <ItemGroup>
     <PackageReference Include="Azure.AI.Projects" />
     <PackageReference Include="Azure.Core" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="System.ClientModel" />
   </ItemGroup>
 

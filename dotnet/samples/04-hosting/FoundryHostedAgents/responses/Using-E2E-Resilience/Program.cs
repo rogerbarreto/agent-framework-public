@@ -23,7 +23,7 @@ try
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine(
-        "PASS: both recovery paths completed and the idempotent service ignored the repeated operation.");
+        "PASS: both recovery paths completed with every countdown operation stored once in SQLite.");
     Console.ResetColor();
 }
 catch (Exception exception)
@@ -108,7 +108,10 @@ static async Task RunScenarioAsync(
             followOptions,
             cancellationToken))
         {
-            IdempotentService.ExecuteOperation(update.Text);
+            if (!string.IsNullOrEmpty(update.Text))
+            {
+                Console.WriteLine($"      {update.Text}");
+            }
 
             if (update.Text.Contains(serverManager.InterruptValue.ToString(), StringComparison.OrdinalIgnoreCase))
             {
@@ -144,9 +147,18 @@ static async Task RunScenarioAsync(
         recoveryOptions,
         cancellationToken))
     {
-        IdempotentService.ExecuteOperation(update.Text);
+        if (!string.IsNullOrEmpty(update.Text))
+        {
+            Console.WriteLine($"      {update.Text}");
+        }
     }
 
+    await IdempotentService.VerifyOperationsAsync(
+        Path.Combine(
+            serverManager.StateRoot,
+            "countdown-operations.db"),
+        serverManager.Options.Target,
+        cancellationToken);
     serverManager.MarkSucceeded();
 }
 

@@ -1,19 +1,33 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using Microsoft.Data.Sqlite;
+
 internal static class IdempotentService
 {
-    private static readonly Dictionary<string, string> s_executedOperations = [];
-
-    public static string ExecuteOperation(string operationId)
+    public static async Task VerifyOperationsAsync(
+        string databasePath,
+        int expectedCount,
+        CancellationToken cancellationToken)
     {
-        if (s_executedOperations.TryGetValue(operationId, out string? result))
+        await using var connection = new SqliteConnection(
+            $"Data Source={databasePath}");
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(*)
+            FROM countdown_operations;
+            """;
+        long actualCount =
+            (long?)await command.ExecuteScalarAsync(cancellationToken)
+            ?? 0;
+        if (actualCount != expectedCount)
         {
-            return result;
+            throw new InvalidOperationException(
+                $"Expected {expectedCount} operations in SQLite, but found {actualCount}.");
         }
 
-        result = $"result:{operationId}";
-        s_executedOperations.Add(operationId, result);
-
-        return result;
+        Console.WriteLine(
+            $"      SQLite contains all {actualCount} completed operations.");
     }
 }

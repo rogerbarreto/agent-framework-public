@@ -24,11 +24,30 @@ workflow state. A repeated item means the workflow resumed before the response s
 | Executor | Behavior |
 | --- | --- |
 | `start` | Reads the first positive integer from the request. |
-| `countdown` | Waits, yields the current number, decrements it, and sends it back to itself. |
+| `countdown` | Gets or creates the current number in SQLite, yields the stored result, decrements it, and sends it back to itself. |
 | `complete` | Yields `Countdown complete.` after the counter reaches zero. |
 
 All executor IDs and the workflow agent ID are stable so a replacement process reconstructs the same
 workflow topology.
+
+## Idempotent operations
+
+The countdown uses `count_value` as the primary key in a local SQLite table. The first attempt stores
+the result:
+
+```text
+Operation 3 executed and stored in SQLite.
+```
+
+If recovery executes the same countdown step again, the insert is ignored and the stored result is
+returned:
+
+```text
+Operation 3 already exists in SQLite. Returning stored result.
+```
+
+For local E2E runs, the database is stored under `AGENTSERVER_STATE_ROOT`. In Foundry, it is stored
+under the session's persistent `$HOME` directory.
 
 ## Recovery boundary
 
@@ -54,10 +73,8 @@ dotnet run --project dotnet\samples\04-hosting\FoundryHostedAgents\responses\Usi
 ```
 
 It runs both an abrupt process crash and a host shutdown after a countdown operation, starts a
-replacement process for each scenario, and detects the repeated operation ID in the raw recovered
-stream. The countdown calls a durable idempotent service, which executes the operation once and logs
-the recovery attempt as an ignored duplicate. The shutdown path exercises `IsShutdownRequested` and
-recovery deferral.
+replacement process for each scenario, and verifies that SQLite contains exactly one row for every
+countdown operation. The shutdown path exercises `IsShutdownRequested` and recovery deferral.
 
 To run only the server, copy `.env.example` to `.env`, then run:
 

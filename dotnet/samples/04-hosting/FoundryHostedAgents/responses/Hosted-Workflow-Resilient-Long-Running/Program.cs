@@ -9,6 +9,7 @@ using DotNetEnv;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 
 Env.TraversePath().Load();
@@ -106,6 +107,8 @@ internal sealed class CountdownStartExecutor() : ChatProtocolExecutor("start", n
 [YieldsOutput(typeof(string))]
 internal sealed class CountdownExecutor() : Executor<int>("countdown")
 {
+    private readonly SqliteIdempotencyService _idempotencyService = new();
+
     public override async ValueTask HandleAsync(
         int message,
         IWorkflowContext context,
@@ -118,8 +121,11 @@ internal sealed class CountdownExecutor() : Executor<int>("countdown")
         }
 
         await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        string result = await this._idempotencyService.ExecuteAsync(
+            message,
+            cancellationToken);
         await context.YieldOutputAsync(
-            message.ToString(CultureInfo.InvariantCulture),
+            result,
             cancellationToken);
         await context.SendMessageAsync(message - 1, targetId: this.Id, cancellationToken: cancellationToken);
     }
@@ -132,4 +138,84 @@ internal sealed class CountdownCompleteExecutor() : Executor<string, string>("co
         IWorkflowContext context,
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(message);
+}
+
+/// <summary>
+/// For demonstration purposes only, a simple idempotency service that uses a local SQLite database to store completed countdown values.
+/// </summary>
+/// <remarks>
+/// When dealing with a resilient long-running background process, depending on the failure
+/// the recovery may replay non-saved checkpoint before a crash.
+/// Ensuring that any API's called from this process are idempotent and able to handle gracefully
+/// multiple similar calls can prevent unintended side effects downstream.
+/// </remarks>
+internal sealed class SqliteIdempotencyService
+{
+    private readonly string _connectionString;
+
+    public SqliteIdempotencyService()
+    {
+        string stateRoot =
+            System.Environment.GetEnvironmentVariable("AGENTSERVER_STATE_ROOT")
+            ?? System.Environment.GetEnvironmentVariable("HOME")
+            ?? AppContext.BaseDirectory;
+        Directory.CreateDirectory(stateRoot);
+        this._connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(stateRoot, "countdown-operations.db"),
+        }.ToString();
+
+        using var connection = new SqliteConnection(this._connectionString);
+        connection.Open();
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS countdown_operations (
+                count_value INTEGER PRIMARY KEY,
+                result TEXT NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    public async Task<string> ExecuteAsync(
+        int count,
+        CancellationToken cancellationToken)
+    {
+        string result = count.ToString(CultureInfo.InvariantCulture);
+        await using var connection =
+            new SqliteConnection(this._connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using SqliteCommand insert = connection.CreateCommand();
+        insert.CommandText =
+            """
+            INSERT OR IGNORE INTO countdown_operations (count_value, result)
+            VALUES ($count, $result);
+            """;
+        insert.Parameters.AddWithValue("$count", count);
+        insert.Parameters.AddWithValue("$result", result);
+        if (await insert.ExecuteNonQueryAsync(cancellationToken) == 1)
+        {
+            Console.WriteLine(
+                $"Operation {count} executed and stored in SQLite.");
+            return result;
+        }
+
+        await using SqliteCommand select = connection.CreateCommand();
+        select.CommandText =
+            """
+            SELECT result
+            FROM countdown_operations
+            WHERE count_value = $count;
+            """;
+        select.Parameters.AddWithValue("$count", count);
+        string storedResult =
+            (string?)await select.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Operation {count} exists without a stored result.");
+        Console.WriteLine(
+            $"Operation {count} already exists in SQLite. Returning stored result.");
+        return storedResult;
+    }
 }
