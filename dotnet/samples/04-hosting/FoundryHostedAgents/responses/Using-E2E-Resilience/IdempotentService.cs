@@ -1,8 +1,9 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-internal sealed class IdempotentService
+internal static class IdempotentService
 {
     private static readonly Dictionary<string, string> s_executedOperations = [];
+
     public static string ExecuteOperation(string operationId)
     {
         if (s_executedOperations.TryGetValue(operationId, out string? result))

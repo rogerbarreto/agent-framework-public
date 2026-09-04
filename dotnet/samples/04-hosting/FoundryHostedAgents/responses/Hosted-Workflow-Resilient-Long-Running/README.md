@@ -4,7 +4,7 @@ A deterministic countdown workflow that demonstrates resilient background execut
 one workflow output item. If the process stops, AgentServer restores the last response snapshot and
 the workflow resumes from the exact workflow checkpoint ID recorded in that snapshot.
 
-For an input such as `Count down from 6`, the final message outputs are:
+For an input such as `6`, the final message outputs are:
 
 ```text
 6

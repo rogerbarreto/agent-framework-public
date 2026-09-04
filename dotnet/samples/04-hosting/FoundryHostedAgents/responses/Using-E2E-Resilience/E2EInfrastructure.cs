@@ -12,8 +12,7 @@ using Microsoft.Extensions.AI;
 
 internal sealed class ResilienceE2EHostedServerManager(
     VerificationOptions options,
-    ResilienceE2EHostedServerManager.InterruptionKind interruption,
-    int pauseMilliseconds) : IAsyncDisposable
+    ResilienceE2EHostedServerManager.InterruptionKind interruption) : IAsyncDisposable
 {
     private const string AgentName = "hosted-workflow-resilient-long-running";
     private readonly string _repositoryRoot = FindRepositoryRoot();

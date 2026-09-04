@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.Globalization;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using static ResilienceE2EHostedServerManager;
@@ -39,7 +40,7 @@ static async Task RunScenarioAsync(
     InterruptionKind interruption,
     CancellationToken cancellationToken)
 {
-    await using var serverManager = new ResilienceE2EHostedServerManager(options, interruption, pauseMilliseconds: 2_000);
+    await using var serverManager = new ResilienceE2EHostedServerManager(options, interruption);
 
     PrintHeader(interruption, serverManager);
 
@@ -61,7 +62,7 @@ static async Task RunScenarioAsync(
         CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     IAsyncEnumerator<AgentResponseUpdate> response =
         agent.RunStreamingAsync(
-            $"Count down from {serverManager.Options.Target}",
+            serverManager.Options.Target.ToString(CultureInfo.InvariantCulture),
             session,
             responseOptions,
             connectionCancellation.Token).GetAsyncEnumerator(
