@@ -22,7 +22,7 @@ public sealed class AzureSearchToolAnnotationsHostedAgentFixture : HostedAgentFi
             TestConfiguration.GetValue(TestSettings.AzureSearchConnectionName) ??
             DefaultConnectionName;
         environment[TestSettings.AzureSearchConnectionId] =
-            this.ProjectClient.Connections.GetConnection(connectionName).Id;
+            this.ProjectClient.Connections.GetConnection(connectionName).Value.Id;
         environment[TestSettings.AzureSearchIndexName] =
             TestConfiguration.GetRequiredValue(TestSettings.AzureSearchIndexName);
     }

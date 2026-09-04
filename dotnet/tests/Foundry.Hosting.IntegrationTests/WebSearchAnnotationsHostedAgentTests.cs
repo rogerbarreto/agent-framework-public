@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundry.Hosting.IntegrationTests.Fixtures;
@@ -32,7 +31,7 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
         ResponsesClient responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
         CreateResponseOptions options = CreateRequest();
         using CancellationTokenSource timeout = new(s_timeout);
-        List<JsonElement> annotations = [];
+        List<UriCitationMessageAnnotation> annotations = [];
         StreamingResponseCompletedUpdate? completed = null;
 
         // Act
@@ -42,11 +41,11 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
         {
             switch (update)
             {
-                case StreamingResponseTextAnnotationAddedUpdate annotation:
-                    using (JsonDocument document = JsonDocument.Parse(annotation.Annotation))
-                    {
-                        annotations.Add(document.RootElement.Clone());
-                    }
+                case StreamingResponseOutputTextAnnotationAddedUpdate
+                {
+                    Annotation: UriCitationMessageAnnotation annotation
+                }:
+                    annotations.Add(annotation);
                     break;
 
                 case StreamingResponseCompletedUpdate completedUpdate:
@@ -100,20 +99,6 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
             .SelectMany(message => message.Content)
             .SelectMany(part => part.OutputTextAnnotations)
             .OfType<UriCitationMessageAnnotation>();
-
-    private static bool IsValidUrlCitation(JsonElement annotation) =>
-        annotation.TryGetProperty("type", out JsonElement type) &&
-        type.GetString() == "url_citation" &&
-        annotation.TryGetProperty("url", out JsonElement url) &&
-        Uri.TryCreate(url.GetString(), UriKind.Absolute, out _) &&
-        annotation.TryGetProperty("title", out JsonElement title) &&
-        !string.IsNullOrWhiteSpace(title.GetString()) &&
-        annotation.TryGetProperty("start_index", out JsonElement startIndex) &&
-        startIndex.TryGetInt32(out int start) &&
-        start >= 0 &&
-        annotation.TryGetProperty("end_index", out JsonElement endIndex) &&
-        endIndex.TryGetInt32(out int end) &&
-        end >= start;
 
     private static bool IsValidUrlCitation(UriCitationMessageAnnotation annotation) =>
         annotation.Uri.IsAbsoluteUri &&
