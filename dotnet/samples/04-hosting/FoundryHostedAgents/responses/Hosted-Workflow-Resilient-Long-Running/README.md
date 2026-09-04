@@ -53,8 +53,11 @@ The easiest local demonstration is the automated E2E console:
 dotnet run --project dotnet\samples\04-hosting\FoundryHostedAgents\responses\Using-E2E-Resilience
 ```
 
-It starts this server, prints countdown outputs, force-kills the process, restarts it, prints replay
-and recovery outputs, and validates the final sequence.
+It runs both an abrupt process crash and a host shutdown after a countdown operation, starts a
+replacement process for each scenario, and detects the repeated operation ID in the raw recovered
+stream. The countdown calls a durable idempotent service, which executes the operation once and logs
+the recovery attempt as an ignored duplicate. The shutdown path exercises `IsShutdownRequested` and
+recovery deferral.
 
 To run only the server, copy `.env.example` to `.env`, then run:
 
@@ -111,7 +114,7 @@ counter is processing `3`, then verifies that the recovered response contains ex
 
 ## Related samples
 
-- [Using-E2E-Resilience](../Using-E2E-Resilience/README.md): automated local crash-recovery console.
+- [Using-E2E-Resilience](../Using-E2E-Resilience/README.md): automated crash and shutdown recovery console.
 - [Hosted-Workflow-Resilient](../Hosted-Workflow-Resilient/README.md): resilient model-backed translation workflow.
 - [Hosted-Workflow-Simple](../Hosted-Workflow-Simple/README.md): workflow hosting without resilient background execution.
 - [Hosted-Steering](../Hosted-Steering/README.md): mid-turn steering.

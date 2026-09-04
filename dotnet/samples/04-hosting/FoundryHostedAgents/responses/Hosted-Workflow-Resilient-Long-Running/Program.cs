@@ -2,9 +2,10 @@
 
 // Sample: a long-running countdown workflow hosted as a resilient background response.
 // Each completed superstep is paired with an AgentServer response checkpoint so a restarted
-// process resumes with ordered output and without losing or duplicating countdown items.
+// process resumes without losing confirmed output. An interrupted in-flight step can run again.
 
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using DotNetEnv;
 using Microsoft.Agents.AI;
@@ -52,13 +53,53 @@ builder.Services.AddFoundryResponses(
 
 var app = builder.Build();
 app.MapFoundryResponses();
+Task? requestedShutdown = null;
 if (app.Environment.IsDevelopment())
 {
     app.MapFoundryResponses("openai/v1");
 }
 
+// This configuration is for local development demonstration purposes only.
+// When hosted in Foundry the lifetime of the agent process is managed and shutdowns are handled gracefully.
+if (app.Environment.IsDevelopment()
+    && string.Equals(
+        System.Environment.GetEnvironmentVariable("ENABLE_E2E_SHUTDOWN_ENDPOINT"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    app.MapPost(
+        "/shutdown",
+        (IEnumerable<IHostedService> hostedServices) =>
+    {
+        // The E2E closes its client stream first, then signals the resilient task service before
+        // stopping HTTP. This reproduces the hosted-service shutdown path used by AgentServer tests.
+        IHostedService taskDurabilityService = hostedServices.SingleOrDefault(
+            service => string.Equals(
+                service.GetType().FullName,
+                "Azure.AI.AgentServer.Core.Tasks.Engine.TaskDurabilityService",
+                StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                "The AgentServer resilient task service is not registered.");
+        requestedShutdown ??= StopServerAsync(
+            app,
+            taskDurabilityService);
+        return Results.Accepted();
+    });
+}
+
 Console.WriteLine($"Process ID: {System.Environment.ProcessId}");
-app.Run();
+await app.RunAsync();
+if (requestedShutdown is not null)
+{
+    await requestedShutdown;
+}
+
+static async Task StopServerAsync(
+    WebApplication app,
+    IHostedService taskDurabilityService)
+{
+    await Task.Delay(TimeSpan.FromMilliseconds(100));
+    await taskDurabilityService.StopAsync(CancellationToken.None);
+    await app.StopAsync();
+}
 
 [SendsMessage(typeof(int))]
 [YieldsOutput(typeof(string))]
@@ -134,4 +175,43 @@ internal sealed class CountdownCompleteExecutor() : Executor<string>("complete")
         IWorkflowContext context,
         CancellationToken cancellationToken = default) =>
         context.YieldOutputAsync(message, cancellationToken);
+}
+
+internal sealed class IdempotentOperationService(string stateRoot)
+{
+    private readonly string _operationsPath =
+        Path.Combine(stateRoot, "completed-operations.txt");
+    private readonly HashSet<string> _completedOperations =
+        File.Exists(Path.Combine(stateRoot, "completed-operations.txt"))
+            ? [.. File.ReadAllLines(
+                Path.Combine(stateRoot, "completed-operations.txt"))]
+            : [];
+
+    public async Task ExecuteAsync(
+        string operationId,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(stateRoot);
+        if (!this._completedOperations.Add(operationId))
+        {
+            Console.WriteLine(
+                $"Duplicate operation ignored: {operationId}");
+            return;
+        }
+
+        try
+        {
+            await File.AppendAllTextAsync(
+                this._operationsPath,
+                operationId + System.Environment.NewLine,
+                Encoding.UTF8,
+                cancellationToken);
+            Console.WriteLine($"Operation executed: {operationId}");
+        }
+        catch
+        {
+            this._completedOperations.Remove(operationId);
+            throw;
+        }
+    }
 }

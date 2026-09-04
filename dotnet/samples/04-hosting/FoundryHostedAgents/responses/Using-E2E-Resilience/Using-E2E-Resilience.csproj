@@ -14,7 +14,6 @@
   <ItemGroup>
     <PackageReference Include="Azure.AI.Projects" />
     <PackageReference Include="Azure.Core" />
-    <PackageReference Include="OpenAI" />
     <PackageReference Include="System.ClientModel" />
   </ItemGroup>
 
