@@ -1,29 +1,30 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System.Globalization;
+// Demonstrates workflow recovery and service-side idempotency across process interruptions.
+// Sample only, not a production implementation. Repeated stream text is displayed, not used to execute operations.
+
+using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using static ResilienceE2EHostedServerManager;
+using static ServerManager;
 
-VerificationOptions options = VerificationOptions.Parse(args);
-using var cancellationSource =
-    new CancellationTokenSource(TimeSpan.FromMinutes(6));
+if (args is ["--idempotent-service", .. var serviceArgs])
+{
+    await IdempotentService.RunAsync(serviceArgs);
+    return;
+}
+
+using var cancellationSource = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+string interruptNumberMessage = "10";
 
 try
 {
-    await RunScenarioAsync(
-        options,
-        InterruptionKind.Crash,
-        cancellationSource.Token);
-    await RunScenarioAsync(
-        options,
-        InterruptionKind.Shutdown,
-        cancellationSource.Token);
+    await RunScenarioAsync(interruptNumberMessage, InterruptionKind.Crash, cancellationSource.Token);
+    await RunScenarioAsync(interruptNumberMessage, InterruptionKind.Shutdown, cancellationSource.Token);
 
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.Green;
-    Console.WriteLine(
-        "PASS: both recovery paths completed with every countdown operation stored once in SQLite.");
+    Console.WriteLine("PASS: both recovery paths completed with every countdown operation stored once in SQLite.");
     Console.ResetColor();
 }
 catch (Exception exception)
@@ -36,65 +37,43 @@ catch (Exception exception)
 }
 
 static async Task RunScenarioAsync(
-    VerificationOptions options,
-    InterruptionKind interruption,
+    string interruptNumberMessage,
+    InterruptionKind interruptionKind,
     CancellationToken cancellationToken)
 {
-    await using var serverManager = new ResilienceE2EHostedServerManager(options, interruption);
+    await using var serverManager = new ServerManager(interruptionKind);
 
-    PrintHeader(interruption, serverManager);
+    PrintHeader(interruptionKind, serverManager);
 
-    Console.WriteLine($"[{interruption} 1/6] Building the server...");
+    Console.WriteLine($"[{interruptionKind} 1/6] Building the hosted server...");
     await serverManager.BuildServerAsync(cancellationToken);
 
-    Console.WriteLine($"[{interruption} 2/6] Starting the server...");
-    Console.WriteLine($"      Process ID: {await serverManager.StartServerAsync(cancellationToken)}");
+    Console.WriteLine($"[{interruptionKind} 2/6] Starting the idempotent service and hosted server...");
+    Console.WriteLine($"      Idempotent service Process ID: {await serverManager.StartIdempotentServiceAsync(cancellationToken)}");
+    Console.WriteLine($"      Hosted server Process ID: {await serverManager.StartHostedAgentServerAsync(cancellationToken)}");
 
     AIAgent agent = serverManager.GetAIAgent();
     AgentSession session = await agent.CreateSessionAsync(cancellationToken);
+    IdempotentServiceClient idempotentService = new(new HttpClient { BaseAddress = serverManager.IdempotentServiceBaseAddress });
 
-    Console.WriteLine($"[{interruption} 3/6] Starting the background response...");
-    var responseOptions = new AgentRunOptions
-    {
-        AllowBackgroundResponses = true,
-    };
-    using var connectionCancellation =
-        CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    IAsyncEnumerator<AgentResponseUpdate> response =
-        agent.RunStreamingAsync(
-            serverManager.Options.Target.ToString(CultureInfo.InvariantCulture),
-            session,
-            responseOptions,
-            connectionCancellation.Token).GetAsyncEnumerator(
-                connectionCancellation.Token);
+    Console.WriteLine($"[{interruptionKind} 3/6] Starting the background response...");
+
     ResponseContinuationToken responseToken;
-    try
+    await using (var response = agent.RunStreamingAsync(
+        interruptNumberMessage, session, new AgentRunOptions { AllowBackgroundResponses = true }, cancellationToken)
+        .GetAsyncEnumerator(cancellationToken))
     {
         if (!await response.MoveNextAsync())
         {
-            throw new InvalidOperationException(
-                "The background response ended before it was accepted.");
+            throw new InvalidOperationException("The background response ended before it was accepted.");
         }
 
-        Console.WriteLine($"      Response ID: {response.Current.ResponseId}");
         responseToken = response.Current.ContinuationToken
             ?? throw new InvalidOperationException("The accepted response did not provide a continuation token.");
     }
-    finally
-    {
-        connectionCancellation.Cancel();
-        try
-        {
-            await response.DisposeAsync();
-        }
-        catch (OperationCanceledException)
-            when (connectionCancellation.IsCancellationRequested)
-        {
-        }
-    }
 
-    Console.WriteLine(
-        $"[{interruption} 4/6] Waiting for operation {serverManager.InterruptValue}...");
+    Console.WriteLine($"[{interruptionKind} 4/6] Waiting for operation {interruptNumberMessage}...");
+
     var followOptions = new AgentRunOptions
     {
         AllowBackgroundResponses = true,
@@ -103,25 +82,24 @@ static async Task RunScenarioAsync(
 
     try
     {
-        await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(
-            session,
-            followOptions,
-            cancellationToken))
+        await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(session, followOptions, cancellationToken))
         {
             if (!string.IsNullOrEmpty(update.Text))
             {
                 Console.WriteLine($"      {update.Text}");
             }
 
-            if (update.Text.Contains(serverManager.InterruptValue.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (update.Text.Contains(interruptNumberMessage, StringComparison.OrdinalIgnoreCase))
             {
-                if (interruption == InterruptionKind.Crash)
+                if (interruptionKind == InterruptionKind.Crash)
                 {
+                    Console.WriteLine("      Killing / crashing the server ...");
                     await serverManager.CrashServerAsync();
                     serverManager.DeleteStaleStreamLocks();
                 }
                 else
                 {
+                    Console.WriteLine("      Shutting down the server ...");
                     await serverManager.RequestShutdownAsync(cancellationToken);
                     await serverManager.WaitForServerExitAsync(cancellationToken);
                 }
@@ -133,45 +111,37 @@ static async Task RunScenarioAsync(
         Console.WriteLine("      The connection was interrupted.");
     }
 
-    Console.WriteLine($"[{interruption} 5/6] Starting the replacement server...");
-    Console.WriteLine($"      Process ID: {await serverManager.StartServerAsync(cancellationToken)}");
+    Console.WriteLine($"[{interruptionKind} 5/6] Starting the replacement server...");
+    Console.WriteLine($"      Process ID: {await serverManager.StartHostedAgentServerAsync(cancellationToken)}");
 
-    Console.WriteLine($"[{interruption} 6/6] Reading the recovered response...");
+    Console.WriteLine($"[{interruptionKind} 6/6] Reading the recovered response...");
     var recoveryOptions = new AgentRunOptions
     {
         AllowBackgroundResponses = true,
         ContinuationToken = responseToken,
     };
-    await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(
-        session,
-        recoveryOptions,
-        cancellationToken))
+
+    List<string> textUpdates = [];
+    await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(session, recoveryOptions, cancellationToken))
     {
         if (!string.IsNullOrEmpty(update.Text))
         {
-            Console.WriteLine($"      {update.Text}");
+            Console.WriteLine($"      {update.Text}{(textUpdates.Contains(update.Text) ? " > Repeated due to abrupt crash and recovery replay (idempotency matters here)" : "")}");
+            textUpdates.Add(update.Text);
         }
     }
 
-    await IdempotentService.VerifyOperationsAsync(
-        Path.Combine(
-            serverManager.StateRoot,
-            "countdown-operations.db"),
-        serverManager.Options.Target,
-        cancellationToken);
+    int operationCount = await idempotentService.GetOperationCountAsync(serverManager.OperationScope, cancellationToken);
+    Console.WriteLine($"      Idempotent service contains {operationCount} completed operations.");
     serverManager.MarkSucceeded();
 }
 
-static void PrintHeader(
-    InterruptionKind interruption,
-    ResilienceE2EHostedServerManager harness)
+static void PrintHeader(InterruptionKind interruptionKind, ServerManager harness)
 {
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.Cyan;
     Console.WriteLine("============================================================");
-    Console.WriteLine(interruption == InterruptionKind.Crash
-        ? "Abrupt process crash"
-        : "Host shutdown");
+    Console.WriteLine($"Running {(interruptionKind == InterruptionKind.Crash ? "Abrupt process crash" : "Host shutdown")} scenario ... ");
     Console.WriteLine("============================================================");
     Console.ResetColor();
     Console.WriteLine();

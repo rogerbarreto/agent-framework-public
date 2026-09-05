@@ -6,19 +6,26 @@
 
 using System.Globalization;
 using DotNetEnv;
+using Hosted_Shared_Contributor_Setup;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 
 Env.TraversePath().Load();
 
 var agentName = System.Environment.GetEnvironmentVariable("AGENT_NAME")
     ?? "hosted-workflow-resilient-long-running";
+var idempotentServiceEndpoint = System.Environment.GetEnvironmentVariable("IDEMPOTENT_SERVICE_ENDPOINT")
+    ?? throw new InvalidOperationException("IDEMPOTENT_SERVICE_ENDPOINT is not set.");
+var operationScope = System.Environment.GetEnvironmentVariable("IDEMPOTENT_OPERATION_SCOPE")
+    ?? throw new InvalidOperationException("IDEMPOTENT_OPERATION_SCOPE is not set.");
+
+using var idempotentServiceHttpClient = new HttpClient { BaseAddress = new Uri(idempotentServiceEndpoint) };
+var idempotentService = new IdempotentServiceClient(idempotentServiceHttpClient);
 
 var start = new CountdownStartExecutor();
-var countdown = new CountdownExecutor();
+var countdown = new CountdownExecutor(idempotentService, operationScope);
 var complete = new CountdownCompleteExecutor();
 
 Workflow workflow = new WorkflowBuilder(start)
@@ -35,9 +42,7 @@ AIAgent agent = workflow.AsAIAgent(
     includeWorkflowOutputsInResponse: true);
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddFoundryResponses(
-    agent,
-    configure: options => options.ResilientBackground = true);
+builder.Services.AddFoundryResponses(agent, configure: options => options.ResilientBackground = true);
 
 var app = builder.Build();
 app.MapFoundryResponses();
@@ -50,11 +55,12 @@ if (app.Environment.IsDevelopment())
 // This configuration is for local development demonstration purposes only.
 // When hosted in Foundry the lifetime of the agent process is managed and shutdowns are handled gracefully.
 if (app.Environment.IsDevelopment()
-    && string.Equals(System.Environment.GetEnvironmentVariable("ENABLE_E2E_SHUTDOWN_ENDPOINT"), "true", StringComparison.OrdinalIgnoreCase))
+    && string.Equals(
+        System.Environment.GetEnvironmentVariable("ENABLE_E2E_SHUTDOWN_ENDPOINT"),
+        "true",
+        StringComparison.OrdinalIgnoreCase))
 {
-    app.MapPost(
-        "/shutdown",
-        (IEnumerable<IHostedService> hostedServices) =>
+    app.MapPost("/shutdown", (IEnumerable<IHostedService> hostedServices) =>
     {
         // The E2E closes its client stream first, then signals the resilient task service before
         // stopping HTTP. This reproduces the hosted-service shutdown path used by AgentServer tests.
@@ -63,11 +69,10 @@ if (app.Environment.IsDevelopment()
                 service.GetType().FullName,
                 "Azure.AI.AgentServer.Core.Tasks.Engine.TaskDurabilityService",
                 StringComparison.Ordinal))
-            ?? throw new InvalidOperationException(
-                "The AgentServer resilient task service is not registered.");
-        requestedShutdown ??= StopServerAsync(
-            app,
-            taskDurabilityService);
+            ?? throw new InvalidOperationException("The AgentServer resilient task service is not registered.");
+#pragma warning disable CA2025 // Awaited after app.RunAsync before top-level disposable resources are disposed.
+        requestedShutdown ??= StopServerAsync(app, taskDurabilityService);
+#pragma warning restore CA2025
         return Results.Accepted();
     });
 }
@@ -79,17 +84,19 @@ if (requestedShutdown is not null)
     await requestedShutdown;
 }
 
-static async Task StopServerAsync(
-    WebApplication app,
-    IHostedService taskDurabilityService)
+static async Task StopServerAsync(WebApplication app, IHostedService taskDurabilityService)
 {
     await Task.Delay(TimeSpan.FromMilliseconds(100));
     await taskDurabilityService.StopAsync(CancellationToken.None);
     await app.StopAsync();
 }
 
+/// <summary>
+/// Starts the countdown ten above the numeric input so the E2E can interrupt it after some progress.
+/// </summary>
 [SendsMessage(typeof(int))]
-internal sealed class CountdownStartExecutor() : ChatProtocolExecutor("start", new ChatProtocolExecutorOptions { AutoSendTurnToken = false })
+internal sealed class CountdownStartExecutor() : ChatProtocolExecutor(
+    "start", new ChatProtocolExecutorOptions { AutoSendTurnToken = false })
 {
     protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder) =>
         base.ConfigureProtocol(protocolBuilder).SendsMessage<int>();
@@ -99,16 +106,35 @@ internal sealed class CountdownStartExecutor() : ChatProtocolExecutor("start", n
         IWorkflowContext context,
         bool? emitEvents,
         CancellationToken cancellationToken = default)
-            => context.SendMessageAsync(int.Parse(messages.Single().Text, CultureInfo.InvariantCulture), cancellationToken: cancellationToken);
+    {
+        // The first turn of the workflow is a single message that contains the countdown start value with added of 10 units.
+        var maxNumberOfMessages = 10 + int.Parse(messages.Single().Text, CultureInfo.InvariantCulture);
+
+        return context.SendMessageAsync(maxNumberOfMessages, cancellationToken: cancellationToken);
+    }
 }
 
+/// <summary>
+/// Calls the idempotent service for each count, yields its result, and schedules the next count.
+/// </summary>
+/// <remarks>
+/// <para>
+/// For demonstration purposes only. The workflow and its backing service should not be used as-is in production.
+/// </para>
+/// <para>
+/// A service call can finish before the workflow and response checkpoints are confirmed.
+/// If the process stops during that interval, recovery can call the service again for the same count.
+/// Reusing the scope and operation ID lets the service return the stored result without repeating its effect.
+/// Checkpoint recovery and stream replay do not undo effects already performed by downstream services.
+/// </para>
+/// </remarks>
 [SendsMessage(typeof(int))]
 [SendsMessage(typeof(string))]
 [YieldsOutput(typeof(string))]
-internal sealed class CountdownExecutor() : Executor<int>("countdown")
+internal sealed class CountdownExecutor(
+    IdempotentServiceClient idempotentService,
+    string operationScope) : Executor<int>("countdown")
 {
-    private readonly SqliteIdempotencyService _idempotencyService = new();
-
     public override async ValueTask HandleAsync(
         int message,
         IWorkflowContext context,
@@ -121,12 +147,8 @@ internal sealed class CountdownExecutor() : Executor<int>("countdown")
         }
 
         await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        string result = await this._idempotencyService.ExecuteAsync(
-            message,
-            cancellationToken);
-        await context.YieldOutputAsync(
-            result,
-            cancellationToken);
+        string result = await idempotentService.ExecuteOperationAsync(operationScope, message, cancellationToken);
+        await context.YieldOutputAsync(result, cancellationToken);
         await context.SendMessageAsync(message - 1, targetId: this.Id, cancellationToken: cancellationToken);
     }
 }
@@ -138,84 +160,4 @@ internal sealed class CountdownCompleteExecutor() : Executor<string, string>("co
         IWorkflowContext context,
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(message);
-}
-
-/// <summary>
-/// For demonstration purposes only, a simple idempotency service that uses a local SQLite database to store completed countdown values.
-/// </summary>
-/// <remarks>
-/// When dealing with a resilient long-running background process, depending on the failure
-/// the recovery may replay non-saved checkpoint before a crash.
-/// Ensuring that any API's called from this process are idempotent and able to handle gracefully
-/// multiple similar calls can prevent unintended side effects downstream.
-/// </remarks>
-internal sealed class SqliteIdempotencyService
-{
-    private readonly string _connectionString;
-
-    public SqliteIdempotencyService()
-    {
-        string stateRoot =
-            System.Environment.GetEnvironmentVariable("AGENTSERVER_STATE_ROOT")
-            ?? System.Environment.GetEnvironmentVariable("HOME")
-            ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(stateRoot);
-        this._connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.Combine(stateRoot, "countdown-operations.db"),
-        }.ToString();
-
-        using var connection = new SqliteConnection(this._connectionString);
-        connection.Open();
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText =
-            """
-            CREATE TABLE IF NOT EXISTS countdown_operations (
-                count_value INTEGER PRIMARY KEY,
-                result TEXT NOT NULL
-            );
-            """;
-        command.ExecuteNonQuery();
-    }
-
-    public async Task<string> ExecuteAsync(
-        int count,
-        CancellationToken cancellationToken)
-    {
-        string result = count.ToString(CultureInfo.InvariantCulture);
-        await using var connection =
-            new SqliteConnection(this._connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using SqliteCommand insert = connection.CreateCommand();
-        insert.CommandText =
-            """
-            INSERT OR IGNORE INTO countdown_operations (count_value, result)
-            VALUES ($count, $result);
-            """;
-        insert.Parameters.AddWithValue("$count", count);
-        insert.Parameters.AddWithValue("$result", result);
-        if (await insert.ExecuteNonQueryAsync(cancellationToken) == 1)
-        {
-            Console.WriteLine(
-                $"Operation {count} executed and stored in SQLite.");
-            return result;
-        }
-
-        await using SqliteCommand select = connection.CreateCommand();
-        select.CommandText =
-            """
-            SELECT result
-            FROM countdown_operations
-            WHERE count_value = $count;
-            """;
-        select.Parameters.AddWithValue("$count", count);
-        string storedResult =
-            (string?)await select.ExecuteScalarAsync(cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"Operation {count} exists without a stored result.");
-        Console.WriteLine(
-            $"Operation {count} already exists in SQLite. Returning stored result.");
-        return storedResult;
-    }
 }

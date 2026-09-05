@@ -18,9 +18,7 @@ internal sealed class ServerProcess
 
     public int Id => this._process.Id;
 
-    public static ServerProcess Start(
-        ProcessStartInfo startInfo,
-        TextWriter logWriter)
+    public static ServerProcess Start(ProcessStartInfo startInfo, TextWriter logWriter)
     {
         Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the server process.");
@@ -57,10 +55,7 @@ internal sealed class ServerProcess
         this._disposed = true;
     }
 
-    private static async Task PumpAsync(
-        StreamReader reader,
-        TextWriter writer,
-        string source)
+    private static async Task PumpAsync(StreamReader reader, TextWriter writer, string source)
     {
         while (await reader.ReadLineAsync() is { } line)
         {
