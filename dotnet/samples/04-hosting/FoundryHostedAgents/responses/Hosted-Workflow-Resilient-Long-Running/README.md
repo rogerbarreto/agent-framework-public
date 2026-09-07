@@ -5,9 +5,12 @@ one workflow output item. The workflow calls a separate idempotent HTTP service 
 number. If the process stops, AgentServer supplies its saved response and MAF resumes the workflow
 from the checkpoint referenced by that response.
 
-> **Sample only.** This workflow, its HTTP client, and the backing service illustrate recovery and
-> idempotency. Do not use them as-is in production. The service simulates an operation by inserting a
-> SQLite record; it does not make arbitrary downstream actions transactional.
+> **Local demonstration only.** This sample was prepared for
+> [`Using-E2E-Resilience`](../Using-E2E-Resilience/) to demonstrate workflow recovery after a crash or
+> graceful shutdown. The countdown only makes step recovery visible, and the SQLite service simulates
+> an operation to illustrate how repeated calls avoid duplicate records. Neither represents a real
+> business scenario. This workflow, its HTTP client, and the service are not intended for production
+> use or deployment to Foundry.
 
 The input must be a single message containing integer text. The start executor adds ten so the E2E
 has some progress to interrupt. With input `10`, a normal run emits:
@@ -113,45 +116,6 @@ dotnet run --project dotnet\samples\04-hosting\FoundryHostedAgents\responses\Usi
 In this hosted sample's directory, copy `.env.example` to `.env`, configure the service endpoint and
 scope, and run `dotnet run`. Send integer text such as `"10"` to the Responses endpoint. Closing the
 HTTP stream of an accepted background response does not cancel its server-side execution.
-
-## Deploy from source
-
-Before deployment, provide an appropriately secured idempotent service reachable from the Foundry
-container. Set `IDEMPOTENT_SERVICE_ENDPOINT` and `IDEMPOTENT_OPERATION_SCOPE` in the azd environment.
-A local `localhost:8089` service is not reachable from a deployed container.
-
-Create an empty working directory outside the repository:
-
-```powershell
-$work = Join-Path $env:TEMP "hosted-workflow-resilient-long-running-work"
-New-Item -ItemType Directory -Path $work -Force | Out-Null
-Set-Location $work
-
-$sample = "<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/responses/Hosted-Workflow-Resilient-Long-Running/azure.yaml"
-azd auth login
-azd ai agent init -m $sample
-```
-
-### Contributors testing framework changes
-
-Skip this section unless the current framework changes have not been released. Pack the repository
-source into the scaffolded upload before provisioning:
-
-```powershell
-<repo>/dotnet/samples/04-hosting/FoundryHostedAgents/scripts/Add-LocalFrameworkFeed.ps1 `
-    -Path ./hosted-workflow-resilient-long-running
-```
-
-Then deploy:
-
-```powershell
-Set-Location hosted-workflow-resilient-long-running
-azd provision
-azd deploy
-```
-
-Grant the hosted agent identity `Foundry User` on the Foundry project so it can write workflow
-checkpoints and AgentSession state.
 
 ## Automated coverage
 

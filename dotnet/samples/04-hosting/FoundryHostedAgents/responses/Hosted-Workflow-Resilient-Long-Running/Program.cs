@@ -107,7 +107,7 @@ internal sealed class CountdownStartExecutor() : ChatProtocolExecutor(
         bool? emitEvents,
         CancellationToken cancellationToken = default)
     {
-        // The first turn of the workflow is a single message that contains the countdown start value with added of 10 units.
+        // The first workflow turn contains one message; add 10 to its countdown start value.
         var maxNumberOfMessages = 10 + int.Parse(messages.Single().Text, CultureInfo.InvariantCulture);
 
         return context.SendMessageAsync(maxNumberOfMessages, cancellationToken: cancellationToken);

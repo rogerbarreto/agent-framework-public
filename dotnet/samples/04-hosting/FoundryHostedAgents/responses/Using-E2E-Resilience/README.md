@@ -7,9 +7,11 @@ through two recovery scenarios:
 1. `Crash`, which terminates the hosted workflow process abruptly.
 2. `Shutdown`, which follows the graceful shutdown path and defers the response for recovery.
 
-> **Sample only.** The E2E, HTTP client, and SQLite service demonstrate resilience and idempotency.
-> Do not use them as-is in production. The database insert is the simulated operation; no real email,
-> payment, or other external action is performed.
+> **Local demonstration only.** The E2E, countdown workflow, HTTP client, and SQLite service exist only
+> to demonstrate recovery after a crash or graceful shutdown. The countdown makes step recovery
+> visible, and the database insert is a simulated operation; no real email, payment, or other external
+> action is performed. This is not a real business scenario or a template for production use or
+> deployment to Foundry.
 
 ## Three processes
 
