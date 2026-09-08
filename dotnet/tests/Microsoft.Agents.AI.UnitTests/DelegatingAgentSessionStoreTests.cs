@@ -72,6 +72,66 @@ public class DelegatingAgentSessionStoreTests
 
     #region Method Delegation Tests
 
+    [Fact]
+    public void GetService_CompatibleUnkeyedType_ReturnsOutermostStore()
+    {
+        // Arrange
+        var outerStore = new TestDelegatingAgentSessionStore(this._delegatingStore);
+
+        // Act and assert
+        Assert.Same(outerStore, outerStore.GetService<AgentSessionStore>());
+        Assert.Same(outerStore, outerStore.GetService<TestDelegatingAgentSessionStore>());
+        this._innerStoreMock.Verify(s => s.GetService(It.IsAny<Type>(), It.IsAny<object?>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("service-key")]
+    public void GetService_InnerService_ForwardsThroughMultipleDecorators(string? serviceKey)
+    {
+        // Arrange
+        var service = new Mock<IDisposable>().Object;
+        this._innerStoreMock.Setup(s => s.GetService(typeof(IDisposable), serviceKey)).Returns(service);
+        var outerStore = new TestDelegatingAgentSessionStore(this._delegatingStore);
+
+        // Act
+        var result = outerStore.GetService<IDisposable>(serviceKey);
+
+        // Assert
+        Assert.Same(service, result);
+        this._innerStoreMock.Verify(s => s.GetService(typeof(IDisposable), serviceKey), Times.Once);
+    }
+
+    [Fact]
+    public void GetService_KeyedStoreRequest_ForwardsToInnerStore()
+    {
+        // Arrange
+        this._innerStoreMock.Setup(s => s.GetService(typeof(AgentSessionStore), "store-key"))
+            .Returns(this._innerStoreMock.Object);
+
+        // Act
+        var result = this._delegatingStore.GetService<AgentSessionStore>("store-key");
+
+        // Assert
+        Assert.Same(this._innerStoreMock.Object, result);
+    }
+
+    [Fact]
+    public void GetService_UnknownService_ReturnsNull()
+    {
+        // Act and assert
+        Assert.Null(this._delegatingStore.GetService<IDisposable>());
+        this._innerStoreMock.Verify(s => s.GetService(typeof(IDisposable), null), Times.Once);
+    }
+
+    [Fact]
+    public void GetService_NullType_ThrowsWithoutQueryingInnerStore()
+    {
+        // Act and assert
+        Assert.Throws<ArgumentNullException>("serviceType", () => this._delegatingStore.GetService(null!));
+        this._innerStoreMock.Verify(s => s.GetService(It.IsAny<Type>(), It.IsAny<object?>()), Times.Never);
+    }
+
     /// <summary>
     /// Verify that GetSessionAsync delegates to inner store with correct parameters.
     /// </summary>

@@ -206,6 +206,7 @@ public sealed class A2AServerServiceCollectionExtensionsTests
         await using var provider = services.BuildServiceProvider();
         var server = provider.GetKeyedService<A2AServer>(AgentName);
         Assert.NotNull(server);
+        mockSessionStore.Verify(s => s.GetService(typeof(IsolationKeyScopedAgentSessionStore), null), Times.Once);
     }
 
     /// <summary>

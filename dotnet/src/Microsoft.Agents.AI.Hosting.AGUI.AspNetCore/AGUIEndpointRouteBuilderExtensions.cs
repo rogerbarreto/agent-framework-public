@@ -111,7 +111,7 @@ public static class AGUIEndpointRouteBuilderExtensions
 
         // Ensure that we have an IsolationKeyScopedAgentSessionStore registered.
         var isolationKeyProvider = endpoints.ServiceProvider.GetService<AgentIsolationKeyProvider>();
-        if (agentSessionStore is not IsolationKeyScopedAgentSessionStore)
+        if (agentSessionStore?.GetService<IsolationKeyScopedAgentSessionStore>() is null)
         {
             agentSessionStore ??= new NoopAgentSessionStore();
             agentSessionStore = new IsolationKeyScopedAgentSessionStore(agentSessionStore, isolationKeyProvider, new() { Strict = isolationKeyProvider != null });

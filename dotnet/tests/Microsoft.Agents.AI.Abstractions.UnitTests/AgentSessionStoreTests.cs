@@ -14,6 +14,58 @@ namespace Microsoft.Agents.AI.Abstractions.UnitTests;
 public sealed class AgentSessionStoreTests
 {
     [Fact]
+    public void GetService_CompatibleUnkeyedType_ReturnsStore()
+    {
+        // Arrange
+        var store = new TestAgentSessionStore(session: null);
+
+        // Act and assert
+        Assert.Same(store, store.GetService(typeof(TestAgentSessionStore)));
+        Assert.Same(store, store.GetService<AgentSessionStore>());
+        Assert.Same(store, store.GetService<object>());
+    }
+
+    [Fact]
+    public void GetService_UnsupportedRequest_ReturnsDefault()
+    {
+        // Arrange
+        var store = new TestAgentSessionStore(session: null);
+
+        // Act and assert
+        Assert.Null(store.GetService(typeof(IDisposable)));
+        Assert.Null(store.GetService<IDisposable>());
+        Assert.Null(store.GetService<AgentSessionStore>("key"));
+        Assert.Equal(0, store.GetService<int>());
+    }
+
+    [Fact]
+    public void GetService_NullType_Throws()
+    {
+        // Arrange
+        var store = new TestAgentSessionStore(session: null);
+
+        // Act and assert
+        Assert.Throws<ArgumentNullException>("serviceType", () => store.GetService(null!));
+    }
+
+    [Fact]
+    public void GetService_GenericOverload_UsesVirtualMethod()
+    {
+        // Arrange
+        var service = new object();
+        var key = new object();
+        var store = new Mock<AgentSessionStore>();
+        store.Setup(s => s.GetService(typeof(object), key)).Returns(service);
+
+        // Act
+        var result = store.Object.GetService<object>(key);
+
+        // Assert
+        Assert.Same(service, result);
+        store.Verify(s => s.GetService(typeof(object), key), Times.Once);
+    }
+
+    [Fact]
     public async Task GetOrCreateSessionAsync_StoredSession_ReturnsStoredSessionAsync()
     {
         // Arrange

@@ -46,13 +46,17 @@ Chosen option: **Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Ab
 - `AgentSessionStoreKey.Partitions` holds zero or more named isolation dimensions. Every partition is
   part of identity and implementations cannot ignore unknown partitions.
 - Partition order does not affect identity. Physical encoding remains the responsibility of each store.
-- `DeleteSessionAsync` and service inspection are not part of the shared contract.
+- `GetService(Type, object?)` and `GetService<TService>(object?)` retain service discovery from conventional
+  Hosting. Stores can expose themselves, underlying implementations, or additional capabilities.
+- `DeleteSessionAsync` is not part of the shared contract.
 
 The duplicate types in `Microsoft.Agents.AI.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting` are removed.
 Both packages reference the shared type directly.
 
 `DelegatingAgentSessionStore` lives in the `Microsoft.Agents.AI` package beside `ChatClientAgent`, providing
-the common decorator base without requiring a hosting-protocol package.
+the common decorator base without requiring a hosting-protocol package. Its service queries check the
+outer instance first, then forward to the inner store. Hosting registration uses this discovery to
+recognize existing isolation even when other decorators surround it, avoiding a second isolation wrapper.
 
 The conventional Hosting implementations adopt the same behavior. `IsolationKeyScopedAgentSessionStore`
 adds the value from `AgentIsolationKeyProvider` under the `isolation` partition while preserving existing

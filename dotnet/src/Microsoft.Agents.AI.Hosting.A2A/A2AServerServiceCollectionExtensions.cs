@@ -187,7 +187,7 @@ public static class A2AServerServiceCollectionExtensions
             var runMode = options?.AgentRunMode ?? AgentRunMode.DisallowBackground;
 
             // Ensure that we have an IsolationKeyScopedAgentSessionStore registered.
-            if (agentSessionStore is not IsolationKeyScopedAgentSessionStore)
+            if (agentSessionStore?.GetService<IsolationKeyScopedAgentSessionStore>() is null)
             {
                 agentSessionStore ??= new NoopAgentSessionStore();
                 agentSessionStore = new IsolationKeyScopedAgentSessionStore(agentSessionStore, isolationKeyProvider, new() { Strict = isolationKeyProvider != null });

@@ -20,9 +20,9 @@ namespace Microsoft.Agents.AI;
 /// underlying store.
 /// </para>
 /// <para>
-/// The default implementation provides transparent pass-through behavior, forwarding all operations to the inner store.
-/// Derived classes can override specific methods to add custom behavior while maintaining compatibility with the store
-/// interface.
+/// The default implementation forwards lookup and save operations to the inner store. The inherited
+/// lookup-or-create method calls the outer store's lookup override before creating a session when needed.
+/// Service queries check this instance before querying the inner store.
 /// </para>
 /// </remarks>
 [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
@@ -35,8 +35,7 @@ public abstract class DelegatingAgentSessionStore : AgentSessionStore
     /// <param name="innerStore">The underlying session store instance that will handle the core operations.</param>
     /// <exception cref="ArgumentNullException"><paramref name="innerStore"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The inner session store serves as the foundation of the delegation chain. All operations not overridden by
-    /// derived classes will be forwarded to this store.
+    /// Lookup and save operations are forwarded to this store unless overridden by a derived class.
     /// </remarks>
     protected DelegatingAgentSessionStore(AgentSessionStore innerStore)
     {
@@ -54,6 +53,14 @@ public abstract class DelegatingAgentSessionStore : AgentSessionStore
     /// or to forward operations with additional processing.
     /// </remarks>
     protected AgentSessionStore InnerStore { get; }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Returns this instance for a compatible unkeyed request. Otherwise, forwards the request to
+    /// <see cref="InnerStore"/>, allowing services to be discovered through multiple decorators.
+    /// </remarks>
+    public override object? GetService(Type serviceType, object? serviceKey = null)
+        => base.GetService(serviceType, serviceKey) ?? this.InnerStore.GetService(serviceType, serviceKey);
 
     /// <inheritdoc/>
     public override ValueTask<AgentSession?> GetSessionAsync(

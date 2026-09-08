@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -76,4 +77,38 @@ public abstract class AgentSessionStore
         return await this.GetSessionAsync(agent, key, cancellationToken).ConfigureAwait(false)
             ?? await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Asks the store for an object of the specified type.</summary>
+    /// <param name="serviceType">The type of object being requested.</param>
+    /// <param name="serviceKey">An optional key that identifies the requested service.</param>
+    /// <returns>The requested object, or <see langword="null"/> if it is not available.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="serviceType"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// Stores can expose themselves, underlying stores, or additional services through this method.
+    /// The default implementation returns this instance when no key is supplied and it is assignable to
+    /// <paramref name="serviceType"/>. Otherwise, it returns <see langword="null"/>.
+    /// </remarks>
+#pragma warning disable RS0026 // Preserves the existing Hosting service discovery contract and matches AIAgent.
+    public virtual object? GetService(Type serviceType, object? serviceKey = null)
+    {
+        _ = Throw.IfNull(serviceType);
+
+        return serviceKey is null && serviceType.IsInstanceOfType(this)
+            ? this
+            : null;
+    }
+#pragma warning restore RS0026
+
+    /// <summary>Asks the store for an object of type <typeparamref name="TService"/>.</summary>
+    /// <typeparam name="TService">The type of object being requested.</typeparam>
+    /// <param name="serviceKey">An optional key that identifies the requested service.</param>
+    /// <returns>The requested object, or the default value of <typeparamref name="TService"/> if it is not available.</returns>
+    /// <remarks>
+    /// This method calls <see cref="GetService(Type, object?)"/> so that services exposed by derived stores
+    /// are available through both overloads.
+    /// </remarks>
+#pragma warning disable RS0026 // Preserves the existing Hosting service discovery contract and matches AIAgent.
+    public TService? GetService<TService>(object? serviceKey = null)
+        => this.GetService(typeof(TService), serviceKey) is TService service ? service : default;
+#pragma warning restore RS0026
 }

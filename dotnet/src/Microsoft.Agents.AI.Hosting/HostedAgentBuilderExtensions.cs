@@ -57,7 +57,7 @@ public static class HostedAgentBuilderExtensions
             AgentSessionStore store = createAgentSessionStore(sp, keyString) ??
                 throw new InvalidOperationException($"The agent session store factory did not return a valid {nameof(AgentSessionStore)} instance for key '{keyString}'.");
 
-            if (withIsolation && store is not IsolationKeyScopedAgentSessionStore)
+            if (withIsolation && store.GetService<IsolationKeyScopedAgentSessionStore>() is null)
             {
                 var isolationKeyProvider = sp.GetService<AgentIsolationKeyProvider>();
 

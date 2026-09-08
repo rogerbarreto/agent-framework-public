@@ -1,6 +1,8 @@
 ﻿#nullable enable
 [MAAI001]Microsoft.Agents.AI.AgentSessionStore
 [MAAI001]Microsoft.Agents.AI.AgentSessionStore.AgentSessionStore() -> void
+[MAAI001]Microsoft.Agents.AI.AgentSessionStore.GetService<TService>(object? serviceKey = null) -> TService?
+[MAAI001]virtual Microsoft.Agents.AI.AgentSessionStore.GetService(System.Type! serviceType, object? serviceKey = null) -> object?
 [MAAI001]abstract Microsoft.Agents.AI.AgentSessionStore.GetSessionAsync(Microsoft.Agents.AI.AIAgent! agent, Microsoft.Agents.AI.AgentSessionStoreKey! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Microsoft.Agents.AI.AgentSession?>
 [MAAI001]abstract Microsoft.Agents.AI.AgentSessionStore.SaveSessionAsync(Microsoft.Agents.AI.AIAgent! agent, Microsoft.Agents.AI.AgentSessionStoreKey! key, Microsoft.Agents.AI.AgentSession! session, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 [MAAI001]virtual Microsoft.Agents.AI.AgentSessionStore.GetOrCreateSessionAsync(Microsoft.Agents.AI.AIAgent! agent, Microsoft.Agents.AI.AgentSessionStoreKey! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Microsoft.Agents.AI.AgentSession!>
