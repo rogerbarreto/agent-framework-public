@@ -1,5 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+// Creates a Foundry hosted session explicitly, pins an Agent Framework session to it,
+// reuses the hosted sandbox across turns, and deletes the hosted session on exit.
+
 #pragma warning disable MEAI001 // Foundry hosted session helpers are experimental.
 
 using Azure.AI.Projects;
@@ -58,6 +61,11 @@ try
         Console.ResetColor();
 
         string? input = Console.ReadLine();
+        if (input is null)
+        {
+            break;
+        }
+
         if (string.IsNullOrWhiteSpace(input))
         {
             continue;

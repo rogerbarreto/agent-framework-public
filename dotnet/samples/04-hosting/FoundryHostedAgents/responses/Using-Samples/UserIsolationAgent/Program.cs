@@ -1,5 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+// Shares one Foundry hosted session across application users while preserving an
+// independent Agent Framework session and delegated identity for each user.
+
 #pragma warning disable MEAI001 // Foundry hosted session and user identity helpers are experimental.
 
 using Azure.AI.Projects;
@@ -58,7 +61,13 @@ try
         Console.Write("User id> ");
         Console.ResetColor();
 
-        string? userId = Console.ReadLine()?.Trim();
+        string? userId = Console.ReadLine();
+        if (userId is null)
+        {
+            break;
+        }
+
+        userId = userId.Trim();
         if (string.IsNullOrWhiteSpace(userId))
         {
             continue;
@@ -71,6 +80,11 @@ try
 
         Console.Write("Message> ");
         string? input = Console.ReadLine();
+        if (input is null)
+        {
+            break;
+        }
+
         if (string.IsNullOrWhiteSpace(input))
         {
             continue;
