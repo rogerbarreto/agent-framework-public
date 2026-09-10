@@ -38,10 +38,6 @@ internal static class FoundrySkills
                         Endpoint = new Uri(toolboxMcpServerUrl),
                         Name = "foundry_toolbox",
                         TransportMode = HttpTransportMode.StreamableHttp,
-                        AdditionalHeaders = new Dictionary<string, string>
-                        {
-                            ["Foundry-Features"] = "Toolboxes=V1Preview",
-                        },
                     },
                     httpClient));
 
