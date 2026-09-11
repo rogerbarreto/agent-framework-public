@@ -47,6 +47,10 @@ await using McpClient mcpClient = await McpClient.CreateAsync(
             Endpoint = new Uri(toolboxEndpoint),
             Name = "foundry_toolbox",
             TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string>
+            {
+                ["Foundry-Features"] = "Toolboxes=V1Preview",
+            },
         },
         httpClient));
 
