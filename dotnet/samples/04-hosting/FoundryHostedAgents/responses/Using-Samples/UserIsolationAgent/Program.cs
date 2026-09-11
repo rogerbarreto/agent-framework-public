@@ -34,6 +34,9 @@ ProjectAgentSession hostedSession = await adminClient.CreateSessionAsync(
     new VersionRefIndicator(agentVersion));
 string hostedSessionId = hostedSession.AgentSessionId;
 
+// Demonstration only: this console accepts arbitrary user IDs to make isolation visible.
+// Production code must derive the user ID from authenticated request context, authorize the
+// operation, and use a managed session pool instead of trusting caller-provided identity text.
 var userSessions = new Dictionary<string, ChatClientAgentSession>(StringComparer.Ordinal);
 
 try
