@@ -14,6 +14,29 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests.Hosting;
 public sealed class FoundryAgentSessionStoreTests
 {
     [Fact]
+    public async Task SaveAndGetSessionAsync_NullAndEmptyPartitions_UseSameStoredSessionAsync()
+    {
+        // Arrange
+        var backing = new FakeStateStore();
+        var store = NewStore(backing);
+        var agent = new TestAgent("{\"foo\":7}", name: "Concierge");
+        var nullPartitions = new AgentSessionStoreKey("conv-1", partitions: null);
+        var emptyPartitions = new AgentSessionStoreKey("conv-1", new Dictionary<string, string>());
+
+        // Act
+        await store.SaveSessionAsync(agent, nullPartitions, new TestSession());
+        var session = await store.GetSessionAsync(agent, emptyPartitions);
+        var partitionedSession = await store.GetSessionAsync(agent, nullPartitions.WithPartition("user", "alice"));
+
+        // Assert
+        Assert.NotNull(session);
+        Assert.Null(partitionedSession);
+        Assert.Equal(7, agent.LastDeserialized!.Value.GetProperty("foo").GetInt32());
+        var item = Assert.Single(backing.Items);
+        Assert.Equal("\"a14:name:Concierge|s6:conv-1\"", item["key"].ToString());
+    }
+
+    [Fact]
     public async Task SaveSessionAsync_ThenGetSessionAsync_RoundTripsAsync()
     {
         // Arrange

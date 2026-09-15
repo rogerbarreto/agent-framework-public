@@ -23,10 +23,13 @@ internal static class FoundryAgentSessionKeyEncoder
         StringBuilder builder = new();
         AppendComponent(builder, 'a', Throw.IfNullOrWhitespace(agentIdentity));
         AppendComponent(builder, 's', key.SessionId);
-        foreach (KeyValuePair<string, string> partition in key.Partitions)
+        if (key.Partitions is not null)
         {
-            AppendComponent(builder, 'n', partition.Key);
-            AppendComponent(builder, 'v', partition.Value);
+            foreach (KeyValuePair<string, string> partition in key.Partitions)
+            {
+                AppendComponent(builder, 'n', partition.Key);
+                AppendComponent(builder, 'v', partition.Value);
+            }
         }
         builder.Length--;
         return builder.ToString();

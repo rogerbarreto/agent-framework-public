@@ -11,6 +11,40 @@ namespace Microsoft.Agents.AI.Abstractions.UnitTests;
 public sealed class AgentSessionStoreKeyTests
 {
     [Fact]
+    public void Constructor_WithoutPartitions_LeavesPartitionsNull()
+    {
+        // Act
+        var omitted = new AgentSessionStoreKey("session-1");
+        var explicitNull = new AgentSessionStoreKey("session-1", partitions: null);
+        var empty = new AgentSessionStoreKey("session-1", new Dictionary<string, string>());
+
+        // Assert
+        Assert.Null(omitted.Partitions);
+        Assert.Null(explicitNull.Partitions);
+        Assert.Null(empty.Partitions);
+        Assert.Equal(omitted, explicitNull);
+        Assert.Equal(explicitNull, empty);
+        Assert.Equal(empty, omitted);
+        Assert.Equal(omitted.GetHashCode(), explicitNull.GetHashCode());
+        Assert.Equal(omitted.GetHashCode(), empty.GetHashCode());
+    }
+
+    [Fact]
+    public void Equality_NullPartitions_DistinguishesSessionAndPartitionedKeys()
+    {
+        // Arrange
+        var key = new AgentSessionStoreKey("session-1", partitions: null);
+        var otherSession = new AgentSessionStoreKey("session-2", partitions: null);
+        var partitioned = key.WithPartition("user", "alice");
+
+        // Act and assert
+        Assert.False(key.Equals(otherSession));
+        Assert.False(key.Equals(partitioned));
+        Assert.False(partitioned.Equals(key));
+        Assert.False(key.Equals(null));
+    }
+
+    [Fact]
     public void Constructor_CopiesAndSortsPartitions()
     {
         // Arrange
@@ -26,6 +60,7 @@ public sealed class AgentSessionStoreKeyTests
 
         // Assert
         Assert.Equal("session-1", key.SessionId);
+        Assert.NotNull(key.Partitions);
         Assert.Equal(["tenant", "user"], key.Partitions.Keys);
         Assert.Equal("user-1", key.Partitions["user"]);
     }
@@ -77,7 +112,8 @@ public sealed class AgentSessionStoreKeyTests
         AgentSessionStoreKey partitioned = original.WithPartition("tenant", "tenant-1");
 
         // Assert
-        Assert.Empty(original.Partitions);
+        Assert.Null(original.Partitions);
+        Assert.NotNull(partitioned.Partitions);
         Assert.Equal("tenant-1", partitioned.Partitions["tenant"]);
     }
 

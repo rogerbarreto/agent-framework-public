@@ -33,7 +33,8 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
     /// </summary>
     /// <param name="sessionId">The logical session identifier.</param>
     /// <param name="partitions">
-    /// Optional named partition values. Every partition contributes to identity. The collection is copied.
+    /// Optional named partition values. Every partition contributes to identity. Nonempty collections are copied.
+    /// A null or empty collection leaves <see cref="Partitions"/> null.
     /// </param>
     public AgentSessionStoreKey(
         string sessionId,
@@ -41,18 +42,18 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
     {
         this.SessionId = Throw.IfNullOrWhitespace(sessionId);
 
-        var partitionCopy = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        if (partitions is not null)
+        if (partitions is { Count: > 0 })
         {
+            var partitionCopy = new SortedDictionary<string, string>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, string> partition in partitions)
             {
                 partitionCopy.Add(
                     Throw.IfNullOrWhitespace(partition.Key, nameof(partitions)),
                     Throw.IfNullOrWhitespace(partition.Value, nameof(partitions)));
             }
-        }
 
-        this.Partitions = new ReadOnlyDictionary<string, string>(partitionCopy);
+            this.Partitions = new ReadOnlyDictionary<string, string>(partitionCopy);
+        }
 
         this._hashCode = this.ComputeHashCode();
     }
@@ -63,9 +64,10 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
     public string SessionId { get; }
 
     /// <summary>
-    /// Gets the named partition values that form part of the session identity.
+    /// Gets the named partition values that form part of the session identity, or <see langword="null"/>
+    /// when the key has no partitions.
     /// </summary>
-    public IReadOnlyDictionary<string, string> Partitions { get; }
+    public IReadOnlyDictionary<string, string>? Partitions { get; }
 
     /// <summary>
     /// Returns a new key containing the specified partition.
@@ -81,16 +83,20 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
         name = Throw.IfNullOrWhitespace(name);
         value = Throw.IfNullOrWhitespace(value);
 
-        if (this.Partitions.TryGetValue(name, out string? existingValue)
+        if (this.Partitions is not null
+            && this.Partitions.TryGetValue(name, out string? existingValue)
             && string.Equals(existingValue, value, StringComparison.Ordinal))
         {
             return this;
         }
 
         var partitions = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (KeyValuePair<string, string> partition in this.Partitions)
+        if (this.Partitions is not null)
         {
-            partitions.Add(partition.Key, partition.Value);
+            foreach (KeyValuePair<string, string> partition in this.Partitions)
+            {
+                partitions.Add(partition.Key, partition.Value);
+            }
         }
         partitions[name] = value;
 
@@ -107,17 +113,20 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
 
         if (other is null
             || !string.Equals(this.SessionId, other.SessionId, StringComparison.Ordinal)
-            || this.Partitions.Count != other.Partitions.Count)
+            || this.Partitions?.Count != other.Partitions?.Count)
         {
             return false;
         }
 
-        foreach (KeyValuePair<string, string> partition in this.Partitions)
+        if (this.Partitions is not null && other.Partitions is not null)
         {
-            if (!other.Partitions.TryGetValue(partition.Key, out string? value)
-                || !string.Equals(partition.Value, value, StringComparison.Ordinal))
+            foreach (KeyValuePair<string, string> partition in this.Partitions)
             {
-                return false;
+                if (!other.Partitions.TryGetValue(partition.Key, out string? value)
+                    || !string.Equals(partition.Value, value, StringComparison.Ordinal))
+                {
+                    return false;
+                }
             }
         }
 
@@ -135,10 +144,13 @@ public sealed class AgentSessionStoreKey : IEquatable<AgentSessionStoreKey>
         unchecked
         {
             int hashCode = StringComparer.Ordinal.GetHashCode(this.SessionId);
-            foreach (KeyValuePair<string, string> partition in this.Partitions)
+            if (this.Partitions is not null)
             {
-                hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Key);
-                hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Value);
+                foreach (KeyValuePair<string, string> partition in this.Partitions)
+                {
+                    hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Key);
+                    hashCode = (hashCode * 31) + StringComparer.Ordinal.GetHashCode(partition.Value);
+                }
             }
 
             return hashCode;

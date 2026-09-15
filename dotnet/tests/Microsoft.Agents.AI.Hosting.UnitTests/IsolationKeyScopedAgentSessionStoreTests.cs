@@ -39,6 +39,7 @@ public class IsolationKeyScopedAgentSessionStoreTests
                 this._agentMock.Object,
                 It.Is<AgentSessionStoreKey>(actual =>
                     actual.SessionId == "session-1"
+                    && actual.Partitions != null
                     && actual.Partitions["tenant"] == "tenant-1"
                     && actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
@@ -64,6 +65,7 @@ public class IsolationKeyScopedAgentSessionStoreTests
                 this._agentMock.Object,
                 It.Is<AgentSessionStoreKey>(actual =>
                     actual.SessionId == "session-1"
+                    && actual.Partitions != null
                     && actual.Partitions["isolation"] == TestIsolationKey),
                 session,
                 It.IsAny<CancellationToken>()))
@@ -87,7 +89,7 @@ public class IsolationKeyScopedAgentSessionStoreTests
             .Setup(x => x.GetOrCreateSessionAsync(
                 this._agentMock.Object,
                 It.Is<AgentSessionStoreKey>(actual =>
-                    actual.Partitions["isolation"] == TestIsolationKey),
+                    actual.Partitions != null && actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedSession);
         var store = this.CreateStore(TestIsolationKey);
@@ -149,7 +151,7 @@ public class IsolationKeyScopedAgentSessionStoreTests
             .Setup(x => x.GetSessionAsync(
                 this._agentMock.Object,
                 It.Is<AgentSessionStoreKey>(actual =>
-                    actual.Partitions["isolation"] == TestIsolationKey),
+                    actual.Partitions != null && actual.Partitions["isolation"] == TestIsolationKey),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((AgentSession?)null);
         var store = this.CreateStore(TestIsolationKey);

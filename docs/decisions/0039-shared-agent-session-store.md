@@ -45,6 +45,8 @@ Chosen option: **Promote the Foundry Hosting contract to `Microsoft.Agents.AI.Ab
 - `AgentSessionStoreKey.SessionId` identifies the logical session.
 - `AgentSessionStoreKey.Partitions` holds zero or more named isolation dimensions. Every partition is
   part of identity and implementations cannot ignore unknown partitions.
+- Keys without partitions expose `Partitions = null`, avoiding dictionary allocations. Omitted, null,
+  and empty constructor inputs all represent the same unpartitioned identity.
 - Partition order does not affect identity. Physical encoding remains the responsibility of each store.
 - `GetService(Type, object?)` and `GetService<TService>(object?)` retain service discovery from conventional
   Hosting. Stores can expose themselves, underlying implementations, or additional capabilities.

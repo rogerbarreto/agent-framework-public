@@ -182,10 +182,13 @@ public sealed class AzureBlobAgentSessionStore : AgentSessionStore
     {
         StringBuilder builder = new();
         AppendComponent(builder, 's', key.SessionId);
-        foreach (KeyValuePair<string, string> partition in key.Partitions)
+        if (key.Partitions is not null)
         {
-            AppendComponent(builder, 'n', partition.Key);
-            AppendComponent(builder, 'v', partition.Value);
+            foreach (KeyValuePair<string, string> partition in key.Partitions)
+            {
+                AppendComponent(builder, 'n', partition.Key);
+                AppendComponent(builder, 'v', partition.Value);
+            }
         }
 
         return ComputeKey(builder.ToString());
