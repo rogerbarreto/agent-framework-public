@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -230,6 +231,68 @@ public sealed class ResponseSessionRegressionTests
         }
     }
 
+    [Fact]
+    public async Task StreamingApproval_RequiresTerminalEventBeforeContinuationAsync()
+    {
+        // Arrange
+        var agent = new PausingApprovalAgent();
+        WebApplicationBuilder builder = CreateBuilder();
+        builder.AddAIAgent(AgentName, (_, _) => agent)
+            .WithInMemorySessionStore(withIsolation: false);
+        builder.AddOpenAIResponses();
+
+        await using WebApplication app = builder.Build();
+        app.MapOpenAIResponses(agent);
+        await app.StartAsync();
+        using HttpClient client = app.GetTestClient();
+        var initialRequest = new HttpRequestMessage(HttpMethod.Post, $"/{AgentName}/v1/responses")
+        {
+            Content = JsonContent("""{"input":"hello","stream":true}""")
+        };
+        using HttpResponseMessage initialResponse = await client.SendAsync(
+            initialRequest,
+            HttpCompletionOption.ResponseHeadersRead);
+        initialResponse.EnsureSuccessStatusCode();
+        await using Stream initialStream = await initialResponse.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(initialStream);
+        (string responseId, JsonElement approvalEvent) = await ReadApprovalEventAsync(reader);
+        string approvalJson = CreateApprovalResponseJson(
+            responseId,
+            approvalEvent,
+            includeAgentName: false);
+
+        // Act
+        try
+        {
+            using HttpResponseMessage prematureResponse = await PostJsonAsync(
+                client,
+                $"/{AgentName}/v1/responses",
+                approvalJson).WaitAsync(TimeSpan.FromSeconds(5));
+            string prematureBody = await prematureResponse.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, prematureResponse.StatusCode);
+            Assert.Contains("does not match a pending approval request", prematureBody, StringComparison.Ordinal);
+
+            // Act
+            agent.ReleaseInitialRun();
+            string remainingEvents = await reader.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains("response.completed", remainingEvents, StringComparison.Ordinal);
+            using HttpResponseMessage approvalResponse = await PostJsonAsync(
+                client,
+                $"/{AgentName}/v1/responses",
+                approvalJson).WaitAsync(TimeSpan.FromSeconds(5));
+            string approvalBody = await approvalResponse.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.True(approvalResponse.IsSuccessStatusCode, approvalBody);
+        }
+        finally
+        {
+            agent.ReleaseInitialRun();
+        }
+    }
+
     private static WebApplicationBuilder CreateBuilder(bool validateScopes = false)
     {
         var options = new WebApplicationOptions
@@ -314,6 +377,33 @@ public sealed class ResponseSessionRegressionTests
             """;
     }
 
+    private static async Task<(string ResponseId, JsonElement ApprovalEvent)> ReadApprovalEventAsync(
+        StreamReader reader)
+    {
+        string? responseId = null;
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            if (!line.StartsWith("data: ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            using JsonDocument document = JsonDocument.Parse(line["data: ".Length..]);
+            JsonElement item = document.RootElement;
+            string? type = item.GetProperty("type").GetString();
+            if (type == "response.created")
+            {
+                responseId = item.GetProperty("response").GetProperty("id").GetString();
+            }
+            else if (type == "response.function_approval.requested")
+            {
+                return (Assert.IsType<string>(responseId), item.Clone());
+            }
+        }
+
+        throw new InvalidOperationException("The stream ended before an approval request was emitted.");
+    }
+
     private static List<JsonElement> ParseSseEvents(string content)
     {
         var events = new List<JsonElement>();
@@ -333,6 +423,15 @@ public sealed class ResponseSessionRegressionTests
 
     private static StringContent JsonContent(string json) =>
         new(json, Encoding.UTF8, "application/json");
+
+    private static async Task<HttpResponseMessage> PostJsonAsync(
+        HttpClient client,
+        string path,
+        string json)
+    {
+        using StringContent content = JsonContent(json);
+        return await client.PostAsync(new Uri(path, UriKind.Relative), content);
+    }
 
     private static async Task WaitForResponseCompletionAsync(
         HttpClient client,

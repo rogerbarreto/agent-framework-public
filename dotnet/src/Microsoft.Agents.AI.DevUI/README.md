@@ -82,6 +82,12 @@ The endpoint also returns HTTP 400 when `request_id` is unknown or belongs to a
 different stored session. This prevents an approval issued in one conversation
 from authorizing a function call in another.
 
+For a streaming response, wait for its terminal event before sending the
+`function_approval_response`. The server persists the approval checkpoint before
+publishing `response.completed`. A decision sent while the originating stream is
+still in progress is rejected with HTTP 400 because that approval is not yet
+available for continuation.
+
 ## Security
 
 DevUI exposes `/v1/entities` and `/v1/entities/{id}/info`, which return agent metadata including the system prompt (`ChatClientAgent.Instructions`). To prevent accidental disclosure, the DevUI route group is wrapped in a small endpoint filter that:
