@@ -38,8 +38,21 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(agentBuilder);
 
-        var agent = endpoints.ServiceProvider.GetRequiredKeyedService<AIAgent>(agentBuilder.Name);
-        return MapOpenAIResponses(endpoints, agent, path, mapOptions);
+        ValidateAgentName(agentBuilder.Name);
+        path ??= $"/{agentBuilder.Name}/v1/responses";
+
+        // Defer agent and session-store resolution so their registered lifetimes are owned by
+        // each validation or execution operation rather than by the application root.
+        var scopeFactory = endpoints.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        var executor = new AIAgentResponseExecutor(
+            agentBuilder.Name,
+            scopeFactory,
+            mapOptions);
+        return MapOpenAIResponses(
+            endpoints,
+            executor,
+            path,
+            agentBuilder.Name);
     }
 
     /// <summary>
@@ -70,16 +83,27 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         responsesPath ??= $"/{agent.Name}/v1/responses";
 
-        // A fixed-agent endpoint can participate in persisted continuation when the host registered
-        // a session store for that agent. Without one, execution retains its existing stateless behavior.
-#pragma warning disable MAAI001
-        AgentSessionStore? sessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
-#pragma warning restore MAAI001
-        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
+        // The supplied agent remains fixed, while its optional keyed session store is resolved
+        // inside each operation scope.
+        var scopeFactory = endpoints.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        var executor = new AIAgentResponseExecutor(
+            agent,
+            agent.Name,
+            scopeFactory,
+            mapOptions);
+        return MapOpenAIResponses(
+            endpoints,
+            executor,
+            responsesPath,
+            agent.Name);
+    }
 
-        // Create an executor for this agent.
-        var executor = new AIAgentResponseExecutor(executionAgent, mapOptions);
-
+    private static RouteGroupBuilder MapOpenAIResponses(
+        IEndpointRouteBuilder endpoints,
+        IResponseExecutor executor,
+        string responsesPath,
+        string endpointAgentName)
+    {
         // Resolve the response storage settings and optional conversation storage.
         var storageOptions = endpoints.ServiceProvider.GetService<InMemoryStorageOptions>() ?? new InMemoryStorageOptions();
         var conversationStorage = endpoints.ServiceProvider.GetService<IConversationStorage>();
@@ -92,11 +116,8 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         // Create the response service so response and conversation operations are scoped by the caller's isolation key.
         var responsesService = new InMemoryResponsesService(executor, storageOptions, conversationStorage, isolationKeyResolver);
-
         var handlers = new ResponsesHttpHandler(responsesService);
-
         var group = endpoints.MapGroup(responsesPath);
-        var endpointAgentName = agent.Name ?? agent.Id;
 
         // Create response endpoint
         group.MapPost("/", handlers.CreateResponseAsync)

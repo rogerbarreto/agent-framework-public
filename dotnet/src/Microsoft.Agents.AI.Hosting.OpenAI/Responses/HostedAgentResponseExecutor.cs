@@ -19,25 +19,25 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Responses;
 /// </summary>
 internal sealed class HostedAgentResponseExecutor : IResponseExecutor
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<HostedAgentResponseExecutor> _logger;
     private readonly OpenAIResponsesMapOptions _mapOptions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HostedAgentResponseExecutor"/> class.
     /// </summary>
-    /// <param name="serviceProvider">The service provider used to resolve hosted agents.</param>
+    /// <param name="scopeFactory">The factory used to create a scope for each hosted-agent operation.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="mapOptions">Options controlling how incoming requests are mapped onto the agent run.</param>
     public HostedAgentResponseExecutor(
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<HostedAgentResponseExecutor> logger,
         OpenAIResponsesMapOptions? mapOptions = null)
     {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
+        ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(logger);
 
-        this._serviceProvider = serviceProvider;
+        this._scopeFactory = scopeFactory;
         this._logger = logger;
         this._mapOptions = mapOptions ?? new OpenAIResponsesMapOptions();
     }
@@ -59,56 +59,62 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
             };
         }
 
-        // Validate that the agent can be resolved
-        AIAgent? agent = this._serviceProvider.GetKeyedService<AIAgent>(registrationKey);
-        if (agent is null)
+        AsyncServiceScope scope = this._scopeFactory.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
         {
-            if (this._logger.IsEnabled(LogLevel.Warning))
+            IServiceProvider services = scope.ServiceProvider;
+
+            // Validate that the agent can be resolved
+            AIAgent? agent = services.GetKeyedService<AIAgent>(registrationKey);
+            if (agent is null)
             {
-                this._logger.LogWarning("Failed to resolve agent with name '{AgentName}'", registrationKey);
+                if (this._logger.IsEnabled(LogLevel.Warning))
+                {
+                    this._logger.LogWarning("Failed to resolve agent with name '{AgentName}'", registrationKey);
+                }
+
+                return new ResponseError
+                {
+                    Code = "agent_not_found",
+                    Message = $"""
+                        Agent '{registrationKey}' not found.
+                        Ensure the agent is registered with '{registrationKey}' name in the dependency injection container.
+                        We recommend using 'builder.AddAIAgent()' for simplicity.
+                    """
+                };
             }
 
-            return new ResponseError
-            {
-                Code = "agent_not_found",
-                Message = $"""
-                    Agent '{registrationKey}' not found.
-                    Ensure the agent is registered with '{registrationKey}' name in the dependency injection container.
-                    We recommend using 'builder.AddAIAgent()' for simplicity.
-                """
-            };
-        }
-
-        // An approval response can be validated only against the pending request stored by the server.
+            // An approval response can be validated only against the pending request stored by the server.
 #pragma warning disable MAAI001
-        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(registrationKey);
+            AgentSessionStore? sessionStore = services.GetKeyedService<AgentSessionStore>(registrationKey);
 #pragma warning restore MAAI001
-        ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, sessionStore is not null);
-        if (sessionError is not null)
-        {
-            return sessionError;
-        }
-
-        // Surface unsupported request settings as a clean request error rather than an unhandled
-        // exception during execution.
-        try
-        {
-            _ = this._mapOptions.RunOptionsFactory(request.ToRequestInfo());
-        }
-        catch (NotSupportedException ex)
-        {
-            return new ResponseError
+            ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, sessionStore is not null);
+            if (sessionError is not null)
             {
-                Code = "unsupported_parameter",
-                Message = ex.Message
-            };
-        }
+                return sessionError;
+            }
 
-        AIAgent executionAgent = sessionStore is null
-            ? agent
-            : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
-        return await AgentResponseExecution.ValidatePendingApprovalResponsesAsync(
-            executionAgent, request, cancellationToken).ConfigureAwait(false);
+            // Surface unsupported request settings as a clean request error rather than an unhandled
+            // exception during execution.
+            try
+            {
+                _ = this._mapOptions.RunOptionsFactory(request.ToRequestInfo());
+            }
+            catch (NotSupportedException ex)
+            {
+                return new ResponseError
+                {
+                    Code = "unsupported_parameter",
+                    Message = ex.Message
+                };
+            }
+
+            AIAgent executionAgent = sessionStore is null
+                ? agent
+                : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
+            return await AgentResponseExecution.ValidatePendingApprovalResponsesAsync(
+                executionAgent, request, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -120,19 +126,26 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
     {
         // Resolve the agent selected by this request together with its optional persisted session store.
         string registrationKey = GetAgentRegistrationKey(request)!;
-        AIAgent agent = this._serviceProvider.GetRequiredKeyedService<AIAgent>(registrationKey);
-#pragma warning disable MAAI001
-        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(registrationKey);
-#pragma warning restore MAAI001
-        AIAgent executionAgent = sessionStore is null
-            ? agent
-            : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
-
-        // Once selected, hosted agents use the same execution behavior as fixed-agent endpoints.
-        await foreach (StreamingResponseEvent streamingEvent in AgentResponseExecution.ExecuteAsync(
-            executionAgent, this._mapOptions, context, request, conversationHistory, cancellationToken).ConfigureAwait(false))
+        // The scope surrounds the full enumeration so background execution retains scoped
+        // agents and stores through session persistence after the HTTP request has returned.
+        AsyncServiceScope scope = this._scopeFactory.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
         {
-            yield return streamingEvent;
+            IServiceProvider services = scope.ServiceProvider;
+            AIAgent agent = services.GetRequiredKeyedService<AIAgent>(registrationKey);
+#pragma warning disable MAAI001
+            AgentSessionStore? sessionStore = services.GetKeyedService<AgentSessionStore>(registrationKey);
+#pragma warning restore MAAI001
+            AIAgent executionAgent = sessionStore is null
+                ? agent
+                : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
+
+            // Once selected, hosted agents use the same execution behavior as fixed-agent endpoints.
+            await foreach (StreamingResponseEvent streamingEvent in AgentResponseExecution.ExecuteAsync(
+                executionAgent, this._mapOptions, context, request, conversationHistory, cancellationToken).ConfigureAwait(false))
+            {
+                yield return streamingEvent;
+            }
         }
     }
 
