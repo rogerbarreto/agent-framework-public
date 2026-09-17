@@ -28,13 +28,16 @@ internal sealed class AIAgentResponseExecutor : IResponseExecutor
         this._mapOptions = mapOptions ?? new OpenAIResponsesMapOptions();
     }
 
-    public ValueTask<ResponseError?> ValidateRequestAsync(
+    public async ValueTask<ResponseError?> ValidateRequestAsync(
         CreateResponse request,
         CancellationToken cancellationToken = default)
     {
         ResponseError? sessionError =
             AgentResponseExecution.ValidateSessionRequirements(request, this._agent is AIHostAgent);
-        return ValueTask.FromResult(sessionError ?? this.ValidateRunOptions(request));
+        return sessionError
+            ?? this.ValidateRunOptions(request)
+            ?? await AgentResponseExecution.ValidatePendingApprovalResponsesAsync(
+                this._agent, request, cancellationToken).ConfigureAwait(false);
     }
 
     internal ResponseError? ValidateRunOptions(CreateResponse request)

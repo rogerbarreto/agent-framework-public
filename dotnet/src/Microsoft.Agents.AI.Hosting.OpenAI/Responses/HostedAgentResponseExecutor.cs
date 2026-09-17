@@ -43,7 +43,7 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
     }
 
     /// <inheritdoc/>
-    public ValueTask<ResponseError?> ValidateRequestAsync(
+    public async ValueTask<ResponseError?> ValidateRequestAsync(
         CreateResponse request,
         CancellationToken cancellationToken = default)
     {
@@ -52,11 +52,11 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
 
         if (string.IsNullOrEmpty(agentName))
         {
-            return ValueTask.FromResult<ResponseError?>(new ResponseError
+            return new ResponseError
             {
                 Code = "missing_required_parameter",
                 Message = "No 'agent.name' or 'metadata[\"entity_id\"]' specified in the request."
-            });
+            };
         }
 
         // Validate that the agent can be resolved
@@ -68,7 +68,7 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
                 this._logger.LogWarning("Failed to resolve agent with name '{AgentName}'", agentName);
             }
 
-            return ValueTask.FromResult<ResponseError?>(new ResponseError
+            return new ResponseError
             {
                 Code = "agent_not_found",
                 Message = $"""
@@ -76,17 +76,17 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
                     Ensure the agent is registered with '{agentName}' name in the dependency injection container.
                     We recommend using 'builder.AddAIAgent()' for simplicity.
                 """
-            });
+            };
         }
 
         // An approval response can be validated only against the pending request stored by the server.
 #pragma warning disable MAAI001
-        bool hasSessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName) is not null;
+        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName);
 #pragma warning restore MAAI001
-        ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, hasSessionStore);
+        ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, sessionStore is not null);
         if (sessionError is not null)
         {
-            return ValueTask.FromResult<ResponseError?>(sessionError);
+            return sessionError;
         }
 
         // Surface unsupported request settings as a clean request error rather than an unhandled
@@ -97,14 +97,16 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         }
         catch (NotSupportedException ex)
         {
-            return ValueTask.FromResult<ResponseError?>(new ResponseError
+            return new ResponseError
             {
                 Code = "unsupported_parameter",
                 Message = ex.Message
-            });
+            };
         }
 
-        return ValueTask.FromResult<ResponseError?>(null);
+        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
+        return await AgentResponseExecution.ValidatePendingApprovalResponsesAsync(
+            executionAgent, request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

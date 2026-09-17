@@ -78,6 +78,10 @@ session store, the Responses endpoint returns HTTP 400:
 Approval-required function calling is not supported because no AgentSessionStore is configured.
 ```
 
+The endpoint also returns HTTP 400 when `request_id` is unknown or belongs to a
+different stored session. This prevents an approval issued in one conversation
+from authorizing a function call in another.
+
 ## Security
 
 DevUI exposes `/v1/entities` and `/v1/entities/{id}/info`, which return agent metadata including the system prompt (`ChatClientAgent.Instructions`). To prevent accidental disclosure, the DevUI route group is wrapped in a small endpoint filter that:

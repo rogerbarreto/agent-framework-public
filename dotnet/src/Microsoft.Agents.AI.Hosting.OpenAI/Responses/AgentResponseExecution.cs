@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -15,36 +16,64 @@ namespace Microsoft.Agents.AI.Hosting.OpenAI.Responses;
 internal static class AgentResponseExecution
 {
     private const string SessionInitializedStateKey = "Microsoft.Agents.AI.Hosting.OpenAI.Responses.Initialized";
+    private const string PendingApprovalRequestIdsStateKey = "Microsoft.Agents.AI.Hosting.OpenAI.Responses.PendingApprovalRequestIds";
 
     /// <summary>
     /// Validates that requests which resume an approval have server-side session storage available.
     /// </summary>
     public static ResponseError? ValidateSessionRequirements(CreateResponse request, bool hasSessionStore)
     {
+        List<ItemContentFunctionApprovalResponse> approvalResponses = GetFunctionApprovalResponses(request);
+        if (approvalResponses.Count == 0)
+        {
+            return null;
+        }
+
         if (hasSessionStore)
         {
             return null;
         }
 
-        foreach (InputMessage inputMessage in request.Input.GetInputMessages())
+        // Approval responses are trusted only when matched to a request recorded by the server.
+        // Without session storage, continuing would silently ignore the decision or trust caller data.
+        return new ResponseError
         {
-            if (inputMessage.Content.Contents is not { } contents)
-            {
-                continue;
-            }
+            Code = ResponseErrorCodes.InvalidRequest,
+            Message = "Approval-required function calling is not supported because no AgentSessionStore is configured."
+        };
+    }
 
-            foreach (ItemContent content in contents)
+    /// <summary>
+    /// Validates that every incoming approval response matches a request emitted for the restored session.
+    /// </summary>
+    public static async ValueTask<ResponseError?> ValidatePendingApprovalResponsesAsync(
+        AIAgent agent,
+        CreateResponse request,
+        CancellationToken cancellationToken)
+    {
+        List<ItemContentFunctionApprovalResponse> approvalResponses = GetFunctionApprovalResponses(request);
+        if (approvalResponses.Count == 0)
+        {
+            return null;
+        }
+
+        // ValidateSessionRequirements ensures approval responses reach this point only through an AIHostAgent.
+        var hostAgent = (AIHostAgent)agent;
+        string? sessionId = request.Conversation?.Id ?? request.PreviousResponseId;
+        if (sessionId is null)
+        {
+            return InvalidApprovalRequest(approvalResponses[0].RequestId);
+        }
+
+        AgentSession session = await hostAgent.GetOrCreateSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        session.StateBag.TryGetValue<List<string>>(PendingApprovalRequestIdsStateKey, out var pendingRequestIds);
+
+        foreach (ItemContentFunctionApprovalResponse approvalResponse in approvalResponses)
+        {
+            if (pendingRequestIds?.Exists(
+                requestId => string.Equals(requestId, approvalResponse.RequestId, StringComparison.Ordinal)) != true)
             {
-                if (content is ItemContentFunctionApprovalResponse)
-                {
-                    // Approval responses are trusted only when matched to a request recorded by the server.
-                    // Without session storage, continuing would silently ignore the decision or trust caller data.
-                    return new ResponseError
-                    {
-                        Code = ResponseErrorCodes.InvalidRequest,
-                        Message = "Approval-required function calling is not supported because no AgentSessionStore is configured."
-                    };
-                }
+                return InvalidApprovalRequest(approvalResponse.RequestId);
             }
         }
 
@@ -102,10 +131,16 @@ internal static class AgentResponseExecution
         // terminal event until the state has been saved. Otherwise a streaming client can immediately
         // continue the response before the approval checkpoint is available.
         StreamingResponseCompleted? completedEvent = null;
+        List<string>? emittedApprovalRequestIds = null;
         await foreach (StreamingResponseEvent streamingEvent in agent.RunStreamingAsync(messages, session, options, cancellationToken)
             .ToStreamingResponseAsync(request, context, cancellationToken)
             .ConfigureAwait(false))
         {
+            if (session is not null && streamingEvent is StreamingFunctionApprovalRequested approvalRequested)
+            {
+                (emittedApprovalRequestIds ??= []).Add(approvalRequested.RequestId);
+            }
+
             if (hostAgent is not null && streamingEvent is StreamingResponseCompleted completed)
             {
                 completedEvent = completed;
@@ -117,6 +152,8 @@ internal static class AgentResponseExecution
 
         if (hostAgent is not null && session is not null)
         {
+            UpdatePendingApprovalRequests(session, request, emittedApprovalRequestIds);
+
             // Response IDs are immutable snapshots and honor store=false. A conversation ID is a mutable
             // head and always advances after a successful turn.
             if (request.Store is not false)
@@ -136,4 +173,68 @@ internal static class AgentResponseExecution
             yield return completedEvent;
         }
     }
+
+    private static List<ItemContentFunctionApprovalResponse> GetFunctionApprovalResponses(CreateResponse request)
+    {
+        var approvalResponses = new List<ItemContentFunctionApprovalResponse>();
+        foreach (InputMessage inputMessage in request.Input.GetInputMessages())
+        {
+            if (inputMessage.Content.Contents is not { } contents)
+            {
+                continue;
+            }
+
+            foreach (ItemContent content in contents)
+            {
+                if (content is ItemContentFunctionApprovalResponse approvalResponse)
+                {
+                    approvalResponses.Add(approvalResponse);
+                }
+            }
+        }
+
+        return approvalResponses;
+    }
+
+    private static void UpdatePendingApprovalRequests(
+        AgentSession session,
+        CreateResponse request,
+        List<string>? emittedRequestIds)
+    {
+        session.StateBag.TryGetValue<List<string>>(PendingApprovalRequestIdsStateKey, out var pendingRequestIds);
+        pendingRequestIds ??= [];
+
+        // A successfully processed response consumes its matching request ID. New approval events are then
+        // added so the saved session represents exactly the approvals the client can answer next.
+        foreach (ItemContentFunctionApprovalResponse approvalResponse in GetFunctionApprovalResponses(request))
+        {
+            pendingRequestIds.RemoveAll(id => string.Equals(id, approvalResponse.RequestId, StringComparison.Ordinal));
+        }
+
+        if (emittedRequestIds is not null)
+        {
+            foreach (string requestId in emittedRequestIds)
+            {
+                if (!pendingRequestIds.Exists(id => string.Equals(id, requestId, StringComparison.Ordinal)))
+                {
+                    pendingRequestIds.Add(requestId);
+                }
+            }
+        }
+
+        if (pendingRequestIds.Count == 0)
+        {
+            session.StateBag.TryRemoveValue(PendingApprovalRequestIdsStateKey);
+        }
+        else
+        {
+            session.StateBag.SetValue(PendingApprovalRequestIdsStateKey, pendingRequestIds);
+        }
+    }
+
+    private static ResponseError InvalidApprovalRequest(string requestId) => new()
+    {
+        Code = ResponseErrorCodes.InvalidRequest,
+        Message = $"Function approval response '{requestId}' does not match a pending approval request for this session."
+    };
 }

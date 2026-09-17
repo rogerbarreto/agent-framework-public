@@ -253,6 +253,119 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task FunctionApprovalResponse_UnknownOrCrossSessionRequestId_ReturnsBadRequestBeforeExecutionAsync(
+        bool resolveAgent,
+        bool useCrossSessionRequestId)
+    {
+        // Arrange
+        const string AgentName = "unknown-approval-response-agent";
+        const string FunctionName = "get_weather";
+        int functionInvocations = 0;
+        AIFunction function = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(
+            () =>
+            {
+                Interlocked.Increment(ref functionInvocations);
+                return "Sunny";
+            },
+            FunctionName));
+        int modelCalls = 0;
+        Mock<IChatClient> chatClient = new();
+        chatClient
+            .Setup(client => client.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                int call = Interlocked.Increment(ref modelCalls);
+                return new ChatResponse([
+                    new ChatMessage(ChatRole.Assistant, [
+                        new FunctionCallContent($"call-{call}", FunctionName)
+                    ])
+                ]).ToChatResponseUpdates().ToAsyncEnumerable();
+            });
+        AIAgent agent = new ChatClientAgent(chatClient.Object, name: AgentName, tools: [function]);
+
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.AddAIAgent(AgentName, (_, _) => agent)
+            .WithInMemorySessionStore(withIsolation: false);
+        builder.AddOpenAIResponses();
+
+        await using WebApplication app = builder.Build();
+        if (resolveAgent)
+        {
+            app.MapOpenAIResponses();
+        }
+        else
+        {
+            app.MapOpenAIResponses(agent);
+        }
+        await app.StartAsync();
+        using HttpClient client = app.GetTestClient();
+        var responsesUri = new Uri(resolveAgent ? "/v1/responses" : $"/{AgentName}/v1/responses", UriKind.Relative);
+
+        using StringContent initialContent = new(
+            $$"""{"agent":{"name":"{{AgentName}}"},"input":"What is the weather?","stream":true}""",
+            Encoding.UTF8,
+            "application/json");
+        using HttpResponseMessage initialResponse = await client.PostAsync(responsesUri, initialContent);
+        initialResponse.EnsureSuccessStatusCode();
+        List<JsonElement> initialEvents = ParseSseEvents(await initialResponse.Content.ReadAsStringAsync());
+        JsonElement approvalEvent = Assert.Single(initialEvents,
+            item => item.GetProperty("type").GetString() == "response.function_approval.requested");
+        string responseId = initialEvents.Last().GetProperty("response").GetProperty("id").GetString()!;
+        if (useCrossSessionRequestId)
+        {
+            using StringContent otherInitialContent = new(
+                $$"""{"agent":{"name":"{{AgentName}}"},"input":"What is the weather elsewhere?","stream":true}""",
+                Encoding.UTF8,
+                "application/json");
+            using HttpResponseMessage otherInitialResponse = await client.PostAsync(responsesUri, otherInitialContent);
+            otherInitialResponse.EnsureSuccessStatusCode();
+            List<JsonElement> otherInitialEvents = ParseSseEvents(await otherInitialResponse.Content.ReadAsStringAsync());
+            _ = Assert.Single(otherInitialEvents,
+                item => item.GetProperty("type").GetString() == "response.function_approval.requested");
+            responseId = otherInitialEvents.Last().GetProperty("response").GetProperty("id").GetString()!;
+        }
+
+        string requestId = useCrossSessionRequestId
+            ? approvalEvent.GetProperty("request_id").GetRawText()
+            : JsonSerializer.Serialize("unknown-request");
+        string approvalJson = $$"""
+            {
+              "agent": { "name": "{{AgentName}}" },
+              "previous_response_id": {{JsonSerializer.Serialize(responseId)}},
+              "input": [{
+                "type": "message",
+                "role": "user",
+                "content": [{
+                  "type": "function_approval_response",
+                  "request_id": {{requestId}},
+                  "approved": true,
+                  "function_call": {{approvalEvent.GetProperty("function_call").GetRawText()}}
+                }]
+              }]
+            }
+            """;
+        using StringContent approvalContent = new(approvalJson, Encoding.UTF8, "application/json");
+
+        // Act
+        using HttpResponseMessage response = await client.PostAsync(responsesUri, approvalContent);
+        string responseBody = await response.Content.ReadAsStringAsync();
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("does not match a pending approval request", responseBody, StringComparison.Ordinal);
+        Assert.Equal(0, functionInvocations);
+        Assert.Equal(useCrossSessionRequestId ? 2 : 1, modelCalls);
+    }
+
+    [Theory]
     [MemberData(nameof(ApprovalContinuationScenarios))]
     public async Task FunctionApprovalResponse_PendingExecution_ResumesAcrossResponsesAsync(
         bool resolveAgent,
