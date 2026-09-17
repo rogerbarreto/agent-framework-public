@@ -126,6 +126,35 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
     }
 
     [Fact]
+    public async Task FunctionApprovalRequest_WithoutArguments_EmitsEmptyArgumentsObjectAsync()
+    {
+        // Arrange
+        const string AgentName = "approval-request-no-args-agent";
+        ToolApprovalRequestContent approvalRequest = new(
+            "request-1",
+            new FunctionCallContent("call-1", "get_time"));
+        HttpClient client = await this.CreateTestServerAsync(
+            AgentName,
+            "You are a test agent.",
+            string.Empty,
+            _ => [approvalRequest]);
+
+        // Act
+        using HttpResponseMessage response = await this.SendResponsesRequestAsync(
+            client,
+            AgentName,
+            StreamingRequestJson);
+        List<JsonElement> events = ParseSseEvents(await response.Content.ReadAsStringAsync());
+
+        // Assert
+        JsonElement approvalEvent = Assert.Single(events,
+            item => item.GetProperty("type").GetString() == "response.function_approval.requested");
+        JsonElement arguments = approvalEvent.GetProperty("function_call").GetProperty("arguments");
+        Assert.Equal(JsonValueKind.Object, arguments.ValueKind);
+        Assert.Empty(arguments.EnumerateObject());
+    }
+
+    [Fact]
     public async Task FunctionApprovalRequest_EmitsCorrectEventSequence_SuccessAsync()
     {
         // Arrange
@@ -365,8 +394,14 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
         Assert.Equal(useCrossSessionRequestId ? 2 : 1, modelCalls);
     }
 
-    [Fact]
-    public async Task FunctionApprovalResponse_MissingApproved_ReturnsBadRequestBeforeExecutionAsync()
+    [Theory]
+    [InlineData("missing-approved")]
+    [InlineData("array-arguments")]
+    [InlineData("string-arguments")]
+    [InlineData("number-arguments")]
+    [InlineData("boolean-arguments")]
+    [InlineData("null-arguments")]
+    public async Task FunctionApprovalResponse_InvalidPayload_ReturnsBadRequestBeforeExecutionAsync(string invalidField)
     {
         // Arrange
         const string AgentName = "missing-approved-response-agent";
@@ -419,6 +454,18 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
         JsonElement approvalEvent = Assert.Single(initialEvents,
             item => item.GetProperty("type").GetString() == "response.function_approval.requested");
         string responseId = initialEvents.Last().GetProperty("response").GetProperty("id").GetString()!;
+        string approvedProperty = invalidField == "missing-approved"
+            ? string.Empty
+            : "\"approved\": true,";
+        string argumentsJson = invalidField switch
+        {
+            "array-arguments" => "[]",
+            "string-arguments" => "\"{}\"",
+            "number-arguments" => "42",
+            "boolean-arguments" => "true",
+            "null-arguments" => "null",
+            _ => "{}"
+        };
         string approvalJson = $$"""
             {
               "previous_response_id": {{JsonSerializer.Serialize(responseId)}},
@@ -428,7 +475,12 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
                 "content": [{
                   "type": "function_approval_response",
                   "request_id": {{approvalEvent.GetProperty("request_id").GetRawText()}},
-                  "function_call": {{approvalEvent.GetProperty("function_call").GetRawText()}}
+                  {{approvedProperty}}
+                  "function_call": {
+                    "id": "call-1",
+                    "name": "{{FunctionName}}",
+                    "arguments": {{argumentsJson}}
+                  }
                 }]
               }]
             }

@@ -308,7 +308,21 @@ internal sealed class ItemContentFunctionApprovalResponse : ItemContent
     /// The function call associated with the approval request.
     /// </summary>
     [JsonPropertyName("function_call")]
-    public required FunctionCallInfo FunctionCall { get; init; }
+    public required FunctionCallInfo FunctionCall
+    {
+        get;
+        init
+        {
+            // DevUI defines function_call.arguments as an object. Reject other JSON shapes while
+            // binding the request so malformed approval responses become HTTP 400 rather than 500.
+            if (value is null || value.Arguments.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("The 'function_call.arguments' property must be a JSON object.");
+            }
+
+            field = value;
+        }
+    }
 }
 
 /// <summary>
