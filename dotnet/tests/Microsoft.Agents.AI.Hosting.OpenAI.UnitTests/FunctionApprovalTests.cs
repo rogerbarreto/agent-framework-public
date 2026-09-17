@@ -365,6 +365,85 @@ public sealed class FunctionApprovalTests : ConformanceTestBase
         Assert.Equal(useCrossSessionRequestId ? 2 : 1, modelCalls);
     }
 
+    [Fact]
+    public async Task FunctionApprovalResponse_MissingApproved_ReturnsBadRequestBeforeExecutionAsync()
+    {
+        // Arrange
+        const string AgentName = "missing-approved-response-agent";
+        const string FunctionName = "get_weather";
+        int functionInvocations = 0;
+        AIFunction function = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(
+            () =>
+            {
+                Interlocked.Increment(ref functionInvocations);
+                return "Sunny";
+            },
+            FunctionName));
+        int modelCalls = 0;
+        Mock<IChatClient> chatClient = new();
+        chatClient
+            .Setup(client => client.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                AIContent responseContent = Interlocked.Increment(ref modelCalls) == 1
+                    ? new FunctionCallContent("call-1", FunctionName)
+                    : new TextContent("Decision processed");
+                return new ChatResponse([
+                    new ChatMessage(ChatRole.Assistant, [responseContent])
+                ]).ToChatResponseUpdates().ToAsyncEnumerable();
+            });
+        AIAgent agent = new ChatClientAgent(chatClient.Object, name: AgentName, tools: [function]);
+
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.AddAIAgent(AgentName, (_, _) => agent)
+            .WithInMemorySessionStore(withIsolation: false);
+        builder.AddOpenAIResponses();
+
+        await using WebApplication app = builder.Build();
+        app.MapOpenAIResponses(agent);
+        await app.StartAsync();
+        using HttpClient client = app.GetTestClient();
+        var responsesUri = new Uri($"/{AgentName}/v1/responses", UriKind.Relative);
+
+        using StringContent initialContent = new(
+            """{"input":"What is the weather?","stream":true}""",
+            Encoding.UTF8,
+            "application/json");
+        using HttpResponseMessage initialResponse = await client.PostAsync(responsesUri, initialContent);
+        initialResponse.EnsureSuccessStatusCode();
+        List<JsonElement> initialEvents = ParseSseEvents(await initialResponse.Content.ReadAsStringAsync());
+        JsonElement approvalEvent = Assert.Single(initialEvents,
+            item => item.GetProperty("type").GetString() == "response.function_approval.requested");
+        string responseId = initialEvents.Last().GetProperty("response").GetProperty("id").GetString()!;
+        string approvalJson = $$"""
+            {
+              "previous_response_id": {{JsonSerializer.Serialize(responseId)}},
+              "input": [{
+                "type": "message",
+                "role": "user",
+                "content": [{
+                  "type": "function_approval_response",
+                  "request_id": {{approvalEvent.GetProperty("request_id").GetRawText()}},
+                  "function_call": {{approvalEvent.GetProperty("function_call").GetRawText()}}
+                }]
+              }]
+            }
+            """;
+        using StringContent approvalContent = new(approvalJson, Encoding.UTF8, "application/json");
+
+        // Act
+        using HttpResponseMessage response = await client.PostAsync(responsesUri, approvalContent);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, functionInvocations);
+        Assert.Equal(1, modelCalls);
+    }
+
     [Theory]
     [MemberData(nameof(ApprovalContinuationScenarios))]
     public async Task FunctionApprovalResponse_PendingExecution_ResumesAcrossResponsesAsync(

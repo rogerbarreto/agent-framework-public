@@ -302,7 +302,7 @@ internal sealed class ItemContentFunctionApprovalResponse : ItemContent
     /// Whether the function call was approved.
     /// </summary>
     [JsonPropertyName("approved")]
-    public bool Approved { get; init; }
+    public required bool Approved { get; init; }
 
     /// <summary>
     /// The function call associated with the approval request.
