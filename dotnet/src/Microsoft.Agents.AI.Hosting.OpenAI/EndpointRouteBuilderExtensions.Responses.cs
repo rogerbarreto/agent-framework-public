@@ -70,8 +70,15 @@ public static partial class MicrosoftAgentAIHostingOpenAIEndpointRouteBuilderExt
 
         responsesPath ??= $"/{agent.Name}/v1/responses";
 
-        // Create an executor for this agent
-        var executor = new AIAgentResponseExecutor(agent, mapOptions);
+        // A fixed-agent endpoint can participate in persisted continuation when the host registered
+        // a session store for that agent. Without one, execution retains its existing stateless behavior.
+#pragma warning disable MAAI001
+        AgentSessionStore? sessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
+#pragma warning restore MAAI001
+        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
+
+        // Create an executor for this agent.
+        var executor = new AIAgentResponseExecutor(executionAgent, mapOptions);
 
         // Resolve the response storage settings and optional conversation storage.
         var storageOptions = endpoints.ServiceProvider.GetService<InMemoryStorageOptions>() ?? new InMemoryStorageOptions();

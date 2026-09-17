@@ -31,7 +31,11 @@ internal sealed class AIAgentResponseExecutor : IResponseExecutor
     public ValueTask<ResponseError?> ValidateRequestAsync(
         CreateResponse request,
         CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(this.ValidateRunOptions(request));
+    {
+        ResponseError? sessionError =
+            AgentResponseExecution.ValidateSessionRequirements(request, this._agent is AIHostAgent);
+        return ValueTask.FromResult(sessionError ?? this.ValidateRunOptions(request));
+    }
 
     internal ResponseError? ValidateRunOptions(CreateResponse request)
     {
@@ -58,27 +62,10 @@ internal sealed class AIAgentResponseExecutor : IResponseExecutor
         IReadOnlyList<ChatMessage>? conversationHistory = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // The hosting developer controls, via OpenAIResponsesMapOptions.RunOptionsFactory, which (if any)
-        // request settings are mapped onto the agent run. By default no request setting is mapped.
-        AgentRunOptions? options = this._mapOptions.RunOptionsFactory(request.ToRequestInfo());
-
-        // Convert input to chat messages, prepending conversation history if available
-        var messages = new List<ChatMessage>();
-
-        if (conversationHistory is not null)
-        {
-            messages.AddRange(conversationHistory);
-        }
-
-        foreach (var inputMessage in request.Input.GetInputMessages())
-        {
-            messages.Add(inputMessage.ToChatMessage());
-        }
-
-        // Use the extension method to convert streaming updates to streaming response events
-        await foreach (var streamingEvent in this._agent.RunStreamingAsync(messages, options: options, cancellationToken: cancellationToken)
-            .ToStreamingResponseAsync(request, context, cancellationToken)
-            .ConfigureAwait(false))
+        // Agent selection is fixed by the endpoint. The remaining response execution behavior is
+        // shared with request-routed hosted agents.
+        await foreach (StreamingResponseEvent streamingEvent in AgentResponseExecution.ExecuteAsync(
+            this._agent, this._mapOptions, context, request, conversationHistory, cancellationToken).ConfigureAwait(false))
         {
             yield return streamingEvent;
         }

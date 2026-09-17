@@ -79,6 +79,16 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
             });
         }
 
+        // An approval response can be validated only against the pending request stored by the server.
+#pragma warning disable MAAI001
+        bool hasSessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName) is not null;
+#pragma warning restore MAAI001
+        ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, hasSessionStore);
+        if (sessionError is not null)
+        {
+            return ValueTask.FromResult<ResponseError?>(sessionError);
+        }
+
         // Surface unsupported request settings as a clean request error rather than an unhandled
         // exception during execution.
         try
@@ -104,26 +114,17 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         IReadOnlyList<ChatMessage>? conversationHistory = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // Resolve the agent selected by this request together with its optional persisted session store.
         string agentName = GetAgentName(request)!;
         AIAgent agent = this._serviceProvider.GetRequiredKeyedService<AIAgent>(agentName);
+#pragma warning disable MAAI001
+        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName);
+#pragma warning restore MAAI001
+        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
 
-        // The hosting developer controls, via OpenAIResponsesMapOptions.RunOptionsFactory, which (if any)
-        // request settings are mapped onto the agent run. By default no request setting is mapped.
-        AgentRunOptions? options = this._mapOptions.RunOptionsFactory(request.ToRequestInfo());
-        var messages = new List<ChatMessage>();
-
-        if (conversationHistory is not null)
-        {
-            messages.AddRange(conversationHistory);
-        }
-
-        foreach (var inputMessage in request.Input.GetInputMessages())
-        {
-            messages.Add(inputMessage.ToChatMessage());
-        }
-
-        await foreach (var streamingEvent in agent.RunStreamingAsync(messages, options: options, cancellationToken: cancellationToken)
-            .ToStreamingResponseAsync(request, context, cancellationToken).ConfigureAwait(false))
+        // Once selected, hosted agents use the same execution behavior as fixed-agent endpoints.
+        await foreach (StreamingResponseEvent streamingEvent in AgentResponseExecution.ExecuteAsync(
+            executionAgent, this._mapOptions, context, request, conversationHistory, cancellationToken).ConfigureAwait(false))
         {
             yield return streamingEvent;
         }
