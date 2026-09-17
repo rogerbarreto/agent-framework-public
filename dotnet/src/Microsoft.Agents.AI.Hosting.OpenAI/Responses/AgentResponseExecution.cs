@@ -98,6 +98,14 @@ internal static class AgentResponseExecution
         // A response ID identifies an immutable continuation snapshot. A conversation ID identifies the
         // mutable conversation head. A new response without either starts under its generated response ID.
         AIHostAgent? hostAgent = agent as AIHostAgent;
+        if (hostAgent is not null && context.IsolationKey is not null)
+        {
+            // Background work cannot safely query IHttpContextAccessor after the request has ended. Bind the
+            // session store to the trusted key captured by InMemoryResponsesService before detaching.
+            hostAgent = hostAgent.BindIsolationKey(context.IsolationKey);
+            agent = hostAgent;
+        }
+
         AgentSession? session = null;
         bool includeConversationHistory = true;
         if (hostAgent is not null)

@@ -85,6 +85,18 @@ public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
         return isolationKey is null ? key : key.WithPartition(IsolationPartitionName, isolationKey);
     }
 
+    /// <summary>
+    /// Creates an equivalent store that uses a trusted isolation key captured before background execution.
+    /// </summary>
+    internal IsolationKeyScopedAgentSessionStore BindIsolationKey(string isolationKey)
+    {
+        _ = Throw.IfNullOrWhitespace(isolationKey);
+        return new(
+            this.InnerStore,
+            new CapturedIsolationKeyProvider(isolationKey),
+            new IsolationKeyScopedAgentSessionStoreOptions { Strict = true });
+    }
+
     /// <inheritdoc />
     public override async ValueTask<AgentSession?> GetSessionAsync(
         AIAgent agent,
@@ -114,5 +126,11 @@ public class IsolationKeyScopedAgentSessionStore : DelegatingAgentSessionStore
     {
         AgentSessionStoreKey scopedKey = await this.GetScopedKeyAsync(key, cancellationToken).ConfigureAwait(false);
         await this.InnerStore.SaveSessionAsync(agent, scopedKey, session, cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed class CapturedIsolationKeyProvider(string isolationKey) : AgentIsolationKeyProvider
+    {
+        public override ValueTask<string?> GetIsolationKeyAsync(CancellationToken cancellationToken = default) =>
+            new(isolationKey);
     }
 }

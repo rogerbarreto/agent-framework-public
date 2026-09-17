@@ -107,6 +107,24 @@ public class AIHostAgent : DelegatingAIAgent
             cancellationToken);
     }
 
+    /// <summary>
+    /// Creates a host agent whose isolation-aware session store uses a key captured from the originating request.
+    /// </summary>
+    /// <param name="isolationKey">The trusted caller isolation key, or <see langword="null"/> when isolation does not apply.</param>
+    /// <returns>
+    /// A host agent bound to <paramref name="isolationKey"/>, or this instance when its store does not use
+    /// <see cref="IsolationKeyScopedAgentSessionStore"/> or no key was supplied.
+    /// </returns>
+    public AIHostAgent BindIsolationKey(string? isolationKey)
+    {
+        if (isolationKey is null || this._sessionStore is not IsolationKeyScopedAgentSessionStore isolationStore)
+        {
+            return this;
+        }
+
+        return new AIHostAgent(this.InnerAgent, isolationStore.BindIsolationKey(isolationKey));
+    }
+
     /// <inheritdoc />
     protected override Task<AgentResponse> RunCoreAsync(
         IEnumerable<ChatMessage> messages,
