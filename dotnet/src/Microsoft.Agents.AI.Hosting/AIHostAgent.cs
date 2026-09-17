@@ -33,14 +33,30 @@ public class AIHostAgent : DelegatingAIAgent
     /// </summary>
     /// <param name="innerAgent">The underlying agent implementation to wrap.</param>
     /// <param name="sessionStore">The session store to use for persisting conversation state.</param>
+    /// <param name="sessionStorageIdentity">
+    /// The optional logical hosting identity used only to partition persisted sessions across agent instances.
+    /// It does not replace <see cref="AIAgent.Id"/> or <see cref="AIAgent.Name"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="innerAgent"/> or <paramref name="sessionStore"/> is <see langword="null"/>.
     /// </exception>
-    public AIHostAgent(AIAgent innerAgent, AgentSessionStore sessionStore)
+    public AIHostAgent(
+        AIAgent innerAgent,
+        AgentSessionStore sessionStore,
+        string? sessionStorageIdentity = null)
         : base(innerAgent)
     {
         this._sessionStore = Throw.IfNull(sessionStore);
+        this.SessionStorageIdentity = sessionStorageIdentity is null
+            ? null
+            : Throw.IfNullOrWhitespace(sessionStorageIdentity);
     }
+
+    /// <summary>
+    /// Gets the stable logical identity used to partition session storage, or <see langword="null"/> when
+    /// session storage follows the wrapped agent instance identity.
+    /// </summary>
+    internal string? SessionStorageIdentity { get; }
 
     /// <summary>
     /// Gets an existing agent session for the specified conversation, or creates a new one if none exists.
@@ -67,7 +83,7 @@ public class AIHostAgent : DelegatingAIAgent
 
         MarkFeatureUsed();
         return this._sessionStore.GetOrCreateSessionAsync(
-            this.InnerAgent,
+            this,
             key,
             cancellationToken);
     }
@@ -101,7 +117,7 @@ public class AIHostAgent : DelegatingAIAgent
 
         MarkFeatureUsed();
         return this._sessionStore.SaveSessionAsync(
-            this.InnerAgent,
+            this,
             key,
             session,
             cancellationToken);
@@ -122,7 +138,8 @@ public class AIHostAgent : DelegatingAIAgent
             return this;
         }
 
-        return new AIHostAgent(this.InnerAgent, isolationStore.BindIsolationKey(isolationKey));
+        AgentSessionStore boundStore = isolationStore.BindIsolationKey(isolationKey);
+        return new AIHostAgent(this.InnerAgent, boundStore, this.SessionStorageIdentity);
     }
 
     /// <inheritdoc />

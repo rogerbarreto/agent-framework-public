@@ -48,9 +48,9 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         CancellationToken cancellationToken = default)
     {
         // Extract agent name from agent.name or model parameter
-        string? agentName = GetAgentName(request);
+        string? registrationKey = GetAgentRegistrationKey(request);
 
-        if (string.IsNullOrEmpty(agentName))
+        if (string.IsNullOrEmpty(registrationKey))
         {
             return new ResponseError
             {
@@ -60,20 +60,20 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         }
 
         // Validate that the agent can be resolved
-        AIAgent? agent = this._serviceProvider.GetKeyedService<AIAgent>(agentName);
+        AIAgent? agent = this._serviceProvider.GetKeyedService<AIAgent>(registrationKey);
         if (agent is null)
         {
             if (this._logger.IsEnabled(LogLevel.Warning))
             {
-                this._logger.LogWarning("Failed to resolve agent with name '{AgentName}'", agentName);
+                this._logger.LogWarning("Failed to resolve agent with name '{AgentName}'", registrationKey);
             }
 
             return new ResponseError
             {
                 Code = "agent_not_found",
                 Message = $"""
-                    Agent '{agentName}' not found.
-                    Ensure the agent is registered with '{agentName}' name in the dependency injection container.
+                    Agent '{registrationKey}' not found.
+                    Ensure the agent is registered with '{registrationKey}' name in the dependency injection container.
                     We recommend using 'builder.AddAIAgent()' for simplicity.
                 """
             };
@@ -81,7 +81,7 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
 
         // An approval response can be validated only against the pending request stored by the server.
 #pragma warning disable MAAI001
-        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName);
+        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(registrationKey);
 #pragma warning restore MAAI001
         ResponseError? sessionError = AgentResponseExecution.ValidateSessionRequirements(request, sessionStore is not null);
         if (sessionError is not null)
@@ -104,7 +104,9 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
             };
         }
 
-        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
+        AIAgent executionAgent = sessionStore is null
+            ? agent
+            : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
         return await AgentResponseExecution.ValidatePendingApprovalResponsesAsync(
             executionAgent, request, cancellationToken).ConfigureAwait(false);
     }
@@ -117,12 +119,14 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Resolve the agent selected by this request together with its optional persisted session store.
-        string agentName = GetAgentName(request)!;
-        AIAgent agent = this._serviceProvider.GetRequiredKeyedService<AIAgent>(agentName);
+        string registrationKey = GetAgentRegistrationKey(request)!;
+        AIAgent agent = this._serviceProvider.GetRequiredKeyedService<AIAgent>(registrationKey);
 #pragma warning disable MAAI001
-        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(agentName);
+        AgentSessionStore? sessionStore = this._serviceProvider.GetKeyedService<AgentSessionStore>(registrationKey);
 #pragma warning restore MAAI001
-        AIAgent executionAgent = sessionStore is null ? agent : new AIHostAgent(agent, sessionStore);
+        AIAgent executionAgent = sessionStore is null
+            ? agent
+            : new AIHostAgent(agent, sessionStore, sessionStorageIdentity: registrationKey);
 
         // Once selected, hosted agents use the same execution behavior as fixed-agent endpoints.
         await foreach (StreamingResponseEvent streamingEvent in AgentResponseExecution.ExecuteAsync(
@@ -137,7 +141,7 @@ internal sealed class HostedAgentResponseExecutor : IResponseExecutor
     /// </summary>
     /// <param name="request">The create response request.</param>
     /// <returns>The agent name.</returns>
-    private static string? GetAgentName(CreateResponse request)
+    private static string? GetAgentRegistrationKey(CreateResponse request)
     {
         string? agentName = request.Agent?.Name;
 
