@@ -274,6 +274,45 @@ public sealed class OpenAIResponsesIsolationTests : IAsyncDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task BackgroundResponse_WithNestedIsolationStore_PreservesCallerIsolationAsync(
+        bool mapRegisteredResponseService)
+    {
+        // Arrange
+        HttpClient client = await this.CreateTestServerAsync(
+            mapRegisteredResponseService,
+            withSessionStore: true,
+            nestIsolationStore: true);
+        string requestBody = JsonSerializer.Serialize(new
+        {
+            metadata = new { entity_id = AgentName },
+            input = "Background session message",
+            background = true,
+            stream = false
+        });
+
+        // Act
+        using HttpResponseMessage createResponse = await SendAsync(
+            client,
+            HttpMethod.Post,
+            Alice,
+            mapRegisteredResponseService ? "/v1/responses" : $"/{AgentName}/v1/responses",
+            requestBody);
+        createResponse.EnsureSuccessStatusCode();
+
+        using JsonDocument created = JsonDocument.Parse(await createResponse.Content.ReadAsStringAsync());
+        string responseId = created.RootElement.GetProperty("id").GetString()!;
+
+        // Assert
+        await WaitForResponseCompletionAsync(
+            client,
+            Alice,
+            responseId,
+            mapRegisteredResponseService ? "/v1/responses" : $"/{AgentName}/v1/responses");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task MissingIsolationKey_FailsClosedAsync(bool mapRegisteredResponseService)
     {
         // Arrange
@@ -455,7 +494,8 @@ public sealed class OpenAIResponsesIsolationTests : IAsyncDisposable
     private async Task<HttpClient> CreateTestServerAsync(
         bool mapRegisteredResponseService = false,
         bool withIsolation = true,
-        bool withSessionStore = false)
+        bool withSessionStore = false,
+        bool nestIsolationStore = false)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -469,7 +509,18 @@ public sealed class OpenAIResponsesIsolationTests : IAsyncDisposable
             chatClientServiceKey: "chat-client");
         if (withSessionStore)
         {
-            agentBuilder.WithInMemorySessionStore();
+            if (nestIsolationStore)
+            {
+                agentBuilder.WithSessionStore(
+                    (services, _) => new TestDelegatingAgentSessionStore(
+                        new IsolationKeyScopedAgentSessionStore(
+                            new InMemoryAgentSessionStore(),
+                            services.GetRequiredService<AgentIsolationKeyProvider>())));
+            }
+            else
+            {
+                agentBuilder.WithInMemorySessionStore();
+            }
         }
 
         if (withIsolation)
@@ -529,4 +580,7 @@ public sealed class OpenAIResponsesIsolationTests : IAsyncDisposable
             return new ValueTask<string?>(string.IsNullOrEmpty(key) ? null : key);
         }
     }
+
+    private sealed class TestDelegatingAgentSessionStore(AgentSessionStore innerStore)
+        : DelegatingAgentSessionStore(innerStore);
 }
