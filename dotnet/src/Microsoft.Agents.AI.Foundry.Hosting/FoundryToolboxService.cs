@@ -60,6 +60,8 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     private string _agentName = "hosted-agent";
     private string _agentVersion = "1.0.0";
 
+    internal OAuthConsentLinkPolicy ConsentLinkPolicy { get; }
+
     /// <summary>
     /// Gets the cached list of <see cref="AITool"/> instances discovered from all
     /// pre-registered toolboxes. Always non-null after startup.
@@ -117,6 +119,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         this._options = options.Value;
         this._credential = credential;
         this._logger = logger ?? NullLogger<FoundryToolboxService>.Instance;
+        this.ConsentLinkPolicy = new OAuthConsentLinkPolicy(this._options.AllowedOAuthConsentOrigins);
     }
 
     /// <summary>
@@ -616,7 +619,11 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (McpProtocolException ex) when (
-            ToolboxConsentParser.TryParseConsentRequired(toolboxName, ex.Message, out var consents))
+            ToolboxConsentParser.TryParseConsentRequired(
+                toolboxName,
+                ex.Message,
+                this.ConsentLinkPolicy,
+                out var consents))
         {
             // A tool source needs user OAuth consent before it can be enumerated. Dispose the
             // half-open client and signal the caller, which keeps the container routable and
@@ -651,7 +658,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         var wrapped = new List<AITool>(mcpTools.Count);
         foreach (var tool in mcpTools)
         {
-            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName));
+            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName, this.ConsentLinkPolicy));
         }
 
         _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.

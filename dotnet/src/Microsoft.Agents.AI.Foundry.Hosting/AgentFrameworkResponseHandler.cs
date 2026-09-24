@@ -309,7 +309,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     foreach (var consentEvent in EmitOAuthConsentRequest(
                         stream,
                         consent.ToolName,
-                        consent.ConsentUrl))
+                        consent.ConsentUrl,
+                        this._toolboxService.ConsentLinkPolicy))
                     {
                         yield return consentEvent;
                     }
@@ -396,7 +397,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     foreach (var consentEvent in EmitOAuthConsentRequest(
                         stream,
                         consent.ToolName,
-                        consent.ConsentUrl))
+                        consent.ConsentUrl,
+                        this._toolboxService.ConsentLinkPolicy))
                     {
                         yield return consentEvent;
                     }
@@ -566,7 +568,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     foreach (var consentEvent in EmitOAuthConsentRequest(
                         stream,
                         consentInfo.ToolName,
-                        consentInfo.ConsentUrl))
+                        consentInfo.ConsentUrl,
+                        this._toolboxService?.ConsentLinkPolicy))
                     {
                         yield return consentEvent;
                     }
@@ -782,12 +785,20 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// <param name="stream">The response event stream to emit on.</param>
     /// <param name="serverLabel">The tool source / server label that requires consent.</param>
     /// <param name="consentUrl">The OAuth consent URL the user must visit.</param>
+    /// <param name="consentLinkPolicy">Optional host-owned origin allowlist policy.</param>
     /// <returns>An enumerable of events: <c>output_item.added</c> → <c>output_item.done</c>.</returns>
     internal static IEnumerable<ResponseStreamEvent> EmitOAuthConsentRequest(
         ResponseEventStream stream,
         string serverLabel,
-        string consentUrl)
+        string consentUrl,
+        OAuthConsentLinkPolicy? consentLinkPolicy = null)
     {
+        if (consentLinkPolicy?.IsAllowed(consentUrl) == false)
+        {
+            throw new InvalidOperationException(
+                "OAuth consent request did not match the configured allowed origins.");
+        }
+
         var item = new OAuthConsentRequestOutputItem(NewOAuthConsentItemId(), consentUrl, serverLabel);
         var builder = stream.AddOutputItem<OAuthConsentRequestOutputItem>(item.Id);
         yield return builder.EmitAdded(item);

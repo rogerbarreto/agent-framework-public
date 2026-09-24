@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,7 +22,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// and the per-request <see cref="RequestConsentState.CancellationSource"/> is cancelled. This causes
 /// <see cref="FunctionInvokingChatClient"/> to stop the tool loop (it guards
 /// exceptions with <c>when (!ct.IsCancellationRequested)</c>) and surfaces an
-/// <see cref="System.OperationCanceledException"/> to the handler. The handler then emits the
+/// <see cref="OperationCanceledException"/> to the handler. The handler then emits the
 /// <c>mcp_approval_request</c> output item and marks the response as <c>incomplete</c>.
 /// </para>
 /// </remarks>
@@ -29,11 +30,16 @@ internal sealed class ConsentAwareMcpClientAIFunction : AIFunction
 {
     private readonly McpClientTool _inner;
     private readonly string _toolboxName;
+    private readonly OAuthConsentLinkPolicy _consentLinkPolicy;
 
-    internal ConsentAwareMcpClientAIFunction(McpClientTool inner, string toolboxName)
+    internal ConsentAwareMcpClientAIFunction(
+        McpClientTool inner,
+        string toolboxName,
+        OAuthConsentLinkPolicy consentLinkPolicy)
     {
         this._inner = inner;
         this._toolboxName = toolboxName;
+        this._consentLinkPolicy = consentLinkPolicy;
     }
 
     public override string Name => this._inner.Name;
@@ -56,6 +62,12 @@ internal sealed class ConsentAwareMcpClientAIFunction : AIFunction
         }
         catch (McpProtocolException ex) when ((int)ex.ErrorCode == -32006)
         {
+            if (!this._consentLinkPolicy.IsAllowed(ex.Message))
+            {
+                throw new InvalidOperationException(
+                    "The OAuth consent response did not match the configured allowed origins.");
+            }
+
             var state = McpConsentContext.Current.Value;
             if (state is not null)
             {

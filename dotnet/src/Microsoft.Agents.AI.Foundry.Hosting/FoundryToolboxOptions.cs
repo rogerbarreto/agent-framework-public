@@ -37,6 +37,17 @@ public sealed class FoundryToolboxOptions
     public bool StrictMode { get; set; } = true;
 
     /// <summary>
+    /// Gets the optional exact HTTPS origins allowed for OAuth consent links.
+    /// </summary>
+    /// <remarks>
+    /// Leave this property <see langword="null"/> to preserve existing behavior without restricting consent-link origins.
+    /// When a collection is provided, every surfaced consent link must match one of its normalized origins.
+    /// An empty collection therefore rejects every consent link. Duplicate entries are ignored after normalization.
+    /// Configure origins such as <c>https://auth.example.com</c>; paths, queries, and fragments are rejected.
+    /// </remarks>
+    public IList<string>? AllowedOAuthConsentOrigins { get; set; }
+
+    /// <summary>
     /// For testing only: overrides the toolbox proxy base URL (skipping the
     /// <c>FOUNDRY_PROJECT_ENDPOINT</c>-derived default). When set, the proxy URL
     /// becomes <c>{EndpointOverride}/toolboxes/{toolboxName}/mcp?api-version={ApiVersion}</c>.
