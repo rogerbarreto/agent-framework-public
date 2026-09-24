@@ -87,4 +87,26 @@ public class OAuthConsentEmissionTests
         // Assert
         Assert.Throws<InvalidOperationException>(Emit);
     }
+
+    [Theory]
+    [InlineData("http://external.example/authorize")]
+    [InlineData("javascript:alert(1)")]
+    public void EmitOAuthConsentRequest_NullPolicy_StillRejectsUnsafeLink(string consentUrl)
+    {
+        // Arrange: a null policy falls back to the safe-HTTPS policy instead of skipping validation.
+        var stream = CreateTestStream();
+
+        // Act
+        void Emit()
+        {
+            var events = AgentFrameworkResponseHandler.EmitOAuthConsentRequest(
+                stream,
+                "outlook_mail",
+                consentUrl).ToList();
+            Assert.Empty(events);
+        }
+
+        // Assert
+        Assert.Throws<InvalidOperationException>(Emit);
+    }
 }

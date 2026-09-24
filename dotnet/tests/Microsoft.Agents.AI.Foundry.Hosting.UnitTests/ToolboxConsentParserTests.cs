@@ -1,7 +1,5 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System;
-
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 
 public class ToolboxConsentParserTests
@@ -132,82 +130,6 @@ public class ToolboxConsentParserTests
         // Assert
         Assert.False(parsed);
         Assert.Empty(consents);
-    }
-
-    [Fact]
-    public void TryParseConsentRequired_NullOriginAllowlist_PreservesExistingBehavior()
-    {
-        // Arrange
-        const string Message =
-            "tools/list failed " +
-            "{\"errors\":[{\"name\":\"send_email\",\"type\":\"mcp\",\"error\":{\"code\":\"CONSENT_REQUIRED\",\"message\":\"https://external.example/authorize\"}}]}";
-        var policy = new OAuthConsentLinkPolicy(null);
-
-        // Act
-        var parsed = ToolboxConsentParser.TryParseConsentRequired("toolbox", Message, policy, out var consents);
-
-        // Assert
-        Assert.True(parsed);
-        Assert.Single(consents);
-    }
-
-    [Fact]
-    public void TryParseConsentRequired_EmptyOriginAllowlist_RejectsAllOrigins()
-    {
-        // Arrange
-        const string Message =
-            "tools/list failed " +
-            "{\"errors\":[{\"name\":\"send_email\",\"type\":\"mcp\",\"error\":{\"code\":\"CONSENT_REQUIRED\",\"message\":\"https://external.example/authorize\"}}]}";
-        var policy = new OAuthConsentLinkPolicy([]);
-
-        // Act
-        var parsed = ToolboxConsentParser.TryParseConsentRequired("toolbox", Message, policy, out var consents);
-
-        // Assert
-        Assert.False(parsed);
-        Assert.Empty(consents);
-    }
-
-    [Theory]
-    [InlineData("https://auth.example.com/authorize?state=1", true)]
-    [InlineData("https://auth.example.com:443/authorize", true)]
-    [InlineData("https://login.partner.example:8443/consent", true)]
-    [InlineData("https://other.example.com/authorize", false)]
-    public void TryParseConsentRequired_ConfiguredOriginAllowlist_GatesConsentUrl(
-        string consentUrl,
-        bool expected)
-    {
-        // Arrange
-        string message =
-            "tools/list failed " +
-            "{\"errors\":[{\"name\":\"send_email\",\"type\":\"mcp\",\"error\":{\"code\":\"CONSENT_REQUIRED\",\"message\":\"" +
-            consentUrl +
-            "\"}}]}";
-        var policy = new OAuthConsentLinkPolicy(
-        [
-            "https://auth.example.com",
-            "https://login.partner.example:8443",
-        ]);
-
-        // Act
-        var parsed = ToolboxConsentParser.TryParseConsentRequired("toolbox", message, policy, out var consents);
-
-        // Assert
-        Assert.Equal(expected, parsed);
-        Assert.Equal(expected ? 1 : 0, consents.Count);
-    }
-
-    [Theory]
-    [InlineData("http://auth.example.com")]
-    [InlineData("https://auth.example.com/path")]
-    [InlineData("https://auth.example.com?tenant=1")]
-    public void OAuthConsentLinkPolicy_InvalidConfiguredOrigin_Throws(string origin)
-    {
-        // Act
-        void CreatePolicy() => _ = new OAuthConsentLinkPolicy([origin]);
-
-        // Assert
-        Assert.Throws<ArgumentException>(CreatePolicy);
     }
 
     [Fact]

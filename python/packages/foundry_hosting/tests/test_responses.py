@@ -5157,18 +5157,22 @@ class TestOAuthConsentSurfacing:
 
         assert resp.json()["status"] == "incomplete"
 
-    async def test_configured_origin_allowlist_rejects_connect_time_consent(self) -> None:
+    async def test_configured_origin_allowlist_rejects_connect_time_consent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         agent = _make_agent(
             response=AgentResponse(messages=[Message(role="assistant", contents=[Content.from_text("hi")])])
         )
         agent.__aenter__.side_effect = _make_consent_error("https://other.example.com/authorize")
         server = _make_server(agent, allowed_oauth_consent_origins=["https://auth.example.com"])
 
-        resp = await _post(server, input_text="hello", stream=False)
+        with caplog.at_level(logging.ERROR):
+            resp = await _post(server, input_text="hello", stream=False)
         body = resp.json()
 
         assert body["status"] == "failed"
         assert not any(item["type"] == "oauth_consent_request" for item in body["output"])
+        assert "must include an allowed safe HTTPS consent link" in caplog.text
         agent.run.assert_not_called()
 
     async def test_non_streaming_consent_error_emits_oauth_output_item(self) -> None:

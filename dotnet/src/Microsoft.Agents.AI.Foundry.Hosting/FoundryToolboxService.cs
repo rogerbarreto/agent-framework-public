@@ -60,6 +60,10 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
     private string _agentName = "hosted-agent";
     private string _agentVersion = "1.0.0";
 
+    /// <summary>
+    /// Gets the consent link policy built from <see cref="FoundryToolboxOptions.AllowedOAuthConsentOrigins"/>.
+    /// The response handler applies it before surfacing any consent link from these toolboxes.
+    /// </summary>
     internal OAuthConsentLinkPolicy ConsentLinkPolicy { get; }
 
     /// <summary>
@@ -619,11 +623,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
             mcpTools = await client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (McpProtocolException ex) when (
-            ToolboxConsentParser.TryParseConsentRequired(
-                toolboxName,
-                ex.Message,
-                this.ConsentLinkPolicy,
-                out var consents))
+            ToolboxConsentParser.TryParseConsentRequired(toolboxName, ex.Message, out var consents))
         {
             // A tool source needs user OAuth consent before it can be enumerated. Dispose the
             // half-open client and signal the caller, which keeps the container routable and
@@ -658,7 +658,7 @@ public sealed class FoundryToolboxService : IHostedService, IAsyncDisposable
         var wrapped = new List<AITool>(mcpTools.Count);
         foreach (var tool in mcpTools)
         {
-            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName, this.ConsentLinkPolicy));
+            wrapped.Add(new ConsentAwareMcpClientAIFunction(tool, toolboxName));
         }
 
         _ = version; // reserved for future version-specific routing; currently handled server-side by the proxy.

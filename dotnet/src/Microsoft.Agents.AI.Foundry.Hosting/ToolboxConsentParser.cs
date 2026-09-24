@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting;
@@ -51,17 +50,6 @@ internal static class ToolboxConsentParser
     public static bool TryParseConsentRequired(
         string toolboxName,
         string? exceptionMessage,
-        out IReadOnlyList<McpConsentInfo> consents)
-        => TryParseConsentRequired(
-            toolboxName,
-            exceptionMessage,
-            OAuthConsentLinkPolicy.AllowAll,
-            out consents);
-
-    internal static bool TryParseConsentRequired(
-        string toolboxName,
-        string? exceptionMessage,
-        OAuthConsentLinkPolicy consentLinkPolicy,
         out IReadOnlyList<McpConsentInfo> consents)
     {
         consents = [];
@@ -114,11 +102,6 @@ internal static class ToolboxConsentParser
                     return false;
                 }
 
-                if (!consentLinkPolicy.IsAllowed(consentUrl))
-                {
-                    return false;
-                }
-
                 string toolName = error.TryGetProperty("name", out var name)
                     && name.ValueKind == JsonValueKind.String
                         ? name.GetString() ?? toolboxName
@@ -138,86 +121,6 @@ internal static class ToolboxConsentParser
         }
 
         consents = result;
-        return true;
-    }
-}
-
-/// <summary>
-/// Applies an optional host-owned exact-origin allowlist to OAuth consent links.
-/// </summary>
-internal sealed class OAuthConsentLinkPolicy
-{
-    private readonly HashSet<string>? _allowedOrigins;
-
-    internal static OAuthConsentLinkPolicy AllowAll { get; } = new(null);
-
-    internal OAuthConsentLinkPolicy(IEnumerable<string>? allowedOrigins)
-    {
-        if (allowedOrigins is null)
-        {
-            return;
-        }
-
-        this._allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string origin in allowedOrigins)
-        {
-            if (!TryNormalizeOrigin(origin, requireOriginOnly: true, out string? normalizedOrigin))
-            {
-                throw new ArgumentException(
-                    $"OAuth consent allowlist entry '{origin}' must be an absolute HTTPS origin without a path, query, or fragment.",
-                    nameof(allowedOrigins));
-            }
-
-            this._allowedOrigins.Add(normalizedOrigin);
-        }
-    }
-
-    internal bool IsAllowed(string? consentUrl)
-    {
-        if (this._allowedOrigins is null)
-        {
-            return true;
-        }
-
-        return TryNormalizeOrigin(consentUrl, requireOriginOnly: false, out string? normalizedOrigin)
-            && this._allowedOrigins.Contains(normalizedOrigin);
-    }
-
-    private static bool TryNormalizeOrigin(
-        string? value,
-        bool requireOriginOnly,
-        [NotNullWhen(true)] out string? normalizedOrigin)
-    {
-        normalizedOrigin = null;
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        foreach (char character in value)
-        {
-            if (char.IsWhiteSpace(character) || char.IsControl(character))
-            {
-                return false;
-            }
-        }
-
-        if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
-            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            || !string.IsNullOrEmpty(uri.UserInfo)
-            || uri.HostNameType == UriHostNameType.Unknown)
-        {
-            return false;
-        }
-
-        if (requireOriginOnly
-            && (uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)))
-        {
-            return false;
-        }
-
-        normalizedOrigin = uri.GetLeftPart(UriPartial.Authority);
         return true;
     }
 }
