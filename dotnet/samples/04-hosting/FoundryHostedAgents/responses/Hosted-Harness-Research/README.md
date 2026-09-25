@@ -10,7 +10,9 @@ The project references the framework **source in this repository** so it exercis
 2. From this directory, run `dotnet run --tl:off`. The host serves `POST http://localhost:8088/responses` when `ASPNETCORE_URLS=http://localhost:8088`.
 3. Send a research question with model `hosted-harness-research`. Send a second request with the same conversation ID to verify that local history continues without enabling agent-side storage. The platform `store` setting is independent of the model client's `store=false` setting.
 
-Browsing allows public networks only. File memory goes under `agent-files` locally and the session's writable home directory when hosted.
+Browsing allows public networks only. The browsing tool checks every redirect against the same policy and connects only to the addresses it approved, so a public page cannot send it to a private or metadata address. File memory goes under `agent-files` locally and the session's writable home directory when hosted.
+
+Hosted file memory relies on Foundry's session sandbox: by default each caller gets their own session with a private `$HOME` (see [Isolate hosted agent sessions per user](https://learn.microsoft.com/azure/foundry/agents/how-to/isolate-sessions-per-user)). If you [place several users in one session](https://learn.microsoft.com/azure/foundry/agents/how-to/multiplex-session-users), partition the file store per user yourself.
 
 ## Container build from this checkout
 

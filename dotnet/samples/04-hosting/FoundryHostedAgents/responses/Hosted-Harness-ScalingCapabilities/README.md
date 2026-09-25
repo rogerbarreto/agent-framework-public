@@ -12,6 +12,8 @@ It shares the research sample's `StatelessWebSearchChatClient`: hosted search st
 
 Foundry's application directory is read-only. The sample seeds only missing files into the per-session writable home, keeping previously edited portfolio files, reports and confirmations. The shell is confined to the confirmations folder; its deny-list is **not** a security boundary. Run the image only in the externally isolated hosted container.
 
+The working folder and file memory rely on Foundry's session sandbox: by default each caller gets their own session with a private `$HOME` (see [Isolate hosted agent sessions per user](https://learn.microsoft.com/azure/foundry/agents/how-to/isolate-sessions-per-user)). If you [place several users in one session](https://learn.microsoft.com/azure/foundry/agents/how-to/multiplex-session-users), partition both stores per user yourself.
+
 `ENABLE_HYPERLIGHT_CODEACT=true` adds CodeAct where hardware virtualization is available. It is off by default because hosted containers typically do not provide nested virtualization; requesting it on an unsupported host fails explicitly. Optional toolbox skills use `TOOLBOX_MCP_SERVER_URL`. File skill scripts require Python 3 (included in the container image).
 
 ## Container build from this checkout

@@ -12,6 +12,8 @@ The project references the framework **source in this repository**. `AddFoundryR
 
 Hosted containers have a read-only application directory. On startup the sample copies **only missing** seed files into the session's writable home directory so edited files and generated reports survive later turns.
 
+These files rely on Foundry's session sandbox: by default each caller gets their own session with a private `$HOME` (see [Isolate hosted agent sessions per user](https://learn.microsoft.com/azure/foundry/agents/how-to/isolate-sessions-per-user)). If you [place several users in one session](https://learn.microsoft.com/azure/foundry/agents/how-to/multiplex-session-users), partition the working folder per user yourself.
+
 ## Container build from this checkout
 
 The project links its CSV from elsewhere in the MAF checkout, so publish from the repository before building this runtime image. Uploading this directory alone as Foundry source/ZIP is not supported:
