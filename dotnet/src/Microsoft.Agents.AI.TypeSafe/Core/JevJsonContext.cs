@@ -14,7 +14,8 @@ namespace Microsoft.Agents.AI.TypeSafe;
 /// </remarks>
 [JsonSourceGenerationOptions(AllowOutOfOrderMetadataProperties = true)]
 [JsonSerializable(typeof(JevRequest))]
-[JsonSerializable(typeof(JevResponse))]
+[JsonSerializable(typeof(JevResult))]
 [JsonSerializable(typeof(JevApiRequest))]
 [JsonSerializable(typeof(Dictionary<string, JevQuestion>))]
+[JsonSerializable(typeof(string))]
 internal sealed partial class JevJsonContext : JsonSerializerContext;

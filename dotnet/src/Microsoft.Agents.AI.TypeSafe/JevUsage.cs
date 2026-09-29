@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// Represents the token usage of a Jev evaluation.
+/// Represents the token usage of a Jev call. This type mirrors <c>Usage</c> of the official TypeSafe SDK.
 /// </summary>
 public sealed class JevUsage
 {

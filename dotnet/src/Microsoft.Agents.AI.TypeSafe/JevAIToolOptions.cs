@@ -19,13 +19,15 @@ namespace Microsoft.Agents.AI.TypeSafe;
 /// <see cref="ClientPipelineOptions.AddPolicy(PipelinePolicy, PipelinePosition)"/> adds custom policies. The pipeline settings,
 /// <see cref="Endpoint"/>, and <see cref="ModelId"/> apply only when the builder uses the TypeSafe API, that is, when
 /// it receives an <see cref="ApiKeyCredential"/>; <see cref="Name"/> and <see cref="Description"/> apply to every
-/// evaluator.
+/// mapping.
 /// </para>
 /// <para>
-/// When <see cref="ClientPipelineOptions.RetryPolicy"/> is <see langword="null"/>, the pipeline retries up to three
-/// times on the statuses that TypeSafe documents as transient (429 and 529, besides the standard 408 and 5xx ones), and
-/// fails at once when the API asks for a wait longer than one minute, because the wait would block the agent run
-/// without any feedback. That default follows <see cref="ClientPipelineOptions.ClientLoggingOptions"/>.
+/// Unset pipeline settings get the defaults of the official TypeSafe SDK. When
+/// <see cref="ClientPipelineOptions.RetryPolicy"/> is <see langword="null"/>, up to two retries follow 408, 429, and
+/// 5xx responses and network failures, waiting for the server's <c>retry-after-ms</c> or <c>Retry-After</c> delay up
+/// to one minute, or else for an exponential backoff from half a second to five seconds; the policy follows
+/// <see cref="ClientPipelineOptions.ClientLoggingOptions"/>. When <see cref="ClientPipelineOptions.NetworkTimeout"/>
+/// is <see langword="null"/>, each attempt times out after 10 seconds.
 /// </para>
 /// <para>
 /// Like other client options, an instance becomes read-only once a tool has been built with it.
@@ -34,23 +36,17 @@ namespace Microsoft.Agents.AI.TypeSafe;
 public sealed class JevAIToolOptions : ClientPipelineOptions
 {
     private const string DefaultDescription =
-        "Evaluates content with Jev, a classification model. Jev does not write text: it answers typed questions about the " +
-        "given state and returns calibrated probabilities. Use it to classify, route, score, or check facts about text or " +
-        "JSON data, and ask all related questions in one call. A 'choice' question picks exactly one option from its " +
-        "criteria. A 'score' question rates the state against 2 to 10 ordered levels and can land between levels. A 'noul' " +
-        "question returns the probability, from 0 to 1, that its yes or no statement is true. Choice and score answers " +
-        "include a confidence from 0 to 1; treat a low confidence as uncertain.";
+        "Answers named questions about text or structured state with Jev, a classification model. Jev does not write " +
+        "text: it returns calibrated probabilities. Use it to classify, route, score, or check facts, and ask all related " +
+        "questions in one call. A 'choice' question selects one of the named alternatives in its criteria. A 'score' " +
+        "question assigns a score using an ordered rubric of 2 to 10 entries, and the score can fall between entries. A " +
+        "'noul' question returns the probability that the answer to a yes or no question is yes. Choice and score " +
+        "answers include a confidence from 0 to 1; treat a low confidence as uncertain.";
 
     /// <inheritdoc />
     public override void Freeze()
     {
-        // The default policy is assigned here, not in the constructor, because ClientLoggingOptions may be set after
-        // construction; ClientPipeline.Create freezes the options before it reads RetryPolicy, so the policy is in place.
-        this.RetryPolicy ??= new JevRetryPolicy(
-            JevRetryPolicy.DefaultMaxRetries,
-            this.ClientLoggingOptions?.EnableLogging ?? true,
-            this.ClientLoggingOptions?.LoggerFactory);
-
+        JevPipelineDefaults.Apply(this);
         base.Freeze();
     }
 
@@ -78,10 +74,11 @@ public sealed class JevAIToolOptions : ClientPipelineOptions
             this.AssertNotFrozen();
             field = value;
         }
-    } = "jev-latest";
+    } = JevPipelineDefaults.DefaultModelId;
 
     /// <summary>
-    /// Gets or sets the name of the function that the model sees. Defaults to <c>evaluate_with_jev</c>.
+    /// Gets or sets the name of the function that the model sees. Defaults to <c>ask_system_one</c>, after the SDK's
+    /// <c>systemOne</c> operation.
     /// </summary>
     public string Name
     {
@@ -91,7 +88,7 @@ public sealed class JevAIToolOptions : ClientPipelineOptions
             this.AssertNotFrozen();
             field = value;
         }
-    } = "evaluate_with_jev";
+    } = "ask_system_one";
 
     /// <summary>
     /// Gets or sets the description of the function that the model sees.

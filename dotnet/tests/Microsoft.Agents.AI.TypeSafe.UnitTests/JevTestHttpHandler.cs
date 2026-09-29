@@ -16,14 +16,14 @@ namespace Microsoft.Agents.AI.TypeSafe.UnitTests;
 /// </summary>
 internal sealed class JevTestHttpHandler : HttpMessageHandler
 {
-    private readonly Queue<(HttpStatusCode Status, string Body, RetryConditionHeaderValue? RetryAfter)> _responses = new();
-    private (HttpStatusCode Status, string Body, RetryConditionHeaderValue? RetryAfter) _last = (HttpStatusCode.OK, JevTestData.ResponseJson, null);
+    private readonly Queue<(HttpStatusCode Status, string Body, RetryConditionHeaderValue? RetryAfter, string? RetryAfterMs, string? RetryAfterRaw)> _responses = new();
+    private (HttpStatusCode Status, string Body, RetryConditionHeaderValue? RetryAfter, string? RetryAfterMs, string? RetryAfterRaw) _last = (HttpStatusCode.OK, JevTestData.ResponseJson, null, null, null);
 
     public List<CapturedRequest> Requests { get; } = [];
 
-    public JevTestHttpHandler Reply(HttpStatusCode status, string body, RetryConditionHeaderValue? retryAfter = null)
+    public JevTestHttpHandler Reply(HttpStatusCode status, string body, RetryConditionHeaderValue? retryAfter = null, string? retryAfterMs = null, string? retryAfterRaw = null)
     {
-        this._responses.Enqueue((status, body, retryAfter));
+        this._responses.Enqueue((status, body, retryAfter, retryAfterMs, retryAfterRaw));
         return this;
     }
 
@@ -48,6 +48,17 @@ internal sealed class JevTestHttpHandler : HttpMessageHandler
             Content = new StringContent(this._last.Body, Encoding.UTF8, "application/json"),
         };
         response.Headers.RetryAfter = this._last.RetryAfter;
+        if (this._last.RetryAfterMs is { } retryAfterMs)
+        {
+            response.Headers.Add("retry-after-ms", retryAfterMs);
+        }
+
+        // A raw value lets tests send Retry-After headers that HttpClient would refuse to parse.
+        if (this._last.RetryAfterRaw is { } raw)
+        {
+            response.Headers.TryAddWithoutValidation("Retry-After", raw);
+        }
+
         return response;
     }
 

@@ -6,23 +6,23 @@ using System.Text.Json.Serialization;
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// Describes what a yes and a no mean for a <see cref="JevNoulQuestion"/>.
+/// Describes the yes and no outcomes of a <see cref="JevNoulQuestion"/>.
 /// </summary>
 public sealed class JevNoulCriteria
 {
     /// <summary>
-    /// Gets or sets what a yes, a probability near 1, means.
+    /// Gets or sets the description of the yes outcome, as text or JSON.
     /// </summary>
     [JsonPropertyName("true")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Description("What a yes, a probability near 1, means.")]
-    public string? True { get; set; }
+    [Description("Description of the yes outcome, as text or JSON.")]
+    public JevEntry? True { get; set; }
 
     /// <summary>
-    /// Gets or sets what a no, a probability near 0, means.
+    /// Gets or sets the description of the no outcome, as text or JSON.
     /// </summary>
     [JsonPropertyName("false")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Description("What a no, a probability near 0, means.")]
-    public string? False { get; set; }
+    [Description("Description of the no outcome, as text or JSON.")]
+    public JevEntry? False { get; set; }
 }

@@ -79,26 +79,26 @@ internal static class JevTestData
         return arguments;
     }
 
-    /// <summary>A correct response to <see cref="RequestJson"/>, built from the contract types.</summary>
-    public static JevResponse CreateResponse() => new()
+    /// <summary>A correct result for <see cref="RequestJson"/>, built from the contract types.</summary>
+    public static JevResult CreateResult() => new()
     {
         Model = "custom-model",
-        Answers = new Dictionary<string, JevAnswer>
+        Answers = new Dictionary<string, JevResponse>
         {
-            ["department"] = new JevChoiceAnswer
+            ["department"] = new JevChoiceResponse
             {
                 Choice = "technical",
                 Confidence = 0.78,
                 Probabilities = new Dictionary<string, double> { ["technical"] = 0.85, ["billing"] = 0.15, ["sales"] = 0 },
             },
-            ["frustration"] = new JevScoreAnswer
+            ["frustration"] = new JevScoreResponse
             {
                 Score = 1,
                 Confidence = 1,
-                Legend = new Dictionary<string, string> { ["0"] = "Calm", ["1"] = "Frustrated", ["2"] = "Very angry" },
+                Legend = new Dictionary<string, JevEntry> { ["0"] = "Calm", ["1"] = "Frustrated", ["2"] = "Very angry" },
                 Probabilities = new Dictionary<string, double> { ["0"] = 0, ["1"] = 1, ["2"] = 0 },
             },
-            ["is_urgent"] = new JevNoulAnswer { Noul = 0.97 },
+            ["is_urgent"] = new JevNoulResponse { Noul = 0.97 },
         },
         Usage = new JevUsage { InputTokens = 10, OutputTokens = 5 },
     };

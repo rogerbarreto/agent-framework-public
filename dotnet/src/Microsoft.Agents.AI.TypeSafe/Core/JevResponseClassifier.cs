@@ -6,17 +6,16 @@ using System.ClientModel.Primitives;
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// Classifies System One responses: any 2xx status is a success, and 529 is retriable in addition to the statuses
-/// that <see cref="PipelineMessageClassifier.Default"/> retries (408, 429, 500, 502, 503, and 504).
+/// Classifies System One responses like the official TypeSafe SDK: any 2xx status is a success, and 408, 429, and
+/// every 5xx status are retriable.
 /// </summary>
 /// <remarks>
-/// TypeSafe answers 529 when it is overloaded and documents it as transient, but the default classifier treats it as a
-/// permanent error. Every other case, including network failures, is left to the default classifier.
+/// <see cref="PipelineMessageClassifier.Default"/> only retries 500, 502, 503, and 504 among the 5xx statuses, which
+/// leaves out 529, the status TypeSafe answers when it is overloaded. Network failures are left to the default
+/// classifier, which retries them, as the SDK does.
 /// </remarks>
 internal sealed class JevResponseClassifier : PipelineMessageClassifier
 {
-    private const int OverloadedStatus = 529;
-
     public static JevResponseClassifier Instance { get; } = new();
 
     public override bool TryClassify(PipelineMessage message, out bool isError)
@@ -33,7 +32,13 @@ internal sealed class JevResponseClassifier : PipelineMessageClassifier
 
     public override bool TryClassify(PipelineMessage message, Exception? exception, out bool isRetriable)
     {
-        isRetriable = exception is null && message.Response?.Status == OverloadedStatus;
-        return isRetriable;
+        if (exception is not null || message.Response is not { } response)
+        {
+            isRetriable = false;
+            return false;
+        }
+
+        isRetriable = response.Status is 408 or 429 or (>= 500 and <= 599);
+        return true;
     }
 }

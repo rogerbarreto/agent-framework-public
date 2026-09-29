@@ -9,93 +9,83 @@ using Microsoft.Shared.Diagnostics;
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// Checks requests before they are evaluated and responses before they are returned to the caller.
+/// Checks requests before they are sent and results before they are returned to the caller.
 /// </summary>
 /// <remarks>
-/// Requests come from a model, so their errors are reported as <see cref="ArgumentException"/> messages that say how to
-/// fix the arguments. Responses come from an evaluator, possibly a custom client with its own mappers, so their errors
-/// are reported as <see cref="InvalidOperationException"/>; they point at an evaluator or mapper bug, not at the model.
+/// <para>
+/// Request rules follow the official TypeSafe SDK (at least one question; a Score rubric of at least two entries) and
+/// the limits the API rejects (at most 255 Choice alternatives and 10 Score entries; a Noul needs instructions or
+/// criteria; the state and Score rubric entries may not be null, although the SDK types allow it). Checking them here
+/// saves a round trip and gives the model a message that says what to fix.
+/// </para>
+/// <para>
+/// Requests come from a model, so their errors are <see cref="ArgumentException"/>. Results come from the API or from
+/// a custom mapping, so their errors are <see cref="InvalidOperationException"/>; they point at a mapping bug, not at
+/// the model.
+/// </para>
 /// </remarks>
 internal static class JevContractValidator
 {
-    /// <summary>The most options that the Jev API accepts in one Choice question.</summary>
-    public const int MaxChoiceOptions = 255;
-
-    /// <summary>
-    /// The fewest levels of a Score question. The API also accepts a single level, but the documentation requires two,
-    /// and a one-level score always returns that level, so it is rejected as a request mistake.
-    /// </summary>
-    public const int MinScoreLevels = 2;
-
-    /// <summary>The most levels that the Jev API accepts in one Score question.</summary>
-    public const int MaxScoreLevels = 10;
+    public const int MaxChoiceCriteria = 255;
+    public const int MinScoreCriteria = 2;
+    public const int MaxScoreCriteria = 10;
 
     // Jev computes scores and probabilities in floating point, so values may exceed their bounds by rounding error.
     private const double Tolerance = 1e-6;
 
     public static void ValidateRequest(JevRequest request)
     {
-        if (request.State.ValueKind is not (JsonValueKind.String or JsonValueKind.Object or JsonValueKind.Array))
+        // The SDK types allow a null state, but the API answers 422 ("Field required").
+        if (request.State.IsNull)
         {
-            Throw.ArgumentException(nameof(request), "The state must be a string, a JSON object, or a JSON array.");
+            Throw.ArgumentException(nameof(request), "The state must be text or a JSON object or array.");
         }
 
         if (request.Questions is null || request.Questions.Count == 0)
         {
-            Throw.ArgumentException(nameof(request), "The request must contain at least one question.");
+            Throw.ArgumentException(nameof(request), "At least one question is required.");
         }
 
         foreach (KeyValuePair<string, JevQuestion> entry in request.Questions)
         {
             string id = entry.Key;
-            if (string.IsNullOrWhiteSpace(id))
+            switch (entry.Value)
             {
-                Throw.ArgumentException(nameof(request), "Question IDs must not be empty.");
-            }
+                case null:
+                    Throw.ArgumentException(nameof(request), $"Question '{id}' is null.");
+                    break;
 
-            JevQuestion question = entry.Value;
-            if (question is null)
-            {
-                Throw.ArgumentException(nameof(request), $"Question '{id}' is null.");
-            }
-
-            if (string.IsNullOrWhiteSpace(question.Instructions))
-            {
-                Throw.ArgumentException(nameof(request), $"Question '{id}' must have instructions.");
-            }
-
-            switch (question)
-            {
                 case JevChoiceQuestion choice:
-                    int options = choice.Criteria?.Count ?? 0;
-                    if (options is < 1 or > MaxChoiceOptions)
+                    int alternatives = choice.Criteria?.Count ?? 0;
+                    if (alternatives is < 1 or > MaxChoiceCriteria)
                     {
-                        Throw.ArgumentException(nameof(request), $"Choice question '{id}' has {Count(options, "option")}; it needs from 1 to {MaxChoiceOptions}.");
-                    }
-
-                    foreach (string option in choice.Criteria!.Keys)
-                    {
-                        if (string.IsNullOrWhiteSpace(option))
-                        {
-                            Throw.ArgumentException(nameof(request), $"Choice question '{id}' has an empty option name.");
-                        }
+                        Throw.ArgumentException(nameof(request), $"Choice question '{id}' has {Count(alternatives, "alternative")}; it needs from 1 to {MaxChoiceCriteria}.");
                     }
 
                     break;
 
                 case JevScoreQuestion score:
-                    int levels = score.Criteria?.Count ?? 0;
-                    if (levels is < MinScoreLevels or > MaxScoreLevels)
+                    int scores = score.Criteria?.Count ?? 0;
+                    if (scores is < MinScoreCriteria or > MaxScoreCriteria)
                     {
-                        Throw.ArgumentException(nameof(request), $"Score question '{id}' has {Count(levels, "level")}; it needs from {MinScoreLevels} to {MaxScoreLevels}.");
+                        Throw.ArgumentException(nameof(request), $"Score question '{id}' has {Count(scores, "criterion", "criteria")}; it needs from {MinScoreCriteria} to {MaxScoreCriteria}.");
                     }
 
-                    foreach (string level in score.Criteria!)
+                    // The SDK types allow null rubric entries, but the API answers 422 for them.
+                    for (int index = 0; index < scores; index++)
                     {
-                        if (string.IsNullOrWhiteSpace(level))
+                        if (score.Criteria![index].IsNull)
                         {
-                            Throw.ArgumentException(nameof(request), $"Score question '{id}' has an empty level description.");
+                            Throw.ArgumentException(nameof(request), $"Score question '{id}' has a null criterion at index {index.ToString(CultureInfo.InvariantCulture)}; every score needs text or JSON.");
                         }
+                    }
+
+                    break;
+
+                case JevNoulQuestion noul:
+                    if (IsEmpty(noul.Instructions) && IsEmpty(noul.Criteria?.True) && IsEmpty(noul.Criteria?.False))
+                    {
+                        Throw.ArgumentException(nameof(request), $"Noul question '{id}' needs instructions or criteria.");
                     }
 
                     break;
@@ -103,48 +93,48 @@ internal static class JevContractValidator
         }
     }
 
-    public static void ValidateResponse(JevRequest request, JevResponse response)
+    public static void ValidateResult(JevRequest request, JevResult result)
     {
-        if (response.Answers is null)
+        if (result.Answers is null)
         {
-            Throw.InvalidOperationException("The Jev response has no answers.");
+            Throw.InvalidOperationException("The Jev result has no answers.");
         }
 
         foreach (KeyValuePair<string, JevQuestion> entry in request.Questions)
         {
             string id = entry.Key;
-            if (!response.Answers.TryGetValue(id, out JevAnswer? answer) || answer is null)
+            if (!result.Answers.TryGetValue(id, out JevResponse? answer) || answer is null)
             {
-                Throw.InvalidOperationException($"The Jev response has no answer for question '{id}'.");
+                Throw.InvalidOperationException($"The Jev result has no answer for question '{id}'.");
             }
 
             switch (entry.Value, answer)
             {
-                case (JevChoiceQuestion question, JevChoiceAnswer choice):
-                    // A choice outside the options would reach the model as a value it never offered, which is how a
-                    // mapper that converts between option names and a client's own values would fail silently.
+                case (JevChoiceQuestion question, JevChoiceResponse choice):
+                    // A label outside the criteria would reach the model as a value it never offered, which is how a
+                    // mapping that converts between labels and a client's own values would fail silently.
                     if (choice.Choice is null || !question.Criteria.ContainsKey(choice.Choice))
                     {
-                        Throw.InvalidOperationException($"The answer to question '{id}' chose '{choice.Choice}', which is not one of its options.");
+                        Throw.InvalidOperationException($"The answer to question '{id}' chose '{choice.Choice}', which is not one of its labels.");
                     }
 
                     EnsureInRange(choice.Confidence, 0, 1, id, "confidence");
-                    EnsureProbabilities(choice.Probabilities, id, key => question.Criteria.ContainsKey(key), "one of its options");
+                    EnsureProbabilities(choice.Probabilities, id, key => question.Criteria.ContainsKey(key), "one of its labels");
                     break;
 
-                case (JevScoreQuestion question, JevScoreAnswer score):
+                case (JevScoreQuestion question, JevScoreResponse score):
                     EnsureInRange(score.Score, 0, question.Criteria.Count - 1, id, "score");
                     EnsureInRange(score.Confidence, 0, 1, id, "confidence");
 
-                    // Score answers key their probabilities and legend by level number ("0", "1", ...).
-                    int levels = question.Criteria.Count;
-                    bool IsLevel(string key) => int.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out int level) && level < levels;
-                    string levelRange = $"a level number from 0 to {(levels - 1).ToString(CultureInfo.InvariantCulture)}";
-                    EnsureProbabilities(score.Probabilities, id, IsLevel, levelRange);
-                    EnsureKeys(score.Legend?.Keys, id, "legend", IsLevel, levelRange);
+                    // Score responses key their probabilities and legend by score ("0", "1", ...).
+                    int scores = question.Criteria.Count;
+                    bool IsScore(string key) => int.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture, out int value) && value < scores;
+                    string scoreRange = $"a score from 0 to {(scores - 1).ToString(CultureInfo.InvariantCulture)}";
+                    EnsureProbabilities(score.Probabilities, id, IsScore, scoreRange);
+                    EnsureKeys(score.Legend?.Keys, id, "legend", IsScore, scoreRange);
                     break;
 
-                case (JevNoulQuestion, JevNoulAnswer noul):
+                case (JevNoulQuestion, JevNoulResponse noul):
                     EnsureInRange(noul.Noul, 0, 1, id, "noul");
                     break;
 
@@ -155,9 +145,12 @@ internal static class JevContractValidator
         }
     }
 
+    private static bool IsEmpty(JevEntry? entry) =>
+        entry is not { } value || value.IsNull || (value.Kind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.Text));
+
     /// <summary>
-    /// Checks that every probability is in range and is keyed by something the question offered. A mapper that fills
-    /// probabilities with a client's own labels would otherwise show the model options it never asked about.
+    /// Checks that every probability is in range and is keyed by something the question offered. A mapping that fills
+    /// probabilities with a client's own labels would otherwise show the model alternatives it never asked about.
     /// </summary>
     private static void EnsureProbabilities(IReadOnlyDictionary<string, double>? probabilities, string id, Func<string, bool> isValidKey, string expected)
     {
@@ -200,15 +193,15 @@ internal static class JevContractValidator
         }
     }
 
-    private static string Count(int count, string noun) =>
-        count == 1 ? $"1 {noun}" : $"{count.ToString(CultureInfo.InvariantCulture)} {noun}s";
+    private static string Count(int count, string singular, string? plural = null) =>
+        count == 1 ? $"1 {singular}" : $"{count.ToString(CultureInfo.InvariantCulture)} {plural ?? singular + "s"}";
 
     private static string KindOf(object value) =>
         value switch
         {
-            JevChoiceQuestion or JevChoiceAnswer => "Choice",
-            JevScoreQuestion or JevScoreAnswer => "Score",
-            JevNoulQuestion or JevNoulAnswer => "Noul",
+            JevChoiceQuestion or JevChoiceResponse => "Choice",
+            JevScoreQuestion or JevScoreResponse => "Score",
+            JevNoulQuestion or JevNoulResponse => "Noul",
             _ => value.GetType().Name,
         };
 }

@@ -51,7 +51,7 @@ public sealed class JevAgentIntegrationTests
     public async Task GetResponseAsync_InvalidArgumentsWithDetailedErrors_TellTheModelWhatToFixAsync()
     {
         // Arrange
-        AIFunction jev = new JevAIToolBuilder().UseEvaluator((_, _, _) => Task.FromResult(JevTestData.CreateResponse())).Build();
+        AIFunction jev = new JevAIToolBuilder().UseMapping((_, _, _) => Task.FromResult(JevTestData.CreateResult())).Build();
         const string InvalidArguments = """{"state":"x","questions":{"q":{"type":"score","instructions":"How bad?","criteria":["only"]}}}""";
 
         using var model = new ScriptedChatClient(
@@ -64,7 +64,7 @@ public sealed class JevAgentIntegrationTests
 
         // Assert
         FunctionResultContent result = model.Calls[1].SelectMany(static m => m.Contents).OfType<FunctionResultContent>().Single();
-        Assert.Contains("has 1 level; it needs from 2 to 10", result.Result?.ToString(), StringComparison.Ordinal);
+        Assert.Contains("has 1 criterion; it needs from 2 to 10", result.Result?.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -77,10 +77,12 @@ public sealed class JevAgentIntegrationTests
         AIFunction jev = new JevAIToolBuilder()
             .UseClient<UrgencyClassifier, string, double>(
                 static (client, text, cancellationToken) => client.ScoreAsync(text, cancellationToken),
-                inputMapper: static request => request.State.GetString()!,
-                outputMapper: static probability => new JevResponse
+                inputMapper: static request => request.State.Text!,
+                outputMapper: static probability => new JevResult
                 {
-                    Answers = new Dictionary<string, JevAnswer> { ["is_urgent"] = new JevNoulAnswer { Noul = probability } },
+                    Model = "urgency-classifier",
+                    Answers = new Dictionary<string, JevResponse> { ["is_urgent"] = new JevNoulResponse { Noul = probability } },
+                    Usage = new JevUsage { InputTokens = 0, OutputTokens = 0 },
                 })
             .Build();
 

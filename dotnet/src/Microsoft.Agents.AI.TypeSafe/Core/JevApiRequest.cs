@@ -1,18 +1,18 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// The body of a TypeSafe System One API request: a <see cref="JevRequest"/> plus the model that answers it.
+/// The body of <c>POST /v1/systemone</c>: a <see cref="JevRequest"/> with the model resolved, like
+/// <c>SystemOneRequestPayload</c> of the official TypeSafe SDK.
 /// </summary>
 internal sealed class JevApiRequest
 {
     [JsonPropertyName("state")]
-    public required JsonElement State { get; init; }
+    public required JevEntry State { get; init; }
 
     [JsonPropertyName("model")]
     public required string Model { get; init; }

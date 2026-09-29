@@ -13,17 +13,17 @@ namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
 /// The <see cref="AIFunction"/> created by <see cref="JevAIToolBuilder"/>: its arguments are a <see cref="JevRequest"/>
-/// and its result is the <see cref="JevResponse"/> of the configured evaluator.
+/// and its result is the <see cref="JevResult"/> of the configured mapping or the TypeSafe API.
 /// </summary>
 internal sealed class JevAIFunction : AIFunction
 {
-    private readonly Func<JevRequest, IServiceProvider?, CancellationToken, Task<JevResponse>> _evaluateAsync;
+    private readonly Func<JevRequest, IServiceProvider?, CancellationToken, Task<JevResult>> _systemOneAsync;
 
-    public JevAIFunction(string name, string description, Func<JevRequest, IServiceProvider?, CancellationToken, Task<JevResponse>> evaluateAsync)
+    public JevAIFunction(string name, string description, Func<JevRequest, IServiceProvider?, CancellationToken, Task<JevResult>> systemOneAsync)
     {
         this.Name = name;
         this.Description = description;
-        this._evaluateAsync = evaluateAsync;
+        this._systemOneAsync = systemOneAsync;
     }
 
     public override string Name { get; }
@@ -32,7 +32,7 @@ internal sealed class JevAIFunction : AIFunction
 
     public override JsonElement JsonSchema => JevJsonUtilities.RequestSchema;
 
-    public override JsonElement? ReturnJsonSchema => JevJsonUtilities.ResponseSchema;
+    public override JsonElement? ReturnJsonSchema => JevJsonUtilities.ResultSchema;
 
     public override JsonSerializerOptions JsonSerializerOptions => JevJsonUtilities.Options;
 
@@ -42,27 +42,27 @@ internal sealed class JevAIFunction : AIFunction
         JevContractValidator.ValidateRequest(request);
 
         // FunctionInvokingChatClient sets Services to the IServiceProvider of the agent (ChatClientAgent passes its
-        // services through), so evaluators can resolve per-call dependencies such as a registered client.
-        JevResponse? response = await this._evaluateAsync(request, arguments.Services, cancellationToken).ConfigureAwait(false);
-        if (response is null)
+        // services through), so mappings can resolve per-call dependencies such as a registered client.
+        JevResult? result = await this._systemOneAsync(request, arguments.Services, cancellationToken).ConfigureAwait(false);
+        if (result is null)
         {
-            Throw.InvalidOperationException("The Jev evaluator returned no response.");
+            Throw.InvalidOperationException("The Jev mapping returned no result.");
         }
 
-        JevContractValidator.ValidateResponse(request, response);
+        JevContractValidator.ValidateResult(request, result);
 
         // The result is returned as JSON, as AIFunctionFactory does. Chat clients serialize any other result object
         // with AIJsonUtilities.DefaultOptions, which has no metadata for these types when reflection is disabled
         // (for example under native AOT); the model would then receive an empty tool output.
         try
         {
-            return JsonSerializer.SerializeToElement(response, JevJsonContext.Default.JevResponse);
+            return JsonSerializer.SerializeToElement(result, JevJsonContext.Default.JevResult);
         }
         catch (Exception ex) when (ex is ArgumentException or JsonException or NotSupportedException)
         {
-            // A response that cannot be written is an evaluator fault. Reported as ArgumentException, it would look
+            // A result that cannot be written is a mapping fault. Reported as ArgumentException, it would look
             // like a mistake in the model's arguments and invite the model to retry the same call.
-            throw new InvalidOperationException($"The Jev response could not be serialized: {ex.Message}", ex);
+            throw new InvalidOperationException($"The Jev result could not be serialized: {ex.Message}", ex);
         }
     }
 

@@ -1,41 +1,25 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.AI;
 
 namespace Microsoft.Agents.AI.TypeSafe;
 
 /// <summary>
-/// Represents the result of a Jev evaluation: one typed answer per question of the <see cref="JevRequest"/>.
+/// Represents Jev's answer to one question of a <see cref="JevRequest"/>.
 /// </summary>
 /// <remarks>
-/// This type mirrors the body of a TypeSafe System One API response. Its JSON form is the result of the
-/// <see cref="AIFunction"/> that <see cref="JevAIToolBuilder"/> creates.
+/// The JSON <c>type</c> property matches the kind of the question: <c>choice</c> (<see cref="JevChoiceResponse"/>),
+/// <c>score</c> (<see cref="JevScoreResponse"/>), or <c>noul</c> (<see cref="JevNoulResponse"/>). The derived types
+/// mirror <c>ChoiceResponse</c>, <c>ScoreResponse</c>, and <c>NoulResponse</c> of the official TypeSafe SDK.
 /// </remarks>
-public sealed class JevResponse
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(JevChoiceResponse), "choice")]
+[JsonDerivedType(typeof(JevScoreResponse), "score")]
+[JsonDerivedType(typeof(JevNoulResponse), "noul")]
+public abstract class JevResponse
 {
-    /// <summary>
-    /// Gets or sets the model that performed the evaluation, when the evaluator reports it.
-    /// </summary>
-    [JsonPropertyName("model")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Description("The model that performed the evaluation.")]
-    public string? Model { get; set; }
-
-    /// <summary>
-    /// Gets or sets the answers, keyed by the ID of the question they answer.
-    /// </summary>
-    [JsonPropertyName("answers")]
-    [Description("One answer per question, keyed by the question ID.")]
-    public required IReadOnlyDictionary<string, JevAnswer> Answers { get; set; }
-
-    /// <summary>
-    /// Gets or sets the token usage of the evaluation, when the evaluator reports it.
-    /// </summary>
-    [JsonPropertyName("usage")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [Description("The token usage of the evaluation.")]
-    public JevUsage? Usage { get; set; }
+    // Only the three response kinds that the Jev API returns can exist.
+    private protected JevResponse()
+    {
+    }
 }
