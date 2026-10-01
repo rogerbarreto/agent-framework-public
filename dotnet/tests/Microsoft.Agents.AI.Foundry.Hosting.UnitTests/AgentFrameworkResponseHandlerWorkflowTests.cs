@@ -3,11 +3,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.AI.AgentServer.Responses;
 using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,6 +26,63 @@ namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
 /// </summary>
 public class AgentFrameworkResponseHandlerWorkflowTests
 {
+    [Fact]
+    public async Task RequestInfoWorkflow_EmitsFunctionCallAndResumesWithResultAsync()
+    {
+        // Arrange
+        var start = new RequestInfoStartExecutor();
+        var port = RequestPort.Create<Dictionary<string, string>, string>("request_info");
+        var finish = new RequestInfoResultExecutor();
+        var workflow = new WorkflowBuilder(start)
+            .AddEdge(start, port)
+            .AddEdge(port, finish)
+            .WithOutputFrom(finish)
+            .Build();
+        var agent = workflow.AsAIAgent(
+            name: "Request Info Workflow",
+            executionEnvironment: InProcessExecution.OffThread,
+            includeExceptionDetails: true);
+        var (handler, request, context) = CreateHandlerWithAgent(agent, "Review this draft");
+
+        // Act
+        var firstEvents = await CollectEventsAsync(handler, request, context);
+
+        // Assert
+        var first = Assert.IsType<ResponseCompletedEvent>(firstEvents[^1]);
+        var call = Assert.Single(first.Response.Output.OfType<OutputItemFunctionToolCall>());
+        Assert.Equal("request_info", call.Name);
+        Assert.False(string.IsNullOrWhiteSpace(call.CallId));
+        Assert.Empty(first.Response.Output.OfType<OutputItemFunctionToolCallOutput>());
+        using var arguments = JsonDocument.Parse(call.Arguments);
+        Assert.Contains("Please review this draft.", arguments.RootElement.GetRawText());
+        Assert.Single(firstEvents.OfType<ResponseFunctionCallArgumentsDoneEvent>());
+        Assert.Equal(0, finish.RunCount);
+
+        // Act
+        var nextRequest = new CreateResponse
+        {
+            Model = "test",
+            PreviousResponseId = first.Response.Id,
+            Input = BinaryData.FromObjectAsJson(new[]
+            {
+                new { type = "function_call_output", call_id = call.CallId, output = "approved" }
+            }),
+        };
+        var nextContext = new Mock<ResponseContext>("resp_" + new string('1', 46)) { CallBase = true };
+        nextContext.Setup(x => x.GetHistoryAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<OutputItem>());
+        nextContext.Setup(x => x.GetInputItemsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Item>());
+        var secondEvents = await CollectEventsAsync(handler, nextRequest, nextContext.Object);
+
+        // Assert
+        Assert.IsType<ResponseCompletedEvent>(secondEvents[^1]);
+        Assert.Equal(1, finish.RunCount);
+        Assert.Equal("approved", finish.Result);
+        Assert.Contains(secondEvents.OfType<ResponseTextDeltaEvent>(), evt => evt.Delta == "Reviewed: approved");
+        Assert.Empty(secondEvents.OfType<ResponseFunctionCallArgumentsDoneEvent>());
+    }
+
     [Fact]
     public async Task SequentialWorkflow_SingleAgent_ProducesTextOutputAsync()
     {
@@ -193,6 +252,44 @@ public class AgentFrameworkResponseHandlerWorkflowTests
             async () => await execution.WaitAsync(TimeSpan.FromSeconds(5)));
         await innerAgent.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.DoesNotContain(events, evt => evt is ResponseCompletedEvent);
+    }
+
+    [SendsMessage(typeof(Dictionary<string, string>))]
+    private sealed class RequestInfoStartExecutor() : ChatProtocolExecutor(
+        "review_start",
+        new ChatProtocolExecutorOptions { AutoSendTurnToken = false })
+    {
+        protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder) =>
+            base.ConfigureProtocol(protocolBuilder).SendsMessage<Dictionary<string, string>>();
+
+        protected override ValueTask TakeTurnAsync(
+            List<ChatMessage> messages,
+            IWorkflowContext context,
+            bool? emitEvents,
+            CancellationToken cancellationToken = default) =>
+            messages.Count == 0
+                ? default
+                : context.SendMessageAsync(
+                new Dictionary<string, string> { ["prompt"] = "Please review this draft." },
+                cancellationToken: cancellationToken);
+    }
+
+    [YieldsOutput(typeof(string))]
+    private sealed class RequestInfoResultExecutor() : Executor<string>("review_finish")
+    {
+        public int RunCount { get; private set; }
+
+        public string? Result { get; private set; }
+
+        public override ValueTask HandleAsync(
+            string message,
+            IWorkflowContext context,
+            CancellationToken cancellationToken = default)
+        {
+            this.RunCount++;
+            this.Result = message;
+            return context.YieldOutputAsync($"Reviewed: {message}", cancellationToken);
+        }
     }
 
     private static (AgentFrameworkResponseHandler handler, CreateResponse request, ResponseContext context)

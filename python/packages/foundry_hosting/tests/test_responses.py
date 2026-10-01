@@ -40,6 +40,7 @@ from agent_framework import (
     ChatResponseUpdate,
     ComputerSafetyCheck,
     Content,
+    Executor,
     FinishReason,
     FinishReasonLiteral,
     FunctionInvocationLayer,
@@ -56,6 +57,8 @@ from agent_framework import (
     WorkflowBuilder,
     WorkflowContext,
     executor,
+    handler,
+    response_handler,
     tool,
 )
 from agent_framework.ag_ui import AgentFrameworkAgent, InMemoryAGUIThreadSnapshotStore
@@ -84,7 +87,7 @@ from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from openai.types.responses.response_input_item_param import ResponseInputItemParam
 from openai.types.responses.response_usage import ResponseUsage as OpenAIResponseUsage
 from pydantic import TypeAdapter
-from typing_extensions import Any
+from typing_extensions import Any, Never
 
 from agent_framework_foundry_hosting import ResponsesHostServer
 from agent_framework_foundry_hosting._responses import (
@@ -8272,6 +8275,81 @@ class TestWorkflowAgentHosting:
     tool-approval round-trip path, which is the primary differentiator
     relative to the regular agent path.
     """
+
+    @pytest.mark.parametrize("stream", [False, True])
+    async def test_request_info_function_call_round_trip(self, stream: bool) -> None:
+        """A custom executor's request reaches the client and resumes through function_call_output."""
+        received: list[str] = []
+
+        class RequestingExecutor(Executor):
+            @handler
+            async def handle_message(self, _: list[Message], ctx: WorkflowContext) -> None:
+                await ctx.request_info({"prompt": "Please review this draft."}, str)
+
+            @response_handler
+            async def handle_response(
+                self,
+                original_request: dict[str, str],
+                response: str,
+                ctx: WorkflowContext[Never, AgentResponse],  # type: ignore[valid-type]
+            ) -> None:
+                assert original_request == {"prompt": "Please review this draft."}
+                received.append(response)
+                await ctx.yield_output(
+                    AgentResponse(
+                        messages=[Message("assistant", contents=[Content.from_text(f"Reviewed: {response}")])]
+                    )
+                )
+
+        requester = RequestingExecutor(id="reviewer")
+        workflow = WorkflowBuilder(start_executor=requester).build()
+        server = _make_server(WorkflowAgent(workflow=workflow, name="Request Info Workflow"))
+
+        first = await _post(server, stream=stream)
+        assert first.status_code == 200
+        if stream:
+            events = _parse_sse_events(first.text)
+            assert _sse_event_types(events)[-1] == "response.completed"
+            first_body = events[-1]["data"]["response"]
+            assert "response.function_call_arguments.done" in _sse_event_types(events)
+        else:
+            first_body = first.json()
+        assert first_body["status"] == "completed"
+        calls = [item for item in first_body["output"] if item["type"] == "function_call"]
+        assert len(calls) == 1
+        call = calls[0]
+        assert call["name"] == "request_info"
+        arguments = json.loads(call["arguments"])
+        assert arguments["request_id"] == call["call_id"]
+        assert arguments["request_event"]["data"] == {"prompt": "Please review this draft."}
+        assert received == []
+        assert not any(item["type"] == "function_call_output" for item in first_body["output"])
+
+        second = await _post_json(
+            server,
+            {
+                "model": "test-model",
+                "input": [{"type": "function_call_output", "call_id": call["call_id"], "output": "approved"}],
+                "previous_response_id": first_body["id"],
+                "stream": stream,
+            },
+        )
+        assert second.status_code == 200
+        if stream:
+            events = _parse_sse_events(second.text)
+            assert _sse_event_types(events)[-1] == "response.completed"
+            second_body = events[-1]["data"]["response"]
+        else:
+            second_body = second.json()
+        assert second_body["status"] == "completed"
+        assert received == ["approved"]
+        assert any(
+            part.get("text") == "Reviewed: approved"
+            for item in second_body["output"]
+            if item["type"] == "message"
+            for part in item["content"]
+        )
+        assert not any(item["type"] == "function_call" for item in second_body["output"])
 
     async def test_async_factory_creates_workflow_agent_for_each_request(self) -> None:
         created: list[tuple[WorkflowAgent, _MultiUpdateWorkflowAgentMock]] = []
