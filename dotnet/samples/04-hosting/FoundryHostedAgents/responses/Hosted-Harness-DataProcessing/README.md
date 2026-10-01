@@ -4,6 +4,16 @@ This sample hosts a `HarnessAgent` that reads a sample sales CSV and writes requ
 
 The project references the framework **source in this repository**. `AddFoundryResponses(agent)` uses the default `AllowStoredOutputEnabled = false`; the agent keeps chat history in its session rather than in the model service.
 
+Deployment uses a **source ZIP**, with no Dockerfile or container registry. The preparation step includes the linked sales CSV in a standalone source folder. No Python interpreter is needed.
+
+## Prerequisites
+
+- .NET 10 SDK.
+- An existing Foundry project and model deployment.
+- Azure CLI authenticated with `az login`.
+- Azure Developer CLI (`azd`) with the AI agents extension: `azd extension install azure.ai.agents`.
+- PowerShell 7 for the local framework packaging helper.
+
 ## Run locally
 
 1. Set `FOUNDRY_PROJECT_ENDPOINT` and `AZURE_AI_MODEL_DEPLOYMENT_NAME` for an existing Foundry model deployment, then sign in with `az login`. Copy `.env.example` to `.env` if you prefer a local file.
@@ -14,15 +24,48 @@ Hosted containers have a read-only application directory. On startup the sample 
 
 These files rely on Foundry's session sandbox: by default each caller gets their own session with a private `$HOME` (see [Isolate hosted agent sessions per user](https://learn.microsoft.com/azure/foundry/agents/how-to/isolate-sessions-per-user)). If you [place several users in one session](https://learn.microsoft.com/azure/foundry/agents/how-to/multiplex-session-users), partition the working folder per user yourself.
 
-## Container build from this checkout
+## Deploy to Foundry (source ZIP)
 
-The project links its CSV from elsewhere in the MAF checkout, so publish from the repository before building this runtime image. Uploading this directory alone as Foundry source/ZIP is not supported:
+Start in this sample directory. Prepare the source in a working directory **outside the repository**, then initialize against an existing Foundry project:
 
 ```powershell
-dotnet publish HostedHarnessDataProcessing.csproj -c Release -f net10.0 -r linux-musl-x64 --self-contained false -o out --tl:off
-docker build -t hosted-harness-data-processing .
+$repo = (Resolve-Path '..\..\..\..\..\..').Path
+$work = Join-Path $env:TEMP 'hosted-harness-data-processing-work'
+$source = Join-Path $work 'source'
+
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+dotnet msbuild HostedHarnessDataProcessing.csproj -target:PrepareSourceDeployment `
+    "-property:SourceDeploymentDirectory=$source"
+
+Set-Location $work
+azd auth login
+azd ai agent init -m (Join-Path $source 'azure.yaml') `
+    -p '<existing-Foundry-project-ARM-resource-id>' -d '<existing-model-deployment>'
 ```
 
-The image includes the local framework assemblies. Rebuild it after a framework change rather than testing an older published package.
+`PrepareSourceDeployment` includes `working/sales.csv` from the console sample and does not copy `.env`, local sessions, or build output. The copied project has one target framework and explicit package versions. Its content settings copy the CSV into the published application.
 
-For deployment to an existing Foundry project, follow the [persistent `azd` container workflow](../Hosted-Harness-Research/README.md#deploy-with-an-existing-foundry-project) with this project's publish output, bundle directory `src\hosted-harness-data`, and agent name `maf-harness-data`. A live hosted validation read the bundled CSV, recalled the answer on a second turn, requested approval before writing, and read the approved file on a later turn. The host kept `AllowStoredOutputEnabled = false`.
+**Do not skip the package helper when testing this branch.** It includes the local framework fix rather than relying on an older published package:
+
+```powershell
+& (Join-Path $repo 'dotnet\samples\04-hosting\FoundryHostedAgents\scripts\Add-LocalFrameworkFeed.ps1') `
+    -Path (Join-Path $work 'hosted-harness-data-processing')
+
+Set-Location (Join-Path $work 'hosted-harness-data-processing')
+dotnet build -c Debug --tl:off
+azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME '<existing-model-deployment>'
+azd provision
+azd deploy
+azd ai agent invoke 'Which region sold the most units in sales.csv?' `
+    --new-session --new-conversation -o raw
+```
+
+Foundry restores packages and publishes the application with `dependencyResolution: remote_build`. `.agentignore` includes the CSV and local framework feed while excluding secrets, build output, and local session files. Check for `response.completed` in the raw output; a zero CLI exit code alone is not evidence that the turn succeeded.
+
+See [Research's source ZIP instructions](../Hosted-Harness-Research/README.md#deploy-to-foundry-source-zip) for package preparation on Linux or macOS and for updating an existing deployment.
+
+## Related samples
+
+- [Hosted Harness Research](../Hosted-Harness-Research/README.md) uses the same source ZIP preparation.
+- [Hosted Harness Scaling Capabilities](../Hosted-Harness-ScalingCapabilities/README.md) retains a Dockerfile because its skill scripts need Python.
+- [Official source deployment guide](https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent-code).
