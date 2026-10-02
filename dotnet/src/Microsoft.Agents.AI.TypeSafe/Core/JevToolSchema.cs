@@ -164,8 +164,9 @@ internal static class JevToolSchema
         {
             "string" => value.ValueKind == JsonValueKind.String,
 
-            // An integer has no fraction or exponent, as a JSON parser that separates integers from floats reads it.
-            "integer" => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out _),
+            // An integer has no fraction or exponent, as a JSON parser that separates integers from floats reads it,
+            // and may be of any size, like a Python int; a long would reject valid unsigned 64-bit values.
+            "integer" => value.ValueKind == JsonValueKind.Number && value.GetRawText().AsSpan().IndexOfAny('.', 'e', 'E') < 0,
             "number" => value.ValueKind == JsonValueKind.Number,
             "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
             "null" => value.ValueKind == JsonValueKind.Null,

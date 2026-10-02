@@ -82,6 +82,36 @@ public sealed class JevToolCallCompilerTests
     }
 
     [Fact]
+    public void Compile_IntegersOutsideTheInt64Range_Compile()
+    {
+        // Arrange: an unsigned 64-bit contract, whose largest values do not fit in a long.
+        AIFunctionDeclaration tool = Declaration("set_mask", """
+            {
+              "type": "object",
+              "properties": {
+                "mask": { "type": "integer", "enum": [0, 18446744073709551615] },
+                "all": { "type": "integer", "const": 18446744073709551615 },
+                "bits": { "type": "array", "items": { "type": "integer", "enum": [1, 9223372036854775808] } }
+              },
+              "required": ["mask", "all", "bits"]
+            }
+            """);
+
+        // Act
+        JevToolCallPlan plan = Compile([tool])!;
+        JevToolCall? call = plan.Decode(Result(
+            JevChatTestData.RouteTo("t0", "t0", "none"),
+            JevChatTestData.Choice("__af_tool__.t0.a0.value", "v1", "v0", "v1"),
+            JevChatTestData.Noul("__af_tool__.t0.a2.m0", 0.1),
+            JevChatTestData.Noul("__af_tool__.t0.a2.m1", 0.9)));
+
+        // Assert: the values reach the function unchanged.
+        Assert.Equal(ulong.MaxValue, ((JsonElement)call!.Value.Arguments["mask"]!).GetUInt64());
+        Assert.Equal(ulong.MaxValue, ((JsonElement)call.Value.Arguments["all"]!).GetUInt64());
+        Assert.Equal([9223372036854775808UL], ((JsonElement)call.Value.Arguments["bits"]!).EnumerateArray().Select(item => item.GetUInt64()));
+    }
+
+    [Fact]
     public void Compile_EnumAndConstValuesMatchingTheirType_Compile()
     {
         // Arrange: numbers, mixed types, and a nullable enum whose null was removed before the check.
@@ -122,6 +152,8 @@ public sealed class JevToolCallCompilerTests
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "enum": ["fast"] } } }""", "enum value \"fast\" does not match declared type \"integer\"")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": ["integer", "boolean"], "enum": [1, "x"] } } }""", "enum value \"x\" does not match declared type [\"integer\", \"boolean\"]")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "string", "const": 5 } }, "required": ["a"] }""", "required argument 'a': const value 5 does not match declared type \"string\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "enum": [1, 2.0] } } }""", "enum value 2.0 does not match declared type \"integer\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "const": 1e2 } }, "required": ["a"] }""", "const value 1e2 does not match declared type \"integer\"")]
     [InlineData("""{ "type": "object", "properties": {}, "required": ["missing"] }""", "required arguments are missing from properties: missing")]
     [InlineData("""{ "type": "array" }""", "the top-level input schema must be an object")]
     public void Compile_UnsupportedSchema_ExcludesTheToolWithTheReason(string schema, string reason)
