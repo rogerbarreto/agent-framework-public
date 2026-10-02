@@ -110,7 +110,7 @@ the container or configuration.
 - .NET 10 SDK or later
 - A Microsoft Foundry project with a model deployment
 - Azure CLI installed and authenticated (for Azure credential authentication)
-- A TypeSafe API key from the [TypeSafe console](https://console.typesafe.ai/keys)
+- A TypeSafe API key (see the [TypeSafe quickstart](https://docs.typesafe.ai/introduction/quickstart))
 
 Set the following environment variables:
 
