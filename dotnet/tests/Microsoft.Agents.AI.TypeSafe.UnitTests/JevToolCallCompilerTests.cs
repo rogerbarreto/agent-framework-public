@@ -46,6 +46,66 @@ public sealed class JevToolCallCompilerTests
         Assert.Equal("fixed", ((JsonElement)call.Value.Arguments["kind"]!).GetString());
     }
 
+    [Fact]
+    public void Compile_ChainedReferences_ResolveAndDecode()
+    {
+        // Arrange: Speed aliases Mode, and the nullable Level aliases a nullable enum, so each reference leads to another.
+        AIFunctionDeclaration tool = Declaration("set_speed", """
+            {
+              "type": "object",
+              "properties": {
+                "speed": { "$ref": "#/$defs/Speed", "description": "How fast to go" },
+                "level": { "$ref": "#/$defs/Level" }
+              },
+              "required": ["speed"],
+              "$defs": {
+                "Speed": { "$ref": "#/$defs/Mode" },
+                "Mode": { "type": "string", "enum": ["fast", "safe"] },
+                "Level": { "$ref": "#/$defs/NullableLevel" },
+                "NullableLevel": { "anyOf": [{ "type": "string", "enum": ["low", "high"] }, { "type": "null" }] }
+              }
+            }
+            """);
+
+        // Act
+        JevToolCallPlan plan = Compile([tool])!;
+        JevToolCall? call = plan.Decode(Result(
+            JevChatTestData.RouteTo("t0", "t0", "none"),
+            JevChatTestData.Choice("__af_tool__.t0.a0.value", "v1", "v0", "v1"),
+            JevChatTestData.Noul("__af_tool__.t0.a1.present", 0.9),
+            JevChatTestData.Choice("__af_tool__.t0.a1.value", "v1", "v0", "v1")));
+
+        // Assert: the description next to the first reference wins, and the nullable alias still gets a presence question.
+        Assert.Contains("How fast to go", plan.Questions["__af_tool__.t0.a0.value"].Instructions!.Value.Text, StringComparison.Ordinal);
+        Assert.Equal("safe", ((JsonElement)call!.Value.Arguments["speed"]!).GetString());
+        Assert.Equal("high", ((JsonElement)call.Value.Arguments["level"]!).GetString());
+    }
+
+    [Fact]
+    public void Compile_EnumAndConstValuesMatchingTheirType_Compile()
+    {
+        // Arrange: numbers, mixed types, and a nullable enum whose null was removed before the check.
+        AIFunctionDeclaration tool = Declaration("tune", """
+            {
+              "type": "object",
+              "properties": {
+                "ratio": { "type": "number", "enum": [1, 2.5] },
+                "mode": { "type": ["string", "integer"], "enum": ["auto", 3] },
+                "unit": { "type": ["string", "null"], "enum": ["c", "f", null] },
+                "version": { "type": "integer", "const": 2 }
+              },
+              "required": ["ratio", "mode", "version"]
+            }
+            """);
+
+        // Act
+        JevToolCallPlan? plan = Compile([tool]);
+
+        // Assert
+        Assert.NotNull(plan);
+        Assert.Single(plan.Tools);
+    }
+
     [Theory]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "boolean" } }, "minProperties": 1 }""", "unsupported root-level schema constraints: minProperties")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "string", "enum": ["x", "y"], "minLength": 1 } }, "required": ["a"] }""", "required argument 'a': unsupported argument schema constraints: minLength")]
@@ -56,6 +116,12 @@ public sealed class JevToolCallCompilerTests
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "items": { "type": "integer", "enum": [1, 2.5] } } } }""", "array enum member 2.5 does not match declared item type \"integer\"")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "items": { "type": ["string", "null"], "enum": ["x", null] } } } }""", "nullable array members are not supported")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer" } } }""", "only const, enum, boolean, and arrays of enum values are supported")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "$ref": "#/$defs/A" } }, "$defs": { "A": { "$ref": "#/$defs/B" }, "B": { "$ref": "#/$defs/A" } } }""", "schema references are nested too deeply")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "$ref": "#/$defs/A" } }, "$defs": { "A": { "$ref": "#/$defs/Missing" } } }""", "unresolved schema reference '#/$defs/Missing'")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "enum": ["fast", "safe"] } } }""", "enum value \"fast\" does not match declared type \"integer\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "enum": ["fast"] } } }""", "enum value \"fast\" does not match declared type \"integer\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": ["integer", "boolean"], "enum": [1, "x"] } } }""", "enum value \"x\" does not match declared type [\"integer\", \"boolean\"]")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "string", "const": 5 } }, "required": ["a"] }""", "required argument 'a': const value 5 does not match declared type \"string\"")]
     [InlineData("""{ "type": "object", "properties": {}, "required": ["missing"] }""", "required arguments are missing from properties: missing")]
     [InlineData("""{ "type": "array" }""", "the top-level input schema must be an object")]
     public void Compile_UnsupportedSchema_ExcludesTheToolWithTheReason(string schema, string reason)

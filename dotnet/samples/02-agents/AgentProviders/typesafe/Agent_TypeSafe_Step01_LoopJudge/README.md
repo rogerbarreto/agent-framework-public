@@ -39,11 +39,29 @@ var evaluator = new DelegateLoopEvaluator(async (context, cancellationToken) =>
 ```
 
 `JudgeAsync` sends Jev the original request and the answer as a conversation, with
-`new ChatOptions().WithJevQuestions(questions)`, and returns the criteria whose Noul is 0.5 or lower.
+`new ChatOptions().WithJevQuestions(questions)`, and returns the criteria whose Noul is at or below
+`CriterionThreshold`.
 
 Jev reads the original request and the latest answer as a conversation, and each question refers to "the assistant's
 latest response". The same pattern works with a `JevScoreQuestion` for a graded rubric, or a `JevChoiceQuestion` to
 classify what kind of revision is needed.
+
+## Writing criteria for a judge
+
+- **Choose the threshold on your own data.** The sample treats a criterion as met when its probability is above
+  `CriterionThreshold`, which is 0.5. That value is not calibrated for any task. The threshold trades two errors
+  against each other: a higher value accepts fewer answers that still miss a criterion, and costs more loop runs, while
+  a lower value stops sooner and lets more incomplete answers through. Pick it from labeled examples of the answers your
+  agent writes, based on which error costs you more.
+- **Describe the criterion, do not steer the judge.** Ask what a good answer contains, as the sample does ("Does the
+  assistant's latest response explain why sunsets appear red?"). Directional wording such as "only say yes if" or
+  "lean towards yes" tends to push every answer the same way instead of making the judge more accurate. When a
+  criterion is hard to judge, a neutral description of what is being judged helps more than stronger wording.
+- **Ask about the response, not the topic.** When the conversation contains harmful or sensitive content, a question
+  such as "Is this safe?" can be read as a question about that content rather than about the answer. A correct
+  refusal could then look like a missing criterion, and the loop would keep revising an answer that was already right.
+  Ask how the response handles the request, for example "Does the assistant's latest response decline to give
+  dangerous instructions?", and check such criteria on labeled examples, including refusals, before relying on them.
 
 ## Prerequisites
 

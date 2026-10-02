@@ -18,7 +18,8 @@ var deploymentName = Environment.GetEnvironmentVariable("FOUNDRY_MODEL") ?? "gpt
 var typeSafeApiKey = Environment.GetEnvironmentVariable("TYPESAFE_API_KEY") ?? throw new InvalidOperationException("TYPESAFE_API_KEY is not set.");
 
 // 1. The criteria. Each one becomes a Noul question, whose answer is the probability that the answer meets it, so the
-// judge reports exactly which criteria are missing instead of a single verdict.
+// judge reports exactly which criteria are missing instead of a single verdict. The questions describe what a good
+// answer contains; wording that steers the judge, such as "only say yes if", tends to push every answer one way.
 Dictionary<string, string> criteria = new()
 {
     ["blue_sky"] = "explains why the daytime sky appears blue",
@@ -28,6 +29,11 @@ Dictionary<string, string> criteria = new()
 Dictionary<string, JevQuestion> questions = criteria.ToDictionary(
     criterion => criterion.Key,
     criterion => (JevQuestion)new JevNoulQuestion { Instructions = $"Does the assistant's latest response {criterion.Value}?" });
+
+// A criterion is met when its probability is above this threshold. 0.5 is not calibrated for any task: a higher value
+// accepts fewer answers that still miss a criterion, at the cost of more loop runs. Choose it on labeled examples of
+// your own answers.
+const double CriterionThreshold = 0.5;
 
 // 2. The agent that writes the answers. Its instructions hold back part of the first answer, so the judge has a gap
 // to find and the loop runs more than once.
@@ -89,7 +95,7 @@ async Task<List<string>> JudgeAsync(IEnumerable<ChatMessage> request, string ans
     foreach ((string id, string description) in criteria)
     {
         double probability = ((JevNoulResponse)result.Answers[id]).Noul;
-        bool met = probability > 0.5;
+        bool met = probability > CriterionThreshold;
         Console.WriteLine($"  {id}: {(met ? "met" : "missing")} (probability {probability:F2})");
         if (!met)
         {

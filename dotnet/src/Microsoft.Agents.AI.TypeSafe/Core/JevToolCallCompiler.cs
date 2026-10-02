@@ -17,7 +17,9 @@ namespace Microsoft.Agents.AI.TypeSafe;
 /// <remarks>
 /// <para>
 /// This is a port of the tool routing in the Python TypeSafe connector (<c>_tool_calls.py</c>), with the same
-/// question IDs, limits, and wording, so both connectors ask Jev the same questions.
+/// question IDs, limits, and wording, so both connectors ask Jev the same questions. Two schema checks are stricter
+/// than in Python: chains of <c>$ref</c> aliases are followed instead of excluding the tool, and <c>const</c> and
+/// <c>enum</c> values must match their declared <c>type</c>, so a tool that could only fail when called is excluded.
 /// </para>
 /// <para>
 /// A route Choice selects the tool, or <c>none</c>. Each argument must come from a closed set: a constant, an enum
@@ -312,6 +314,7 @@ internal static class JevToolCallCompiler
 
         if (schema.TryGetValue("const", out JsonElement constValue))
         {
+            JevToolSchema.EnsureValuesMatchType(schema, [constValue], "argument", "const value", "type");
             budget.Reserve(required ? 0 : 1);
             AddPresenceQuestion();
             return new JevArgumentPlan { Name = name, Kind = JevArgumentKind.Const, PresenceQuestionId = presenceQuestionId, ConstValue = constValue };
@@ -325,6 +328,7 @@ internal static class JevToolCallCompiler
                 throw new JevUnsupportedToolSchemaException(string.Format(CultureInfo.InvariantCulture, "enum defines {0} values; the supported maximum is {1}", values.Count, MaxEnumValues));
             }
 
+            JevToolSchema.EnsureValuesMatchType(schema, values, "argument", "enum value", "type");
             if (values.Count == 1)
             {
                 budget.Reserve(required ? 0 : 1);
@@ -390,15 +394,7 @@ internal static class JevToolCallCompiler
                 throw new JevUnsupportedToolSchemaException(string.Format(CultureInfo.InvariantCulture, "array enum defines {0} values; the supported maximum is {1}", members.Count, MaxEnumValues));
             }
 
-            IReadOnlyList<string> itemTypes = JevToolSchema.GetTypes(items.TryGetValue("type", out JsonElement itemType) ? itemType : null, "array item");
-            foreach (JsonElement member in members)
-            {
-                if (itemTypes.Count > 0 && !itemTypes.Any(candidate => JevToolSchema.MatchesType(member, candidate)))
-                {
-                    string declared = itemTypes.Count == 1 ? $"\"{itemTypes[0]}\"" : JevToolSchema.Describe(itemTypes.Select(candidate => JevJsonUtilities.ToElement(candidate)));
-                    throw new JevUnsupportedToolSchemaException($"array enum member {JevToolSchema.Describe(member)} does not match declared item type {declared}");
-                }
-            }
+            JevToolSchema.EnsureValuesMatchType(items, members, "array item", "array enum member", "item type");
 
             budget.Reserve(members.Count + (required ? 0 : 1));
             AddPresenceQuestion();

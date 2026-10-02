@@ -57,8 +57,16 @@ internal static class JevToolSchema
         }
 
         var resolved = new Dictionary<string, JsonElement>(schema, StringComparer.Ordinal);
-        if (resolved.Remove("$ref", out JsonElement reference))
+
+        // A definition can itself be a reference, such as an alias of another definition, so references are followed
+        // until a schema without one. A cycle would never end, so the chain is bounded like nested resolution.
+        for (int hops = 0; resolved.Remove("$ref", out JsonElement reference); hops++)
         {
+            if (depth + hops >= MaxResolutionDepth)
+            {
+                throw new JevUnsupportedToolSchemaException("schema references are nested too deeply");
+            }
+
             RejectCompositionSiblings(resolved, "$ref");
             string? path = reference.ValueKind == JsonValueKind.String ? reference.GetString() : null;
             const string DefinitionsPrefix = "#/$defs/";
@@ -75,8 +83,9 @@ internal static class JevToolSchema
                 throw new JevUnsupportedToolSchemaException($"unresolved schema reference '{path}'");
             }
 
-            // Annotations next to the reference, such as a description, override those of the definition. An anyOf
-            // inside the definition is resolved below, together with the rest of the merged schema.
+            // Annotations next to the reference, such as a description, override those of the definition, so the
+            // annotations closest to the argument win along a chain. An anyOf inside the definition is resolved below,
+            // together with the rest of the merged schema.
             resolved = Merge(ToMap(definition), resolved);
         }
 
@@ -164,6 +173,37 @@ internal static class JevToolSchema
             "object" => value.ValueKind == JsonValueKind.Object,
             _ => false,
         };
+
+    /// <summary>
+    /// Checks that every <c>const</c> or <c>enum</c> value of a schema matches its declared <c>type</c>.
+    /// </summary>
+    /// <remarks>
+    /// A value of another type can never be a valid argument, for example <c>"fast"</c> for an integer. Jev would
+    /// still choose it, and the call would fail only when the function binds its arguments, so such a tool is left out
+    /// of routing instead. A schema without a <c>type</c> is not checked.
+    /// </remarks>
+    /// <param name="schema">The resolved schema whose <c>type</c> applies.</param>
+    /// <param name="values">The values to check.</param>
+    /// <param name="location">Where the schema is, for the message about an invalid <c>type</c> keyword.</param>
+    /// <param name="valueName">How a value is named in the message, such as <c>enum value</c>.</param>
+    /// <param name="typeName">How the type is named in the message, such as <c>type</c>.</param>
+    public static void EnsureValuesMatchType(Dictionary<string, JsonElement> schema, IEnumerable<JsonElement> values, string location, string valueName, string typeName)
+    {
+        IReadOnlyList<string> types = GetTypes(schema.TryGetValue("type", out JsonElement type) ? type : null, location);
+        if (types.Count == 0)
+        {
+            return;
+        }
+
+        foreach (JsonElement value in values)
+        {
+            if (!types.Any(candidate => MatchesType(value, candidate)))
+            {
+                string declared = types.Count == 1 ? $"\"{types[0]}\"" : Describe(types.Select(candidate => JevJsonUtilities.ToElement(candidate)));
+                throw new JevUnsupportedToolSchemaException($"{valueName} {Describe(value)} does not match declared {typeName} {declared}");
+            }
+        }
+    }
 
     /// <summary>
     /// Writes a value the way the Python connector does with <c>json.dumps(value, ensure_ascii=False, sort_keys=True)</c>:
