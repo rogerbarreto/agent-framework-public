@@ -154,6 +154,13 @@ public sealed class JevToolCallCompilerTests
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "string", "const": 5 } }, "required": ["a"] }""", "required argument 'a': const value 5 does not match declared type \"string\"")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "enum": [1, 2.0] } } }""", "enum value 2.0 does not match declared type \"integer\"")]
     [InlineData("""{ "type": "object", "properties": { "a": { "type": "integer", "const": 1e2 } }, "required": ["a"] }""", "const value 1e2 does not match declared type \"integer\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "const": "x", "enum": ["y"] } } }""", "const value \"x\" does not match declared enum")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "enum": [["allowed"], ["forbidden"]], "items": { "type": "string", "enum": ["allowed"] } } } }""", "array member \"forbidden\" does not match declared enum")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "enum": [["forbidden"]], "items": { "enum": ["allowed"] } } } }""", "array member \"forbidden\" does not match declared enum")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "const": ["forbidden"], "items": { "enum": ["allowed"] } } } }""", "array member \"forbidden\" does not match declared enum")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "const": [1], "items": { "type": "string" } } } }""", "array member 1 does not match declared item type \"string\"")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "array", "enum": [["x"]], "items": { "type": "string", "maxLength": 3 } } } }""", "unsupported array item schema constraints: maxLength")]
+    [InlineData("""{ "type": "object", "properties": { "a": { "type": "boolean", "enum": [] } } }""", "enum must be a non-empty array")]
     [InlineData("""{ "type": "object", "properties": {}, "required": ["missing"] }""", "required arguments are missing from properties: missing")]
     [InlineData("""{ "type": "array" }""", "the top-level input schema must be an object")]
     public void Compile_UnsupportedSchema_ExcludesTheToolWithTheReason(string schema, string reason)
@@ -167,6 +174,33 @@ public sealed class JevToolCallCompilerTests
         // Assert
         Assert.Null(plan);
         Assert.Contains(reason, Assert.Single(logger.Entries).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compile_ConstAndEnumWithArrayItemConstraints_ResolveAndDecode()
+    {
+        // Arrange
+        AIFunctionDeclaration tool = Declaration("set_tags", """
+            {
+              "type": "object",
+              "properties": {
+                "fixed": { "type": "array", "const": ["x"], "enum": [["x"], ["y"]], "items": { "$ref": "#/$defs/Tag" } },
+                "chosen": { "type": "array", "enum": [["x"], ["x", "y"]], "items": { "$ref": "#/$defs/Tag" } }
+              },
+              "required": ["fixed", "chosen"],
+              "$defs": { "Tag": { "type": "string", "enum": ["x", "y"] } }
+            }
+            """);
+
+        // Act
+        JevToolCallPlan plan = Compile([tool])!;
+        JevToolCall? call = plan.Decode(Result(
+            JevChatTestData.RouteTo("t0", "t0", "none"),
+            JevChatTestData.Choice("__af_tool__.t0.a1.value", "v1", "v0", "v1")));
+
+        // Assert
+        Assert.Equal(["x"], ((JsonElement)call!.Value.Arguments["fixed"]!).EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal(["x", "y"], ((JsonElement)call.Value.Arguments["chosen"]!).EnumerateArray().Select(item => item.GetString()));
     }
 
     [Fact]
@@ -223,6 +257,37 @@ public sealed class JevToolCallCompilerTests
     }
 
     [Fact]
+    public void Compile_QuestionBudget_IncludesTheRouteQuestion()
+    {
+        // Arrange
+        string members = string.Join(",", Enumerable.Range(0, 64).Select(index => $"\"m{index}\""));
+        string array = "{ \"type\": \"array\", \"items\": { \"enum\": [" + members + "] } }";
+        AIFunctionDeclaration tool = Declaration("large", "{ \"type\": \"object\", \"properties\": { \"a\": " + array + ", \"b\": " + array + " }, \"required\": [\"a\", \"b\"] }");
+
+        // Act & Assert
+        JevToolCallPlan plan = Compile([tool], ChatToolMode.RequireAny)!;
+        Assert.Equal(128, plan.Questions.Count);
+        Assert.Null(plan.RouteQuestionId);
+        Assert.Throws<InvalidOperationException>(() => Compile([tool]));
+    }
+
+    [Fact]
+    public void Compile_QuestionBudgetWithRouteAtTheLimit_Compiles()
+    {
+        // Arrange
+        string first = string.Join(",", Enumerable.Range(0, 64).Select(index => $"\"m{index}\""));
+        string second = string.Join(",", Enumerable.Range(0, 63).Select(index => $"\"n{index}\""));
+        string schema = "{ \"type\": \"object\", \"properties\": { \"a\": { \"type\": \"array\", \"items\": { \"enum\": [" + first + "] } }, \"b\": { \"type\": \"array\", \"items\": { \"enum\": [" + second + "] } } }, \"required\": [\"a\", \"b\"] }";
+
+        // Act
+        JevToolCallPlan plan = Compile([Declaration("large", schema)])!;
+
+        // Assert
+        Assert.Equal(128, plan.Questions.Count);
+        Assert.Equal(JevChatTestData.Route, plan.RouteQuestionId);
+    }
+
+    [Fact]
     public void Compile_UnsupportedTool_ReturnsItsQuestionBudget()
     {
         // Arrange: the first tool fails only after its array reserved 64 questions; they must be released.
@@ -235,6 +300,47 @@ public sealed class JevToolCallCompilerTests
 
         // Assert
         Assert.Equal(125, plan.Questions.Count);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Compile_UnsupportedToolExceedingQuestionBudget_IsExcludedRegardlessOfPropertyOrder(bool unsupportedFirst, bool textFirst)
+    {
+        // Arrange
+        string members = string.Join(",", Enumerable.Range(0, 64).Select(index => $"\"m{index}\""));
+        string array = "\"tags\": { \"type\": \"array\", \"items\": { \"enum\": [" + members + "] } }";
+        string properties = textFirst ? "\"text\": { \"type\": \"string\" }, " + array : array + ", \"text\": { \"type\": \"string\" }";
+        AIFunctionDeclaration supported = Declaration("supported", "{ \"type\": \"object\", \"properties\": { " + array + " }, \"required\": [\"tags\"] }");
+        AIFunctionDeclaration unsupported = Declaration("unsupported", "{ \"type\": \"object\", \"properties\": { " + properties + " } }");
+        var logger = new ListLoggerFactory();
+
+        // Act
+        JevToolCallPlan plan = Compile(unsupportedFirst ? [unsupported, supported] : [supported, unsupported], logger: logger.CreateLogger("test"))!;
+
+        // Assert
+        Assert.Equal("supported", Assert.Single(plan.Tools).Function.Name);
+        Assert.Equal(65, plan.Questions.Count);
+        Assert.Contains("argument 'text'", Assert.Single(logger.Entries).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compile_SingleUnsupportedToolExceedingQuestionBudget_IsExcluded()
+    {
+        // Arrange
+        string members = string.Join(",", Enumerable.Range(0, 64).Select(index => $"\"m{index}\""));
+        string array = "{ \"type\": \"array\", \"items\": { \"enum\": [" + members + "] } }";
+        AIFunctionDeclaration tool = Declaration("unsupported", "{ \"type\": \"object\", \"properties\": { \"a\": " + array + ", \"b\": " + array + ", \"text\": { \"type\": \"string\" } } }");
+        var logger = new ListLoggerFactory();
+
+        // Act
+        JevToolCallPlan? plan = Compile([tool], logger: logger.CreateLogger("test"));
+
+        // Assert
+        Assert.Null(plan);
+        Assert.Contains("argument 'text'", Assert.Single(logger.Entries).Message, StringComparison.Ordinal);
     }
 
     [Fact]

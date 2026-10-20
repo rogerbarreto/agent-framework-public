@@ -206,6 +206,81 @@ internal static class JevToolSchema
         }
     }
 
+    public static List<JsonElement> ReadEnumValues(JsonElement values, string name)
+    {
+        if (values.ValueKind != JsonValueKind.Array || values.GetArrayLength() == 0)
+        {
+            throw new JevUnsupportedToolSchemaException($"{name} must be a non-empty array");
+        }
+
+        if (values.GetArrayLength() > JevToolCallCompiler.MaxEnumValues)
+        {
+            throw new JevUnsupportedToolSchemaException(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} defines {1} values; the supported maximum is {2}",
+                name,
+                values.GetArrayLength(),
+                JevToolCallCompiler.MaxEnumValues));
+        }
+
+        return [.. values.EnumerateArray()];
+    }
+
+    public static Dictionary<string, JsonElement> ResolveArrayItems(Dictionary<string, JsonElement> schema, Dictionary<string, JsonElement> root)
+    {
+        if (!schema.TryGetValue("items", out JsonElement element) || element.ValueKind != JsonValueKind.Object)
+        {
+            throw new JevUnsupportedToolSchemaException("array items must define an object schema");
+        }
+
+        (Dictionary<string, JsonElement> items, bool nullable) = Resolve(ToMap(element), root);
+        RejectUnsupportedKeys(items, ArrayItemKeys, "array item");
+        if (nullable)
+        {
+            throw new JevUnsupportedToolSchemaException("nullable array members are not supported");
+        }
+
+        return items;
+    }
+
+    /// <summary>Checks all supported constraints before offering a constant or enum value to Jev.</summary>
+    public static void EnsureValuesMatchSchema(Dictionary<string, JsonElement> schema, IReadOnlyList<JsonElement> values, Dictionary<string, JsonElement> root, string valueName)
+    {
+        EnsureValuesMatchType(schema, values, "argument", valueName, "type");
+        EnsureValuesMatchEnum(schema, values, valueName);
+        if (!schema.ContainsKey("items"))
+        {
+            return;
+        }
+
+        Dictionary<string, JsonElement> items = ResolveArrayItems(schema, root);
+        if (items.TryGetValue("enum", out JsonElement itemEnum))
+        {
+            EnsureValuesMatchType(items, ReadEnumValues(itemEnum, "array enum"), "array item", "array enum member", "item type");
+        }
+
+        foreach (JsonElement value in values.Where(value => value.ValueKind == JsonValueKind.Array))
+        {
+            EnsureValuesMatchType(items, value.EnumerateArray(), "array item", "array member", "item type");
+            EnsureValuesMatchEnum(items, value.EnumerateArray(), "array member");
+        }
+    }
+
+    private static void EnsureValuesMatchEnum(Dictionary<string, JsonElement> schema, IEnumerable<JsonElement> values, string valueName)
+    {
+        if (schema.TryGetValue("enum", out JsonElement element))
+        {
+            List<JsonElement> alternatives = ReadEnumValues(element, "enum");
+            foreach (JsonElement value in values)
+            {
+                if (!alternatives.Any(alternative => JsonElement.DeepEquals(value, alternative)))
+                {
+                    throw new JevUnsupportedToolSchemaException($"{valueName} {Describe(value)} does not match declared enum {Describe(alternatives)}");
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Writes a value the way the Python connector does with <c>json.dumps(value, ensure_ascii=False, sort_keys=True)</c>:
     /// sorted object keys, <c>", "</c> and <c>": "</c> separators, and unescaped text. Jev reads these values in

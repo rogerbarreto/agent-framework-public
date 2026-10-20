@@ -12,6 +12,7 @@ namespace Microsoft.Agents.AI.TypeSafe;
 /// <remarks>
 /// Each tool is compiled against a copy of the budget, which is committed only when the tool compiles. A tool that
 /// is excluded for an unsupported schema therefore returns the questions it reserved to the tools after it.
+/// Exceeding the budget stops question materialization, but is reported only after the whole tool schema is checked.
 /// </remarks>
 internal sealed class JevQuestionBudget
 {
@@ -24,10 +25,15 @@ internal sealed class JevQuestionBudget
 
     public int Count { get; set; }
 
-    public void Reserve(int count)
+    public bool TryReserve(int count)
     {
-        int next = this.Count + count;
-        if (next > MaxInternalQuestions)
+        this.Count += count;
+        return this.Count <= MaxInternalQuestions;
+    }
+
+    public void Validate()
+    {
+        if (this.Count > MaxInternalQuestions)
         {
             // Too many questions is a property of the whole tool set, not of one tool, so it stops the request instead
             // of excluding the tool that crossed the limit.
@@ -36,7 +42,5 @@ internal sealed class JevQuestionBudget
                 "The tools need more than {0} internal Jev questions. Offer fewer tools, or tools with fewer arguments.",
                 MaxInternalQuestions));
         }
-
-        this.Count = next;
     }
 }

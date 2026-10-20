@@ -443,6 +443,143 @@ public sealed class JevChatClientToolTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_ApprovalWithManuallyAttributedHistory_ContinuesTheTurnAsync()
+    {
+        // Arrange
+        int executions = 0;
+        AIFunction refresh = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(() =>
+        {
+            executions++;
+            return "Refreshed.";
+        }, "refresh"));
+        using var handler = new JevTestHttpHandler()
+            .Reply(HttpStatusCode.OK, JevChatTestData.Result(JevChatTestData.UserAnswers(), JevChatTestData.RouteTo("t0", "t0", "none")))
+            .Reply(HttpStatusCode.OK, JevChatTestData.Result(JevChatTestData.UserAnswers()));
+        using var httpClient = new HttpClient(handler);
+        using JevChatClient client = JevChatClientTests.CreateClient(httpClient);
+        using var invoking = new FunctionInvokingChatClient(client);
+        ChatOptions options = new ChatOptions { Tools = [refresh] }.WithJevQuestions(JevChatTestData.Questions());
+        List<ChatMessage> messages = [new(ChatRole.User, "Refresh the data.")];
+
+        // Act
+        ChatResponse pending = await invoking.GetResponseAsync(messages, options);
+        ToolApprovalRequestContent approval = pending.Messages.SelectMany(message => message.Contents).OfType<ToolApprovalRequestContent>().Single();
+        messages = [.. messages.Concat(pending.Messages).Select(message => message.WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory))];
+        messages.Add(new ChatMessage(ChatRole.User, [approval.CreateResponse(true), new TextContent("Yes, go ahead.")]));
+        ChatResponse response = await invoking.GetResponseAsync(messages, options);
+
+        // Assert
+        Assert.Equal(1, executions);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(["department", "is_urgent"], JsonNode.Parse(handler.Requests[1].Body)!["questions"]!.AsObject().Select(question => question.Key));
+        Assert.Equal("Refreshed.\ndepartment: technical", response.Text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_NewRequestAfterTerminatedToolCall_StartsANewTurnAsync(bool requiresApproval)
+    {
+        // Arrange
+        int executions = 0;
+        AIFunction refresh = AIFunctionFactory.Create(() => $"Execution {++executions}", "refresh");
+        if (requiresApproval)
+        {
+            refresh = new ApprovalRequiredAIFunction(refresh);
+        }
+
+        using var handler = new JevTestHttpHandler()
+            .Reply(HttpStatusCode.OK, JevChatTestData.Result(JevChatTestData.UserAnswers(), JevChatTestData.RouteTo("t0", "t0", "none")))
+            .Reply(HttpStatusCode.OK, JevChatTestData.Result(JevChatTestData.UserAnswers(), JevChatTestData.RouteTo("t0", "t0", "none")));
+        using var httpClient = new HttpClient(handler);
+        using JevChatClient client = JevChatClientTests.CreateClient(httpClient);
+        AIAgent agent = client.AsAIAgent(new ChatClientAgentOptions { ChatOptions = new ChatOptions { Tools = [refresh] }.WithJevQuestions(JevChatTestData.Questions()) })
+            .AsBuilder()
+            .Use(async (_, context, next, cancellationToken) =>
+            {
+                context.Terminate = true;
+                return await next(context, cancellationToken);
+            })
+            .Build();
+        AgentSession session = await agent.CreateSessionAsync();
+
+        // Act
+        await RunAsync("Refresh the data.");
+        AgentResponse response = await RunAsync("Refresh it again.");
+
+        // Assert
+        Assert.Equal(2, executions);
+        Assert.Equal(2, handler.Requests.Count);
+        JsonObject questions = JsonNode.Parse(handler.Requests[1].Body)!["questions"]!.AsObject();
+        Assert.NotNull(questions[Route]);
+        Assert.DoesNotContain("already called this turn", (string?)questions[Route]!["criteria"]!["t0"], StringComparison.Ordinal);
+        Assert.Equal("Execution 2", Assert.Single(response.Messages.SelectMany(message => message.Contents).OfType<FunctionResultContent>()).Result?.ToString());
+
+        async Task<AgentResponse> RunAsync(string request)
+        {
+            AgentResponse response = await agent.RunAsync(request, session);
+            if (response.Messages.SelectMany(message => message.Contents).OfType<ToolApprovalRequestContent>().SingleOrDefault() is { } approval)
+            {
+                return await agent.RunAsync(new ChatMessage(ChatRole.User, [approval.CreateResponse(true), new TextContent("Yes, go ahead.")]), session);
+            }
+
+            return response;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetCurrentTurnStart_NewUserAfterFunctionResult_StartsANewTurn(bool withHistoryAttribution)
+    {
+        // Arrange
+        ChatMessage[] messages =
+        [
+            new(ChatRole.User, "Refresh the data."),
+            new(ChatRole.Assistant, [new FunctionCallContent("call_1", "refresh")]),
+            new(ChatRole.Tool, [new FunctionResultContent("call_1", "Old result")]),
+            new(ChatRole.User, "Refresh it again."),
+        ];
+        if (withHistoryAttribution)
+        {
+            for (int index = 0; index < messages.Length - 1; index++)
+            {
+                messages[index] = messages[index].WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory);
+            }
+        }
+
+        // Act
+        int turnStart = JevChatState.GetCurrentTurnStart(messages);
+
+        // Assert
+        Assert.Equal(messages.Length, turnStart);
+        Assert.Equal(0, JevChatState.CountCurrentTurnCalls(messages, turnStart));
+        Assert.Empty(JevChatState.GetCurrentTurnResultTexts(messages, turnStart));
+    }
+
+    [Theory]
+    [InlineData("call_1", 1)]
+    [InlineData("unrelated_call", 5)]
+    public void GetCurrentTurnStart_ResumedResultBeforeSeveralUserMessages_MatchesTheHistoricalCall(string resultCallId, int expectedTurnStart)
+    {
+        // Arrange
+        ChatMessage[] messages =
+        [
+            new ChatMessage(ChatRole.User, "Refresh the data.").WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory),
+            new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call_1", "refresh")]).WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory),
+            new(ChatRole.Tool, [new FunctionResultContent(resultCallId, "New result")]),
+            new(ChatRole.User, "Yes, go ahead."),
+            new(ChatRole.User, "Thanks."),
+        ];
+
+        // Act
+        int turnStart = JevChatState.GetCurrentTurnStart(messages);
+
+        // Assert
+        Assert.Equal(expectedTurnStart, turnStart);
+    }
+
+    [Fact]
     public async Task RunStreamingAsync_ThrowsAsync()
     {
         // Arrange

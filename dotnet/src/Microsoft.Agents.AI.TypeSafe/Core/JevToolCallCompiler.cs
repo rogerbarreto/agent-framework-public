@@ -19,7 +19,7 @@ namespace Microsoft.Agents.AI.TypeSafe;
 /// This is a port of the tool routing in the Python TypeSafe connector (<c>_tool_calls.py</c>), with the same
 /// question IDs, limits, and wording, so both connectors ask Jev the same questions. Two schema checks are stricter
 /// than in Python: chains of <c>$ref</c> aliases are followed instead of excluding the tool, and <c>const</c> and
-/// <c>enum</c> values must match their declared <c>type</c>, so a tool that could only fail when called is excluded.
+/// <c>enum</c> values must satisfy their declared constraints, so a tool that could fail when called is excluded.
 /// </para>
 /// <para>
 /// A route Choice selects the tool, or <c>none</c>. Each argument must come from a closed set: a constant, an enum
@@ -163,7 +163,8 @@ internal static class JevToolCallCompiler
                 criteria[RouteNone] = "Do not call a tool because all requested tool actions are already satisfied, or because no tool is needed.";
             }
 
-            budget.Reserve(1);
+            _ = budget.TryReserve(1);
+            budget.Validate();
             questions[RouteQuestionId] = new JevChoiceQuestion
             {
                 Instructions = "Which available tool, if any, should handle the latest user request?",
@@ -255,7 +256,10 @@ internal static class JevToolCallCompiler
             List<JsonElement> previousValues = [.. previousCalls.Where(call => call.ContainsKey(property.Name)).Select(call => call[property.Name])];
             try
             {
-                arguments.Add(CompileArgument(tool, schema, property.Name, JevToolSchema.ToMap(property.Value), isRequired, toolIndex, argumentIndex, previousValues, budget, questions));
+                if (CompileArgument(tool, schema, property.Name, JevToolSchema.ToMap(property.Value), isRequired, toolIndex, argumentIndex, previousValues, budget, questions) is { } argument)
+                {
+                    arguments.Add(argument);
+                }
             }
             catch (JevUnsupportedToolSchemaException ex)
             {
@@ -263,6 +267,8 @@ internal static class JevToolCallCompiler
             }
         }
 
+        // Unsupported tools are excluded even if their earlier arguments exceeded the question budget.
+        budget.Validate();
         return new JevCompiledTool
         {
             Function = tool,
@@ -272,7 +278,7 @@ internal static class JevToolCallCompiler
         };
     }
 
-    private static JevArgumentPlan CompileArgument(
+    private static JevArgumentPlan? CompileArgument(
         AIFunctionDeclaration tool,
         Dictionary<string, JsonElement> root,
         string name,
@@ -314,26 +320,34 @@ internal static class JevToolCallCompiler
 
         if (schema.TryGetValue("const", out JsonElement constValue))
         {
-            JevToolSchema.EnsureValuesMatchType(schema, [constValue], "argument", "const value", "type");
-            budget.Reserve(required ? 0 : 1);
+            JevToolSchema.EnsureValuesMatchSchema(schema, [constValue], root, "const value");
+            if (!budget.TryReserve(required ? 0 : 1))
+            {
+                return null;
+            }
+
             AddPresenceQuestion();
             return new JevArgumentPlan { Name = name, Kind = JevArgumentKind.Const, PresenceQuestionId = presenceQuestionId, ConstValue = constValue };
         }
 
-        if (schema.TryGetValue("enum", out JsonElement enumElement) && enumElement.ValueKind == JsonValueKind.Array && enumElement.GetArrayLength() > 0)
+        if (schema.TryGetValue("enum", out JsonElement enumElement))
         {
-            List<JsonElement> values = [.. enumElement.EnumerateArray()];
-            if (values.Count > MaxEnumValues)
-            {
-                throw new JevUnsupportedToolSchemaException(string.Format(CultureInfo.InvariantCulture, "enum defines {0} values; the supported maximum is {1}", values.Count, MaxEnumValues));
-            }
-
-            JevToolSchema.EnsureValuesMatchType(schema, values, "argument", "enum value", "type");
+            List<JsonElement> values = JevToolSchema.ReadEnumValues(enumElement, "enum");
+            JevToolSchema.EnsureValuesMatchSchema(schema, values, root, "enum value");
             if (values.Count == 1)
             {
-                budget.Reserve(required ? 0 : 1);
+                if (!budget.TryReserve(required ? 0 : 1))
+                {
+                    return null;
+                }
+
                 AddPresenceQuestion();
                 return new JevArgumentPlan { Name = name, Kind = JevArgumentKind.Const, PresenceQuestionId = presenceQuestionId, ConstValue = values[0] };
+            }
+
+            if (!budget.TryReserve(required ? 1 : 2))
+            {
+                return null;
             }
 
             var labeled = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
@@ -346,7 +360,6 @@ internal static class JevToolCallCompiler
             }
 
             string questionId = prefix + ".value";
-            budget.Reserve(required ? 1 : 2);
             AddPresenceQuestion();
             questions[questionId] = new JevChoiceQuestion
             {
@@ -360,7 +373,11 @@ internal static class JevToolCallCompiler
         if (schemaType == "boolean")
         {
             string questionId = prefix + ".value";
-            budget.Reserve(required ? 1 : 2);
+            if (!budget.TryReserve(required ? 1 : 2))
+            {
+                return null;
+            }
+
             AddPresenceQuestion();
             questions[questionId] = new JevNoulQuestion
             {
@@ -371,32 +388,20 @@ internal static class JevToolCallCompiler
 
         if (schemaType == "array")
         {
-            if (!schema.TryGetValue("items", out JsonElement itemsElement) || itemsElement.ValueKind != JsonValueKind.Object)
-            {
-                throw new JevUnsupportedToolSchemaException("array items must define an enum");
-            }
-
-            (Dictionary<string, JsonElement> items, bool itemsNullable) = JevToolSchema.Resolve(JevToolSchema.ToMap(itemsElement), root);
-            JevToolSchema.RejectUnsupportedKeys(items, JevToolSchema.ArrayItemKeys, "array item");
-            if (itemsNullable)
-            {
-                throw new JevUnsupportedToolSchemaException("nullable array members are not supported");
-            }
-
+            Dictionary<string, JsonElement> items = JevToolSchema.ResolveArrayItems(schema, root);
             if (!items.TryGetValue("enum", out JsonElement membersElement) || membersElement.ValueKind != JsonValueKind.Array || membersElement.GetArrayLength() == 0)
             {
                 throw new JevUnsupportedToolSchemaException("array items must define a non-empty enum");
             }
 
-            List<JsonElement> members = [.. membersElement.EnumerateArray()];
-            if (members.Count > MaxEnumValues)
-            {
-                throw new JevUnsupportedToolSchemaException(string.Format(CultureInfo.InvariantCulture, "array enum defines {0} values; the supported maximum is {1}", members.Count, MaxEnumValues));
-            }
-
+            List<JsonElement> members = JevToolSchema.ReadEnumValues(membersElement, "array enum");
             JevToolSchema.EnsureValuesMatchType(items, members, "array item", "array enum member", "item type");
 
-            budget.Reserve(members.Count + (required ? 0 : 1));
+            if (!budget.TryReserve(members.Count + (required ? 0 : 1)))
+            {
+                return null;
+            }
+
             AddPresenceQuestion();
             var memberQuestions = new List<KeyValuePair<string, JsonElement>>(members.Count);
             for (int index = 0; index < members.Count; index++)

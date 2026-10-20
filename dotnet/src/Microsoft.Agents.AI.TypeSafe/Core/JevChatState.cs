@@ -97,10 +97,9 @@ internal static class JevChatState
     /// request.
     /// </summary>
     /// <remarks>
-    /// User messages that directly follow a function result continue the turn instead of starting one.
-    /// FunctionInvokingChatClient moves text that was sent together with an approval response, such as "Yes, go
-    /// ahead", after the approved call and its result. Starting the turn there would hide the approved call from the
-    /// tool call limit and offer the tool again with no hint that it already ran.
+    /// FunctionInvokingChatClient moves text sent with an approval response after the resumed call and its result.
+    /// The agent tags the reconstructed call as chat history, while its new result is external. That pairing
+    /// distinguishes an approval continuation from a new user request after a run that ended with a tool result.
     /// </remarks>
     public static int GetCurrentTurnStart(IReadOnlyList<ChatMessage> messages)
     {
@@ -120,7 +119,7 @@ internal static class JevChatState
                 runStart--;
             }
 
-            if (runStart > 0 && messages[runStart - 1].Contents.Any(content => content is FunctionResultContent))
+            if (runStart > 0 && IsResumedToolResult(messages, runStart - 1))
             {
                 index = runStart - 1;
                 continue;
@@ -130,6 +129,33 @@ internal static class JevChatState
         }
 
         return 0;
+    }
+
+    private static bool IsResumedToolResult(IReadOnlyList<ChatMessage> messages, int resultIndex)
+    {
+        ChatMessage resultMessage = messages[resultIndex];
+        if (resultMessage.GetAgentRequestMessageSourceType() != AgentRequestMessageSourceType.External)
+        {
+            return false;
+        }
+
+        var callIds = new HashSet<string>(resultMessage.Contents.OfType<FunctionResultContent>().Select(result => result.CallId), StringComparer.Ordinal);
+        for (int index = resultIndex - 1; callIds.Count > 0 && index >= 0; index--)
+        {
+            ChatMessage message = messages[index];
+            if (message.Role == ChatRole.User)
+            {
+                break;
+            }
+
+            if (message.GetAgentRequestMessageSourceType() == AgentRequestMessageSourceType.ChatHistory &&
+                message.Contents.OfType<FunctionCallContent>().Any(call => callIds.Contains(call.CallId)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Gets the argument sets of the calls in the current turn, by tool name, oldest first.</summary>

@@ -90,6 +90,10 @@ public sealed class JevChatClientOptions : ClientPipelineOptions
     /// which calls the turn already made, but a closed-set choice can still repeat one, so the limit is what
     /// guarantees that the tool loop ends. Raise it when one user request needs several distinct calls, such as the
     /// weather in two cities; set it to 0 to never call tools.
+    /// When managing history without an agent, tag prior messages with
+    /// <see cref="ChatMessageExtensions.WithAgentRequestMessageSource"/> and
+    /// <see cref="AgentRequestMessageSourceType.ChatHistory"/> so a newly produced approval result can be distinguished
+    /// from an older tool result. Without that attribution, a user message starts a new turn.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is negative.</exception>
     public int MaximumToolCallsPerTurn

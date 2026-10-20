@@ -51,6 +51,8 @@ The client follows the TypeSafe connector for Python (`agent-framework-typesafe`
    mean nothing. In this sample, saying that `detailed` is true "when the user asks for a detailed report" is what makes
    Jev choose it reliably. Tools with free-form arguments, such as text or numbers, are left out of the request with a
    warning in the log.
+   Constant and enum values must satisfy their other schema constraints too, including array item constraints;
+   tools with conflicting constraints are excluded rather than called with invalid arguments.
 
 5. **Tool approval.** A tool wrapped in `ApprovalRequiredAIFunction` runs only after the user approves the call that
    Jev chose. The first run returns a `ToolApprovalRequestContent`; the sample asks for approval in the console and
@@ -66,6 +68,11 @@ Jev reads, because the call and result they lead to carry the information.
 
 Because streaming is not supported, run agents with `RunAsync`. A function-invoking client runs approved tools before
 it calls the chat client, so a streaming run that resumes a tool approval would run the tool and then fail.
+
+Agents tag stored messages as chat history, which lets Jev distinguish a new user request from text moved after a
+resumed approval's tool result. When managing history yourself with `FunctionInvokingChatClient`, tag prior messages
+with `message.WithAgentRequestMessageSource(AgentRequestMessageSourceType.ChatHistory)` before appending new input.
+Without that attribution, a user message starts a new turn.
 
 ## Configuring the client
 
