@@ -1751,6 +1751,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
         self,
         agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
         stream: bool,
+        monkeypatch: pytest.MonkeyPatch,
         mock_client: MagicMock,
         mock_session: MagicMock,
         assistant_message_event: SessionEvent,
@@ -1759,6 +1760,9 @@ class TestGitHubCopilotAgentRuntimeConnections:
     ) -> None:
         hosting = pytest.importorskip("agent_framework_foundry_hosting")
         import httpx
+
+        # Host construction configures process-wide SDK telemetry, so isolate it as the Foundry tests do.
+        monkeypatch.setattr("azure.ai.agentserver.core._tracing._configure_tracing", lambda **kwargs: None)
 
         def mock_on(handler: Any) -> Any:
             handler(assistant_delta_event)
