@@ -393,8 +393,9 @@ a **copy** of this turn's caller options without changing the agent's `default_o
 with string keys. The host rejects reserved platform/session fields, `store`, `extra_body`, and private continuation
 fields after the hook; callers cannot select another sandbox or enable downstream service continuation through
 runtime options. It also rejects agent execution controls: `additional_function_arguments`, `function_invocation_kwargs`,
-`client_kwargs`, `middleware`, `session`, `tools`, `instructions`, `compaction_strategy`, and `tokenizer`. Trusted tool
-arguments belong in developer-configured agent defaults or middleware/factories, not in request options or hook output.
+`client_kwargs`, `middleware`, `session`, `tools`, `instructions`, `compaction_strategy`, and `tokenizer`, as well as
+connection configuration through `mcp_servers` and `provider`. Trusted tool arguments and connection configuration
+belong in developer-configured agent defaults or middleware/factories, not in request options or hook output.
 A hook may strip denied caller fields before validation; allowed generation and provider-specific options remain
 available. These restrictions apply to both wire formats and every `unsupported_options` policy.
 When an agent cannot accept runtime options, `unsupported_options="warn"` (default) logs and ignores

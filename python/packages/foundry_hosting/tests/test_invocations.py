@@ -861,7 +861,9 @@ class TestParsedRequests:
             ("compaction_strategy", {}),
             ("function_invocation_kwargs", {"user_id": "forged"}),
             ("instructions", "Caller-controlled instructions"),
+            ("mcp_servers", {"application": {"type": "local", "command": "application-server", "tools": ["*"]}}),
             ("middleware", []),
+            ("provider", {"type": "openai", "base_url": "https://example.com/api"}),
             ("session", {"session_id": "forged"}),
             ("tokenizer", {}),
             ("tools", []),
@@ -903,8 +905,16 @@ class TestParsedRequests:
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize("legacy_wire_format", [False, True])
     @pytest.mark.parametrize("policy", ["ignore", "warn", "error"])
-    async def test_http_route_rejects_tool_context_options_under_every_wire_and_options_policy(
-        self, stream: bool, legacy_wire_format: bool, policy: Literal["ignore", "warn", "error"]
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("additional_function_arguments", {"user_id": "forged", "tenant_id": "forged"}),
+            ("mcp_servers", {"application": {"type": "local", "command": "application-server", "tools": ["*"]}}),
+            ("provider", {"type": "openai", "base_url": "https://example.com/api"}),
+        ],
+    )
+    async def test_http_route_rejects_agent_control_options_under_every_wire_and_options_policy(
+        self, stream: bool, legacy_wire_format: bool, policy: Literal["ignore", "warn", "error"], field: str, value: Any
     ) -> None:
         agent = _make_agent(response_text="ok", stream_texts=["ok"])
         provider = _SessionStoreProvider(_mock_session_store())
@@ -930,19 +940,37 @@ class TestParsedRequests:
                 json={
                     "message": "hi",
                     "stream": stream,
-                    "options": {"additional_function_arguments": {"user_id": "forged", "tenant_id": "forged"}},
+                    "options": {field: value},
                 },
             )
         assert response.status_code == 400
         assert response.headers["content-type"] == "application/json"
-        assert response.json() == {
-            "error": "Invocations options cannot set agent-controlled fields: additional_function_arguments."
-        }
+        assert response.json() == {"error": f"Invocations options cannot set agent-controlled fields: {field}."}
         assert agent.default_options == {
             "additional_function_arguments": {"user_id": "trusted", "tenant_id": "trusted"}
         }
         assert agent.calls == []
         assert provider.contexts == []
+
+    @pytest.mark.parametrize("stream", [False, True])
+    async def test_generation_options_preserve_application_connection_defaults(self, stream: bool) -> None:
+        agent = _make_agent(response_text="ok", stream_texts=["ok"])
+        agent.default_options = {
+            "mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
+            "provider": {"type": "openai", "base_url": "https://example.com/api"},
+        }
+        server = InvocationsHostServer(agent)
+        with _request_context(session_id="generation-options"):
+            response = await server._handle_invoke(  # pyright: ignore[reportPrivateUsage]
+                _make_request({"message": "hi", "stream": stream, "options": {"model": "request-model"}})
+            )
+            assert await _success_text(response) == "ok"
+
+        assert agent.calls[0]["options"] == {"model": "request-model"}
+        assert agent.default_options == {
+            "mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
+            "provider": {"type": "openai", "base_url": "https://example.com/api"},
+        }
 
     @pytest.mark.parametrize("result", [None, [], {1: "invalid"}, {"session_id": "forged"}])
     async def test_options_hook_must_return_safe_string_keyed_mapping(self, result: Any) -> None:
