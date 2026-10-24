@@ -1523,6 +1523,32 @@ class TestResponsesRunHelpers:
         assert failure["status_code"] == status
         assert "partial" in events[-1]
 
+    @pytest.mark.parametrize("unsafe_value", [b"not-json", object(), float("nan")])
+    async def test_stream_rejects_non_json_provider_body(self, unsafe_value: object) -> None:
+        class ProviderError(Exception):
+            code = "provider_error"
+            message = "private provider details"
+            status_code = 500
+            body = {"unsafe": unsafe_value}
+
+        error = ChatClientException("provider wrapper", inner_exception=ProviderError())
+
+        async def updates() -> AsyncIterator[AgentResponseUpdate]:
+            raise error
+            yield  # pragma: no cover
+
+        events = [
+            event
+            async for event in responses_from_streaming_run(
+                ResponseStream(updates(), finalizer=AgentResponse.from_updates),
+                response_id="resp_unsafe_provider_error",
+            )
+        ]
+        response = cast("dict[str, object]", _sse_payload(events[-1])["response"])
+        failure = cast("dict[str, object]", response["error"])
+        assert failure == {"code": "server_error", "message": "An internal server error occurred."}
+        assert events[-1].startswith("event: response.failed")
+
     async def test_failed_stream_preserves_partial_marked_refusal(self) -> None:
         async def updates() -> AsyncIterator[AgentResponseUpdate]:
             yield AgentResponseUpdate(

@@ -178,6 +178,33 @@ def test_failure_event_classifies_provider_http_failures(status: int, code: str,
     assert failure_mapping["status_code"] == status
 
 
+@pytest.mark.parametrize("unsafe_value", [b"not-json", object(), float("nan")])
+def test_failure_event_rejects_non_json_provider_body(unsafe_value: object) -> None:
+    class ProviderError(Exception):
+        code = "provider_error"
+        message = _PRIVATE_ERROR_DETAIL
+        status_code = 500
+        body = {"unsafe": unsafe_value}
+
+    error = ChatClientException("provider wrapper", inner_exception=ProviderError())
+    stream = ResponseEventStream(response_id="resp_unsafe_provider_error")
+    stream.emit_created()
+    stream.emit_in_progress()
+    events = list(
+        ResponsesHostServer._emit_failure(
+            "resp_unsafe_provider_error",
+            "unsafe provider failure",
+            stream,
+            None,
+            error,
+        )
+    )
+    terminal = cast(dict[str, Any], events[-1])
+    response = cast(dict[str, Any], terminal["response"])
+    failure = response["error"]
+    assert failure == {"code": "server_error", "message": "An internal server error occurred."}
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_agentserver_state_root(tmp_path_factory: pytest.TempPathFactory) -> Generator[None]:
     """Keep the real local state store, but prevent xdist workers sharing its files."""

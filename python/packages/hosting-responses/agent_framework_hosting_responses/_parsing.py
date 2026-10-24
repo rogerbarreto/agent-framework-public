@@ -109,6 +109,7 @@ def _provider_error_from_chat_client(exception: Exception) -> dict[str, Any] | N
             return None
         if isinstance(status_code, int) and not isinstance(status_code, bool):
             payload["status_code"] = status_code
+        json.dumps(payload, allow_nan=False)
         return payload
     except Exception:
         return None
