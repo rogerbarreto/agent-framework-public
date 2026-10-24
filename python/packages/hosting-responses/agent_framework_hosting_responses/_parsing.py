@@ -82,6 +82,38 @@ _RESPONSES_STATUSES = frozenset({"completed", "failed", "in_progress", "cancelle
 _STREAMING_TERMINAL_STATUSES = frozenset({"completed", "failed", "incomplete"})
 
 
+def _provider_error_from_chat_client(exception: Exception) -> dict[str, Any] | None:
+    """Copy the original SDK error already carried by a chat client exception."""
+    if not isinstance(exception, ChatClientException):
+        return None
+    inner: Exception | None = exception.__cause__ if isinstance(exception.__cause__, Exception) else None
+    if inner is None:
+        inner = next((arg for arg in exception.args[1:] if isinstance(arg, Exception)), None)
+    if inner is None:
+        return None
+    try:
+        code = getattr(inner, "code", None)
+        message = getattr(inner, "message", None)
+        status_code = getattr(inner, "status_code", None)
+        body = getattr(inner, "body", None)
+        if not isinstance(message, str) or not message:
+            return None
+        payload = (
+            {key: value for key, value in cast(Mapping[object, object], body).items() if isinstance(key, str)}
+            if isinstance(body, Mapping)
+            else {}
+        )
+        payload.setdefault("code", code if isinstance(code, str) and code else "server_error")
+        payload.setdefault("message", message)
+        if not isinstance(payload["code"], str) or not isinstance(payload["message"], str):
+            return None
+        if isinstance(status_code, int) and not isinstance(status_code, bool):
+            payload["status_code"] = status_code
+        return payload
+    except Exception:
+        return None
+
+
 def _log_stream_failure(response_id: str, exc: Exception) -> None:
     """Log a correlated stream failure under the framework's sensitive-data policy."""
     if OBSERVABILITY_SETTINGS.SENSITIVE_DATA_ENABLED:
@@ -1524,9 +1556,11 @@ async def responses_from_streaming_run(
         partial_contents = [
             content for update in updates for content in update.contents if content.type == "text" and content.text
         ]
-        error_details = exc.error_details if isinstance(exc, ChatClientException) else None
-        error_code = error_details.code if error_details is not None and error_details.code else "server_error"
-        error_message = error_details.message if error_details is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+        provider_error = _provider_error_from_chat_client(exc)
+        error_code = cast(str, provider_error["code"]) if provider_error is not None else "server_error"
+        error_message = (
+            cast(str, provider_error["message"]) if provider_error is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+        )
         response_kwargs: dict[str, Any] = {
             "id": response_id,
             "object": "response",
@@ -1549,12 +1583,10 @@ async def responses_from_streaming_run(
         if conversation_id is not None:
             response_kwargs["conversation"] = {"id": conversation_id}
         failed_response = _response_payload(OpenAIResponse(**response_kwargs))
-        if error_details is not None:
-            failed_response["error"].update(error_details.additional_properties)
-            if error_details.status_code is not None:
-                failed_response["error"]["status_code"] = error_details.status_code
-        failed_response["error"]["code"] = error_code
-        failed_response["error"]["message"] = error_message
+        if provider_error is not None:
+            failed_response["error"].update(provider_error)
+        failed_response["error"].setdefault("code", error_code)
+        failed_response["error"].setdefault("message", error_message)
         apply_streamed_message_ids(failed_response)
         yield event(
             "response.failed",

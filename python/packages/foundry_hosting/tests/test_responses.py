@@ -60,7 +60,7 @@ from agent_framework import (
 )
 from agent_framework._mcp import _MCP_TOOL_RESULT_HOST_PAYLOAD_KEY  # pyright: ignore[reportPrivateUsage]
 from agent_framework.ag_ui import AgentFrameworkAgent, InMemoryAGUIThreadSnapshotStore
-from agent_framework.exceptions import ChatClientErrorDetails, ChatClientException
+from agent_framework.exceptions import ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from agent_framework.openai import OpenAIChatClient, OpenAIChatOptions, OpenAIContinuationToken
 from azure.ai.agentserver.core import FoundryAgentRequestContext, get_request_context
@@ -129,22 +129,29 @@ _SESSION_STORAGE_ERROR_DETAIL = "session-storage-secret at C:\\sensitive\\sessio
         (503, "backend_overloaded"),
     ],
 )
-def test_failure_event_classifies_provider_http_failures(status: int, code: str) -> None:
-    error = ChatClientException(
-        "provider wrapper",
-        error_details=ChatClientErrorDetails(
-            code=code,
-            message=_PRIVATE_ERROR_DETAIL,
-            status_code=status,
-            additional_properties={
+@pytest.mark.parametrize("wrapper", ["cause", "inner_exception"])
+def test_failure_event_classifies_provider_http_failures(status: int, code: str, wrapper: str) -> None:
+    class ProviderError(Exception):
+        status_code = status
+        message = "rendered SDK exception"
+
+        def __init__(self) -> None:
+            super().__init__(self.message)
+            self.code = code
+            self.body = {
                 "code": code,
                 "message": _PRIVATE_ERROR_DETAIL,
                 "type": "invalid_request_error",
                 "param": "input",
                 "request_id": "req_test",
-            },
-        ),
-    )
+            }
+
+    provider_error = ProviderError()
+    if wrapper == "cause":
+        error = ChatClientException("provider wrapper")
+        error.__cause__ = provider_error
+    else:
+        error = ChatClientException("provider wrapper", inner_exception=provider_error)
 
     stream = ResponseEventStream(response_id="resp_http_failure")
     stream.emit_created()

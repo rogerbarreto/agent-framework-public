@@ -2,64 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, cast
+from typing import Any
 
-from agent_framework.exceptions import ChatClientContentFilterException, ChatClientErrorDetails
-from openai import APIStatusError, BadRequestError
-
-
-def _first_nonempty_string(mapping: Mapping[object, object], *keys: str) -> str | None:
-    """Return the first nonempty string stored under ``keys``."""
-    for key in keys:
-        value = mapping.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
-def _get_openai_error_details(  # pyright: ignore[reportUnusedFunction]
-    error: Exception,
-) -> ChatClientErrorDetails | None:
-    """Normalize one OpenAI SDK status error into provider-neutral details."""
-    if not isinstance(error, APIStatusError):
-        return None
-    try:
-        body = error.body
-        error_body: object = body
-        if isinstance(body, Mapping):
-            body_mapping = cast(Mapping[object, object], body)
-            nested = body_mapping.get("error")
-            if isinstance(nested, Mapping):
-                error_body = cast(Mapping[object, object], nested)
-
-        additional_properties: dict[str, Any] = {}
-        code: str | None = None
-        message: str | None = None
-        if isinstance(error_body, Mapping):
-            error_mapping = cast(Mapping[object, object], error_body)
-            additional_properties = {key: value for key, value in error_mapping.items() if isinstance(key, str)}
-            code = _first_nonempty_string(error_mapping, "code", "type", "title")
-            message = _first_nonempty_string(error_mapping, "message", "detail")
-        elif isinstance(error_body, str) and error_body:
-            message = error_body
-
-        if code is None and isinstance(error.code, str) and error.code:
-            code = error.code
-        if message is None and isinstance(error.message, str) and error.message:
-            message = error.message
-        if message is None:
-            return None
-        return ChatClientErrorDetails(
-            code=code,
-            message=message,
-            status_code=error.status_code,
-            additional_properties=additional_properties,
-        )
-    except Exception:
-        return None
+from agent_framework.exceptions import ChatClientContentFilterException
+from openai import BadRequestError
 
 
 class ContentFilterResultSeverity(Enum):

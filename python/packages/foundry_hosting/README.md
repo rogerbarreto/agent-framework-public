@@ -2,12 +2,13 @@
 
 This package provides the integration of Agent Framework agents and workflows with the Foundry Agent Server, which can be hosted on Foundry infrastructure.
 
-Chat clients can attach provider-neutral `ChatClientErrorDetails` when they
-translate SDK failures into `ChatClientException`. Responses failures preserve
-those structured details, including provider-defined fields such as `type`,
-`param`, and `request_id`. Foundry hosting does not inspect provider exception
-bodies or infer an error title from HTTP status. Providers and application
-backends own the content and disclosure policy of the details they attach.
+Chat-client exceptions retain their original SDK exception through the standard
+`inner_exception`/`__cause__` chain. Foundry Responses hosting copies the SDK's
+existing `code`, `message`, `status_code`, and body fields without interpreting
+the body or inferring an error title from HTTP status. Non-chat-client and
+malformed errors retain the generic sanitized fallback. Providers and
+application backends own the content and disclosure policy of the errors they
+return.
 
 ## Agent instances and factories
 

@@ -7987,9 +7987,6 @@ async def test_service_response_exception_includes_original_error_details() -> N
     exception_message = str(exc_info.value)
     assert "service failed to complete the prompt:" in exception_message
     assert original_error_message in exception_message
-    assert exc_info.value.error_details is not None
-    assert exc_info.value.error_details.code == "rate_limit"
-    assert exc_info.value.error_details.message == original_error_message
 
 
 async def test_get_response_streaming_with_response_format() -> None:

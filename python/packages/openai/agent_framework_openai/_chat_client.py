@@ -116,10 +116,7 @@ from openai.types.responses.tool_param import (
 from openai.types.responses.web_search_tool_param import WebSearchToolParam
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from ._exceptions import (
-    OpenAIContentFilterException,
-    _get_openai_error_details,  # pyright: ignore[reportPrivateUsage]
-)
+from ._exceptions import OpenAIContentFilterException
 from ._feature_usage import FeatureIndex
 from ._shared import (
     AzureTokenProvider,
@@ -857,7 +854,6 @@ class RawOpenAIChatClient(
                 azure_endpoint=self.azure_endpoint,
             ),
             inner_exception=ex,
-            error_details=_get_openai_error_details(ex),
         ) from ex
 
     @override

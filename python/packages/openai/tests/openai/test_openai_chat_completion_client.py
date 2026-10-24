@@ -410,9 +410,6 @@ async def test_exception_message_includes_original_error_details() -> None:
     exception_message = str(exc_info.value)
     assert "service failed to complete the prompt:" in exception_message
     assert original_error_message in exception_message
-    assert exc_info.value.error_details is not None
-    assert exc_info.value.error_details.code == "invalid_request"
-    assert exc_info.value.error_details.message == original_error_message
 
 
 def test_chat_response_content_order_text_before_tool_calls(

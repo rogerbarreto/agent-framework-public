@@ -34,12 +34,12 @@ Missing counters never borrow from another field or become invented zeros; an
 absent total alone is derived from known input and output counts. Usage that
 cannot form a consistent Responses shape is omitted.
 
-Chat clients can attach provider-neutral `ChatClientErrorDetails` when they
-translate SDK failures into `ChatClientException`. Raised chat-client failures
-preserve those structured details, including provider-defined fields such as
-`type`, `param`, and `request_id`. Hosting does not inspect provider exception
-bodies or infer an error title from HTTP status. Providers and application
-backends own the content and disclosure policy of the details they attach.
+Chat-client exceptions retain their original SDK exception through the standard
+`inner_exception`/`__cause__` chain. Responses hosting copies the SDK's existing
+`code`, `message`, `status_code`, and body fields without interpreting the body
+or inferring an error title from HTTP status. Non-chat-client and malformed
+errors retain the generic sanitized fallback. Providers and application
+backends own the content and disclosure policy of the errors they return.
 
 FastAPI/Starlette/Django/Azure Functions code owns route registration,
 authentication, status codes, response construction, and background work.

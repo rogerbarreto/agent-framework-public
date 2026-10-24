@@ -21,7 +21,7 @@ from agent_framework import (
     ResponseStream,
     UsageDetails,
 )
-from agent_framework.exceptions import ChatClientErrorDetails, ChatClientException
+from agent_framework.exceptions import ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from openai.types.responses.response_usage import InputTokensDetails, ResponseUsage
 
@@ -1481,22 +1481,29 @@ class TestResponsesRunHelpers:
             (503, "backend_overloaded"),
         ],
     )
-    async def test_stream_classifies_provider_http_failures(self, status: int, code: str) -> None:
-        error = ChatClientException(
-            "provider wrapper",
-            error_details=ChatClientErrorDetails(
-                code=code,
-                message="provider details",
-                status_code=status,
-                additional_properties={
+    @pytest.mark.parametrize("wrapper", ["cause", "inner_exception"])
+    async def test_stream_classifies_provider_http_failures(self, status: int, code: str, wrapper: str) -> None:
+        class ProviderError(Exception):
+            status_code = status
+            message = "rendered SDK exception"
+
+            def __init__(self) -> None:
+                super().__init__(self.message)
+                self.code = code
+                self.body = {
                     "code": code,
                     "message": "provider details",
                     "type": "invalid_request_error",
                     "param": "input",
                     "request_id": "req_test",
-                },
-            ),
-        )
+                }
+
+        provider_error = ProviderError()
+        if wrapper == "cause":
+            error = ChatClientException("provider wrapper")
+            error.__cause__ = provider_error
+        else:
+            error = ChatClientException("provider wrapper", inner_exception=provider_error)
 
         async def updates() -> AsyncIterator[AgentResponseUpdate]:
             yield AgentResponseUpdate(contents=[Content.from_text("partial")], role="assistant")

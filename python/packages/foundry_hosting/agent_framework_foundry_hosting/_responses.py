@@ -152,6 +152,38 @@ _HistorySource = Literal["agent_server", "agent", "service"]
 _AGENT_SOURCE_UNSET = object()
 
 
+def _provider_error_from_chat_client(exception: BaseException) -> dict[str, Any] | None:
+    """Copy the original SDK error already carried by a chat client exception."""
+    if not isinstance(exception, ChatClientException):
+        return None
+    inner: Exception | None = exception.__cause__ if isinstance(exception.__cause__, Exception) else None
+    if inner is None:
+        inner = next((arg for arg in exception.args[1:] if isinstance(arg, Exception)), None)
+    if inner is None:
+        return None
+    try:
+        code = getattr(inner, "code", None)
+        message = getattr(inner, "message", None)
+        status_code = getattr(inner, "status_code", None)
+        body = getattr(inner, "body", None)
+        if not isinstance(message, str) or not message:
+            return None
+        payload = (
+            {key: value for key, value in cast(Mapping[object, object], body).items() if isinstance(key, str)}
+            if isinstance(body, Mapping)
+            else {}
+        )
+        payload.setdefault("code", code if isinstance(code, str) and code else "server_error")
+        payload.setdefault("message", message)
+        if not isinstance(payload["code"], str) or not isinstance(payload["message"], str):
+            return None
+        if isinstance(status_code, int) and not isinstance(status_code, bool):
+            payload["status_code"] = status_code
+        return payload
+    except Exception:
+        return None
+
+
 class _PublicResponseFailure(Exception):
     """Mark a vetted failure message as safe for client-visible serialization."""
 
@@ -2373,23 +2405,23 @@ class ResponsesHostServer(ResponsesAgentServerHost):
             code = "server_error"
             message = ex.public_message
         else:
-            error_details = ex.error_details if isinstance(ex, ChatClientException) else None
-            code = error_details.code if error_details is not None and error_details.code else "server_error"
-            message = error_details.message if error_details is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+            provider_error = _provider_error_from_chat_client(ex)
+            code = cast(str, provider_error["code"]) if provider_error is not None else "server_error"
+            message = (
+                cast(str, provider_error["message"]) if provider_error is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+            )
         failed_event = response_event_stream.emit_failed(
             code=code, message=message, usage=tracker.usage if tracker is not None else None
         )
         if not isinstance(ex, _PublicResponseFailure) and isinstance(ex, ChatClientException):
-            error_details = ex.error_details
-            if error_details is not None:
+            provider_error = _provider_error_from_chat_client(ex)
+            if provider_error is not None:
                 failed_payload = cast(dict[str, Any], failed_event)
                 failed_response = cast(dict[str, Any], failed_payload["response"])
                 failed_error = cast(dict[str, Any], failed_response["error"])
-                failed_error.update(error_details.additional_properties)
-                if error_details.status_code is not None:
-                    failed_error["status_code"] = error_details.status_code
-                failed_error["code"] = code
-                failed_error["message"] = message
+                failed_error.update(provider_error)
+                failed_error.setdefault("code", code)
+                failed_error.setdefault("message", message)
         yield failed_event
 
 

@@ -3,11 +3,7 @@
 """Tests for AgentFrameworkException inner_exception handling."""
 
 from agent_framework import AgentFrameworkException, ResponseInvalidatedException
-from agent_framework.exceptions import (
-    ChatClientErrorDetails,
-    ChatClientException,
-    ChatClientInvalidResponseException,
-)
+from agent_framework.exceptions import ChatClientException, ChatClientInvalidResponseException
 
 
 def test_exception_with_inner_exception():
@@ -46,25 +42,3 @@ def test_response_invalidated_exception_is_public_and_picklable() -> None:
     assert restored.args[0] == "partial response output was invalidated"
     assert isinstance(restored.args[1], RuntimeError)
     assert str(restored.args[1]) == "provider stream failed"
-
-
-def test_chat_client_exception_preserves_structured_error_details() -> None:
-    details = ChatClientErrorDetails(
-        code="provider_error",
-        message="Provider details.",
-        status_code=429,
-        additional_properties={"type": "invalid_request_error", "request_id": "req_test"},
-    )
-    error = ChatClientException("wrapper", inner_exception=RuntimeError("inner"), error_details=details)
-    actual = error.error_details
-
-    assert actual is details
-    assert actual is not None
-    assert actual.additional_properties == {
-        "type": "invalid_request_error",
-        "request_id": "req_test",
-    }
-
-
-def test_chat_client_exception_defaults_to_no_error_details() -> None:
-    assert ChatClientException("wrapper").error_details is None

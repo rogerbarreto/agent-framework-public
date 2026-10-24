@@ -7,7 +7,6 @@ and guidance on choosing the correct exception class.
 """
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
 logger = logging.getLogger("agent_framework")
@@ -77,35 +76,10 @@ class AgentContentFilterException(AgentException):
 # region Chat Client Exceptions
 
 
-def _empty_error_properties() -> dict[str, Any]:
-    return {}
-
-
-@dataclass(frozen=True, slots=True)
-class ChatClientErrorDetails:
-    """Provider-neutral structured details for a chat client failure."""
-
-    message: str
-    code: str | None = None
-    status_code: int | None = None
-    additional_properties: dict[str, Any] = field(default_factory=_empty_error_properties)
-
-
 class ChatClientException(AgentFrameworkException):
     """Base class for all chat client exceptions."""
 
-    def __init__(
-        self,
-        message: str,
-        inner_exception: Exception | None = None,
-        log_level: Literal[0] | Literal[10] | Literal[20] | Literal[30] | Literal[40] | Literal[50] | None = 10,
-        *args: Any,
-        error_details: ChatClientErrorDetails | None = None,
-        **kwargs: Any,
-    ) -> None:
-        """Create a chat client exception with optional provider-neutral error details."""
-        self.error_details = error_details
-        super().__init__(message, inner_exception, log_level, *args, **kwargs)
+    pass
 
 
 class ResponseInvalidatedException(ChatClientException):
