@@ -52,7 +52,10 @@ from agent_framework import (
 )
 from agent_framework._mcp import _MCP_TOOL_RESULT_HOST_PAYLOAD_KEY  # pyright: ignore[reportPrivateUsage]
 from agent_framework._telemetry import mark_feature_used
-from agent_framework.exceptions import AgentFrameworkException
+from agent_framework.exceptions import (
+    AgentFrameworkException,
+    _get_response_error_details,  # pyright: ignore[reportPrivateUsage]
+)
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from azure.ai.agentserver.core import get_request_context
 from azure.ai.agentserver.responses import (
@@ -2349,11 +2352,12 @@ class ResponsesHostServer(ResponsesAgentServerHost):
         """Log ``ex`` and yield a terminal ``response.failed`` event.
 
         Drains any in-progress streaming output item first so the resulting
-        SSE stream stays well-formed, then emits ``response.failed`` carrying a
-        stable public message unless the caller explicitly supplies a safe
-        validation message. Any error raised while draining the tracker is
-        logged and otherwise ignored so that the original failure remains the
-        terminal failure.
+        SSE stream stays well-formed, then emits ``response.failed`` with a
+        supported HTTP classification and the originating provider message when
+        one is available. Vetted validation messages remain public, while
+        unexpected failures retain the stable fallback. Any tracker cleanup
+        error is logged and otherwise ignored so the original failure remains
+        terminal.
         """
         _log_response_failure(phase, response_id, ex)
         if tracker is not None:
@@ -2363,12 +2367,17 @@ class ResponsesHostServer(ResponsesAgentServerHost):
                 _log_response_failure("failed tracker cleanup", response_id, close_error)
             tracker.discard_pending_container_file_citations()
         if public_message is not None:
+            code = "server_error"
             message = public_message
         elif isinstance(ex, _PublicResponseFailure):
+            code = "server_error"
             message = ex.public_message
         else:
-            message = _PUBLIC_STREAM_FAILURE_MESSAGE
-        yield response_event_stream.emit_failed(message=message, usage=tracker.usage if tracker is not None else None)
+            code, provider_message = _get_response_error_details(ex)
+            message = provider_message if provider_message is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+        yield response_event_stream.emit_failed(
+            code=code, message=message, usage=tracker.usage if tracker is not None else None
+        )
 
 
 # endregion ResponsesHostServer

@@ -32,6 +32,7 @@ from agent_framework import (
     get_namespaced_value,
 )
 from agent_framework._telemetry import mark_feature_used
+from agent_framework.exceptions import _get_response_error_details  # pyright: ignore[reportPrivateUsage]
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from agent_framework_hosting import AgentRunArgs
 from openai.types.responses import (
@@ -1523,6 +1524,7 @@ async def responses_from_streaming_run(
         partial_contents = [
             content for update in updates for content in update.contents if content.type == "text" and content.text
         ]
+        error_code, error_message = _get_response_error_details(exc)
         response_kwargs: dict[str, Any] = {
             "id": response_id,
             "object": "response",
@@ -1535,13 +1537,17 @@ async def responses_from_streaming_run(
             "tools": [],
             "metadata": {},
             "error": {
+                # The OpenAI SDK model currently restricts error codes to its
+                # own known literals; validate the response shape first, then
+                # restore the provider-defined structured code below.
                 "code": "server_error",
-                "message": _PUBLIC_STREAM_FAILURE_MESSAGE,
+                "message": error_message if error_message is not None else _PUBLIC_STREAM_FAILURE_MESSAGE,
             },
         }
         if conversation_id is not None:
             response_kwargs["conversation"] = {"id": conversation_id}
         failed_response = _response_payload(OpenAIResponse(**response_kwargs))
+        failed_response["error"]["code"] = error_code
         apply_streamed_message_ids(failed_response)
         yield event(
             "response.failed",

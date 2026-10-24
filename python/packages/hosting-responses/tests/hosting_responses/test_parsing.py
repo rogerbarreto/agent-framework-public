@@ -21,6 +21,7 @@ from agent_framework import (
     ResponseStream,
     UsageDetails,
 )
+from agent_framework.exceptions import ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from openai.types.responses.response_usage import InputTokensDetails, ResponseUsage
 
@@ -1470,6 +1471,46 @@ class TestResponsesRunHelpers:
         assert error["message"] == "An internal server error occurred."
         assert "partial" in events[-1]
         assert private_error_detail not in "".join(events)
+
+    @pytest.mark.parametrize(
+        "status, code",
+        [
+            (400, "invalid_request_error"),
+            (403, "permission_denied"),
+            (429, "token_rate_limit_exceeded"),
+            (503, "backend_overloaded"),
+        ],
+    )
+    @pytest.mark.parametrize("wrapper", ["direct", "cause", "inner_exception"])
+    async def test_stream_classifies_provider_http_failures(self, status: int, code: str, wrapper: str) -> None:
+        class ProviderError(Exception):
+            status_code = status
+
+            def __init__(self) -> None:
+                super().__init__("rendered exception")
+                self.body = {"error": {"code": code, "message": "provider details"}}
+
+        error: Exception = ProviderError()
+        if wrapper == "cause":
+            outer = ChatClientException("provider wrapper")
+            outer.__cause__ = error
+            error = outer
+        elif wrapper == "inner_exception":
+            error = ChatClientException("provider wrapper", inner_exception=error)
+
+        async def updates() -> AsyncIterator[AgentResponseUpdate]:
+            yield AgentResponseUpdate(contents=[Content.from_text("partial")], role="assistant")
+            raise error
+
+        stream = ResponseStream(updates(), finalizer=AgentResponse.from_updates)
+        events = [event async for event in responses_from_streaming_run(stream, response_id="resp_http_failure")]
+        payload = _sse_payload(events[-1])
+        response = cast("dict[str, object]", payload["response"])
+        failure = cast("dict[str, object]", response["error"])
+        assert payload["type"] == "response.failed"
+        assert failure["code"] == code
+        assert failure["message"] == "provider details"
+        assert "partial" in events[-1]
 
     async def test_failed_stream_preserves_partial_marked_refusal(self) -> None:
         async def updates() -> AsyncIterator[AgentResponseUpdate]:

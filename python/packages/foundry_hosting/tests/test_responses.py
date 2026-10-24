@@ -60,6 +60,7 @@ from agent_framework import (
 )
 from agent_framework._mcp import _MCP_TOOL_RESULT_HOST_PAYLOAD_KEY  # pyright: ignore[reportPrivateUsage]
 from agent_framework.ag_ui import AgentFrameworkAgent, InMemoryAGUIThreadSnapshotStore
+from agent_framework.exceptions import ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from agent_framework.openai import OpenAIChatClient, OpenAIChatOptions, OpenAIContinuationToken
 from azure.ai.agentserver.core import FoundryAgentRequestContext, get_request_context
@@ -117,6 +118,52 @@ from agent_framework_foundry_hosting._state_store import (
 _OPENAI_HTTPX = cast(Any, import_module(DefaultAsyncHttpxClient.__mro__[1].__module__.partition(".")[0]))
 _PRIVATE_ERROR_DETAIL = "test-token-value at /srv/private/tool.py"
 _SESSION_STORAGE_ERROR_DETAIL = "session-storage-secret at C:\\sensitive\\session_store.py"
+
+
+@pytest.mark.parametrize(
+    "status, code",
+    [
+        (400, "invalid_request_error"),
+        (403, "permission_denied"),
+        (429, "token_rate_limit_exceeded"),
+        (503, "backend_overloaded"),
+    ],
+)
+@pytest.mark.parametrize("wrapper", ["direct", "cause", "inner_exception"])
+def test_failure_event_classifies_provider_http_failures(status: int, code: str, wrapper: str) -> None:
+    class ProviderError(Exception):
+        status_code = status
+
+        def __init__(self) -> None:
+            super().__init__("rendered exception")
+            self.body = {"error": {"code": code, "message": _PRIVATE_ERROR_DETAIL}}
+
+    error: Exception = ProviderError()
+    if wrapper == "cause":
+        outer = ChatClientException("provider wrapper")
+        outer.__cause__ = error
+        error = outer
+    elif wrapper == "inner_exception":
+        error = ChatClientException("provider wrapper", inner_exception=error)
+
+    stream = ResponseEventStream(response_id="resp_http_failure")
+    stream.emit_created()
+    stream.emit_in_progress()
+    events = list(
+        ResponsesHostServer._emit_failure(
+            "resp_http_failure",
+            "provider HTTP failure",
+            stream,
+            None,
+            error,
+        )
+    )
+    terminal = events[-1]
+    assert terminal["type"] == "response.failed"
+    failure = terminal["response"]["error"]
+    assert failure is not None
+    assert failure["code"] == code
+    assert failure["message"] == _PRIVATE_ERROR_DETAIL
 
 
 @pytest.fixture(scope="session", autouse=True)

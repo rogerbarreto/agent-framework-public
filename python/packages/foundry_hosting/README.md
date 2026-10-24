@@ -2,6 +2,13 @@
 
 This package provides the integration of Agent Framework agents and workflows with the Foundry Agent Server, which can be hosted on Foundry infrastructure.
 
+Responses failures preserve the structured error title and message supplied by
+the provider response body through Agent Framework exception wrappers. The
+title is selected from `code`, `type`, or `title`, and the message from
+`message` or `detail`, with structured exception attributes used as fallbacks.
+No error title is inferred from the HTTP status. Providers and application
+backends own the content and disclosure policy of the errors they return.
+
 ## Agent instances and factories
 
 `ResponsesHostServer` and `InvocationsHostServer` accept an agent instance or a zero-argument callable through the
