@@ -62,7 +62,10 @@ from openai.types.chat.chat_completion_message_custom_tool_call import (
 from openai.types.chat.completion_create_params import WebSearchOptions
 from pydantic import BaseModel
 
-from ._exceptions import OpenAIContentFilterException
+from ._exceptions import (
+    OpenAIContentFilterException,
+    _get_openai_error_details,  # pyright: ignore[reportPrivateUsage]
+)
 from ._feature_usage import FeatureIndex
 from ._shared import (
     PROMPT_CACHE_BREAKPOINT_KEY,
@@ -698,6 +701,7 @@ class RawOpenAIChatCompletionClient(
                             azure_endpoint=self.azure_endpoint,
                         ),
                         inner_exception=ex,
+                        error_details=_get_openai_error_details(ex),
                     ) from ex
                 except Exception as ex:
                     raise ChatClientException(
@@ -706,6 +710,7 @@ class RawOpenAIChatCompletionClient(
                             azure_endpoint=self.azure_endpoint,
                         ),
                         inner_exception=ex,
+                        error_details=_get_openai_error_details(ex),
                     ) from ex
 
             return self._build_response_stream(_stream(), response_format=options.get("response_format"))
@@ -734,6 +739,7 @@ class RawOpenAIChatCompletionClient(
                         azure_endpoint=self.azure_endpoint,
                     ),
                     inner_exception=ex,
+                    error_details=_get_openai_error_details(ex),
                 ) from ex
             except Exception as ex:
                 raise ChatClientException(
@@ -742,6 +748,7 @@ class RawOpenAIChatCompletionClient(
                         azure_endpoint=self.azure_endpoint,
                     ),
                     inner_exception=ex,
+                    error_details=_get_openai_error_details(ex),
                 ) from ex
 
         return _get_response()

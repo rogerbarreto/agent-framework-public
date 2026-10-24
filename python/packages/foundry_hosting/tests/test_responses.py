@@ -60,7 +60,7 @@ from agent_framework import (
 )
 from agent_framework._mcp import _MCP_TOOL_RESULT_HOST_PAYLOAD_KEY  # pyright: ignore[reportPrivateUsage]
 from agent_framework.ag_ui import AgentFrameworkAgent, InMemoryAGUIThreadSnapshotStore
-from agent_framework.exceptions import ChatClientException
+from agent_framework.exceptions import ChatClientErrorDetails, ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from agent_framework.openai import OpenAIChatClient, OpenAIChatOptions, OpenAIContinuationToken
 from azure.ai.agentserver.core import FoundryAgentRequestContext, get_request_context
@@ -129,22 +129,22 @@ _SESSION_STORAGE_ERROR_DETAIL = "session-storage-secret at C:\\sensitive\\sessio
         (503, "backend_overloaded"),
     ],
 )
-@pytest.mark.parametrize("wrapper", ["direct", "cause", "inner_exception"])
-def test_failure_event_classifies_provider_http_failures(status: int, code: str, wrapper: str) -> None:
-    class ProviderError(Exception):
-        status_code = status
-
-        def __init__(self) -> None:
-            super().__init__("rendered exception")
-            self.body = {"error": {"code": code, "message": _PRIVATE_ERROR_DETAIL}}
-
-    error: Exception = ProviderError()
-    if wrapper == "cause":
-        outer = ChatClientException("provider wrapper")
-        outer.__cause__ = error
-        error = outer
-    elif wrapper == "inner_exception":
-        error = ChatClientException("provider wrapper", inner_exception=error)
+def test_failure_event_classifies_provider_http_failures(status: int, code: str) -> None:
+    error = ChatClientException(
+        "provider wrapper",
+        error_details=ChatClientErrorDetails(
+            code=code,
+            message=_PRIVATE_ERROR_DETAIL,
+            status_code=status,
+            additional_properties={
+                "code": code,
+                "message": _PRIVATE_ERROR_DETAIL,
+                "type": "invalid_request_error",
+                "param": "input",
+                "request_id": "req_test",
+            },
+        ),
+    )
 
     stream = ResponseEventStream(response_id="resp_http_failure")
     stream.emit_created()
@@ -162,8 +162,13 @@ def test_failure_event_classifies_provider_http_failures(status: int, code: str,
     assert terminal["type"] == "response.failed"
     failure = terminal["response"]["error"]
     assert failure is not None
-    assert failure["code"] == code
-    assert failure["message"] == _PRIVATE_ERROR_DETAIL
+    failure_mapping = cast(dict[str, Any], failure)
+    assert failure_mapping["code"] == code
+    assert failure_mapping["message"] == _PRIVATE_ERROR_DETAIL
+    assert failure_mapping["type"] == "invalid_request_error"
+    assert failure_mapping["param"] == "input"
+    assert failure_mapping["request_id"] == "req_test"
+    assert failure_mapping["status_code"] == status
 
 
 @pytest.fixture(scope="session", autouse=True)

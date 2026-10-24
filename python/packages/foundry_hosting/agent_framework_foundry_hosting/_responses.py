@@ -54,7 +54,7 @@ from agent_framework._mcp import _MCP_TOOL_RESULT_HOST_PAYLOAD_KEY  # pyright: i
 from agent_framework._telemetry import mark_feature_used
 from agent_framework.exceptions import (
     AgentFrameworkException,
-    _get_response_error_details,  # pyright: ignore[reportPrivateUsage]
+    ChatClientException,
 )
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from azure.ai.agentserver.core import get_request_context
@@ -2373,11 +2373,24 @@ class ResponsesHostServer(ResponsesAgentServerHost):
             code = "server_error"
             message = ex.public_message
         else:
-            code, provider_message = _get_response_error_details(ex)
-            message = provider_message if provider_message is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
-        yield response_event_stream.emit_failed(
+            error_details = ex.error_details if isinstance(ex, ChatClientException) else None
+            code = error_details.code if error_details is not None and error_details.code else "server_error"
+            message = error_details.message if error_details is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
+        failed_event = response_event_stream.emit_failed(
             code=code, message=message, usage=tracker.usage if tracker is not None else None
         )
+        if not isinstance(ex, _PublicResponseFailure) and isinstance(ex, ChatClientException):
+            error_details = ex.error_details
+            if error_details is not None:
+                failed_payload = cast(dict[str, Any], failed_event)
+                failed_response = cast(dict[str, Any], failed_payload["response"])
+                failed_error = cast(dict[str, Any], failed_response["error"])
+                failed_error.update(error_details.additional_properties)
+                if error_details.status_code is not None:
+                    failed_error["status_code"] = error_details.status_code
+                failed_error["code"] = code
+                failed_error["message"] = message
+        yield failed_event
 
 
 # endregion ResponsesHostServer

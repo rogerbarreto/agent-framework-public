@@ -21,7 +21,7 @@ from agent_framework import (
     ResponseStream,
     UsageDetails,
 )
-from agent_framework.exceptions import ChatClientException
+from agent_framework.exceptions import ChatClientErrorDetails, ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from openai.types.responses.response_usage import InputTokensDetails, ResponseUsage
 
@@ -1481,22 +1481,22 @@ class TestResponsesRunHelpers:
             (503, "backend_overloaded"),
         ],
     )
-    @pytest.mark.parametrize("wrapper", ["direct", "cause", "inner_exception"])
-    async def test_stream_classifies_provider_http_failures(self, status: int, code: str, wrapper: str) -> None:
-        class ProviderError(Exception):
-            status_code = status
-
-            def __init__(self) -> None:
-                super().__init__("rendered exception")
-                self.body = {"error": {"code": code, "message": "provider details"}}
-
-        error: Exception = ProviderError()
-        if wrapper == "cause":
-            outer = ChatClientException("provider wrapper")
-            outer.__cause__ = error
-            error = outer
-        elif wrapper == "inner_exception":
-            error = ChatClientException("provider wrapper", inner_exception=error)
+    async def test_stream_classifies_provider_http_failures(self, status: int, code: str) -> None:
+        error = ChatClientException(
+            "provider wrapper",
+            error_details=ChatClientErrorDetails(
+                code=code,
+                message="provider details",
+                status_code=status,
+                additional_properties={
+                    "code": code,
+                    "message": "provider details",
+                    "type": "invalid_request_error",
+                    "param": "input",
+                    "request_id": "req_test",
+                },
+            ),
+        )
 
         async def updates() -> AsyncIterator[AgentResponseUpdate]:
             yield AgentResponseUpdate(contents=[Content.from_text("partial")], role="assistant")
@@ -1510,6 +1510,10 @@ class TestResponsesRunHelpers:
         assert payload["type"] == "response.failed"
         assert failure["code"] == code
         assert failure["message"] == "provider details"
+        assert failure["type"] == "invalid_request_error"
+        assert failure["param"] == "input"
+        assert failure["request_id"] == "req_test"
+        assert failure["status_code"] == status
         assert "partial" in events[-1]
 
     async def test_failed_stream_preserves_partial_marked_refusal(self) -> None:

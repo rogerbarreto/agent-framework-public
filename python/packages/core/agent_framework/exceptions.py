@@ -7,8 +7,8 @@ and guidance on choosing the correct exception class.
 """
 
 import logging
-from collections.abc import Mapping
-from typing import Any, Literal, cast
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 logger = logging.getLogger("agent_framework")
 
@@ -37,50 +37,6 @@ class AgentFrameworkException(Exception):
             super().__init__(message, inner_exception, *args)
         else:
             super().__init__(message, *args)
-
-
-def _get_response_error_details(  # pyright: ignore[reportUnusedFunction]
-    exception: BaseException,
-) -> tuple[str, str | None]:
-    """Preserve the provider's structured error code and message when available."""
-    errors = [exception]
-    visited: set[int] = set()
-    while errors:
-        current = errors.pop()
-        if id(current) in visited:
-            continue
-        visited.add(id(current))
-        status = getattr(current, "status_code", None)
-        if isinstance(status, int) and not isinstance(status, bool) and 400 <= status <= 599:
-            body = getattr(current, "body", None)
-            error_body: object = body
-            if isinstance(body, Mapping):
-                body_mapping = cast(Mapping[object, object], body)
-                nested_error = body_mapping.get("error")
-                if isinstance(nested_error, Mapping):
-                    error_body = cast(Mapping[object, object], nested_error)
-
-            code: object = None
-            message: object = None
-            if isinstance(error_body, Mapping):
-                error_mapping = cast(Mapping[object, object], error_body)
-                code = error_mapping.get("code") or error_mapping.get("type") or error_mapping.get("title")
-                message = error_mapping.get("message") or error_mapping.get("detail")
-            elif isinstance(error_body, str):
-                message = error_body
-
-            if not isinstance(code, str) or not code:
-                code = getattr(current, "code", None)
-            if not isinstance(message, str) or not message:
-                message = getattr(current, "message", None)
-            if not isinstance(message, str) or not message:
-                message = str(current) or type(current).__name__
-            return (code if isinstance(code, str) and code else "server_error"), message
-        if isinstance(current, AgentFrameworkException):
-            errors.extend(arg for arg in current.args if isinstance(arg, BaseException))
-            if current.__cause__ is not None:
-                errors.append(current.__cause__)
-    return "server_error", None
 
 
 # region Agent Exceptions
@@ -121,10 +77,35 @@ class AgentContentFilterException(AgentException):
 # region Chat Client Exceptions
 
 
+def _empty_error_properties() -> dict[str, Any]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class ChatClientErrorDetails:
+    """Provider-neutral structured details for a chat client failure."""
+
+    message: str
+    code: str | None = None
+    status_code: int | None = None
+    additional_properties: dict[str, Any] = field(default_factory=_empty_error_properties)
+
+
 class ChatClientException(AgentFrameworkException):
     """Base class for all chat client exceptions."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        inner_exception: Exception | None = None,
+        log_level: Literal[0] | Literal[10] | Literal[20] | Literal[30] | Literal[40] | Literal[50] | None = 10,
+        *args: Any,
+        error_details: ChatClientErrorDetails | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Create a chat client exception with optional provider-neutral error details."""
+        self.error_details = error_details
+        super().__init__(message, inner_exception, log_level, *args, **kwargs)
 
 
 class ResponseInvalidatedException(ChatClientException):

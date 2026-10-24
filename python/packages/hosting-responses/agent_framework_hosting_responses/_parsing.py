@@ -32,7 +32,7 @@ from agent_framework import (
     get_namespaced_value,
 )
 from agent_framework._telemetry import mark_feature_used
-from agent_framework.exceptions import _get_response_error_details  # pyright: ignore[reportPrivateUsage]
+from agent_framework.exceptions import ChatClientException
 from agent_framework.observability import OBSERVABILITY_SETTINGS
 from agent_framework_hosting import AgentRunArgs
 from openai.types.responses import (
@@ -1524,7 +1524,9 @@ async def responses_from_streaming_run(
         partial_contents = [
             content for update in updates for content in update.contents if content.type == "text" and content.text
         ]
-        error_code, error_message = _get_response_error_details(exc)
+        error_details = exc.error_details if isinstance(exc, ChatClientException) else None
+        error_code = error_details.code if error_details is not None and error_details.code else "server_error"
+        error_message = error_details.message if error_details is not None else _PUBLIC_STREAM_FAILURE_MESSAGE
         response_kwargs: dict[str, Any] = {
             "id": response_id,
             "object": "response",
@@ -1541,13 +1543,18 @@ async def responses_from_streaming_run(
                 # own known literals; validate the response shape first, then
                 # restore the provider-defined structured code below.
                 "code": "server_error",
-                "message": error_message if error_message is not None else _PUBLIC_STREAM_FAILURE_MESSAGE,
+                "message": error_message,
             },
         }
         if conversation_id is not None:
             response_kwargs["conversation"] = {"id": conversation_id}
         failed_response = _response_payload(OpenAIResponse(**response_kwargs))
+        if error_details is not None:
+            failed_response["error"].update(error_details.additional_properties)
+            if error_details.status_code is not None:
+                failed_response["error"]["status_code"] = error_details.status_code
         failed_response["error"]["code"] = error_code
+        failed_response["error"]["message"] = error_message
         apply_streamed_message_ids(failed_response)
         yield event(
             "response.failed",

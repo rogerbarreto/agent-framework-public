@@ -34,13 +34,12 @@ Missing counters never borrow from another field or become invented zeros; an
 absent total alone is derived from known input and output counts. Usage that
 cannot form a consistent Responses shape is omitted.
 
-Raised provider HTTP failures preserve the structured error `code` (falling
-back through `type`, `title`, and the exception's `code` attribute) and
-`message` (falling back through `detail` and the exception's `message`
-attribute) supplied by the provider response body. This also applies when the
-provider exception is wrapped by an Agent Framework exception. No error title
-is inferred from the HTTP status. Providers and application backends own the
-content and disclosure policy of the errors they return.
+Chat clients can attach provider-neutral `ChatClientErrorDetails` when they
+translate SDK failures into `ChatClientException`. Raised chat-client failures
+preserve those structured details, including provider-defined fields such as
+`type`, `param`, and `request_id`. Hosting does not inspect provider exception
+bodies or infer an error title from HTTP status. Providers and application
+backends own the content and disclosure policy of the details they attach.
 
 FastAPI/Starlette/Django/Azure Functions code owns route registration,
 authentication, status codes, response construction, and background work.
