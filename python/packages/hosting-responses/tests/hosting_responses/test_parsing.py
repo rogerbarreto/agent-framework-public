@@ -1523,6 +1523,48 @@ class TestResponsesRunHelpers:
         assert failure["status_code"] == status
         assert "partial" in events[-1]
 
+    @pytest.mark.parametrize(("exception_code", "expected_code"), [(None, "server_error"), ("sdk_code", "sdk_code")])
+    async def test_stream_preserves_provider_body_when_code_is_null(
+        self,
+        exception_code: str | None,
+        expected_code: str,
+    ) -> None:
+        class ProviderError(Exception):
+            code = exception_code
+            message = "rendered SDK exception"
+            status_code = 400
+            body = {
+                "code": None,
+                "message": "Invalid temperature.",
+                "type": "invalid_request_error",
+                "param": "temperature",
+                "request_id": "req_test",
+            }
+
+        error = ChatClientException("provider wrapper", inner_exception=ProviderError())
+
+        async def updates() -> AsyncIterator[AgentResponseUpdate]:
+            raise error
+            yield  # pragma: no cover
+
+        events = [
+            event
+            async for event in responses_from_streaming_run(
+                ResponseStream(updates(), finalizer=AgentResponse.from_updates),
+                response_id="resp_null_provider_code",
+            )
+        ]
+        response = cast("dict[str, object]", _sse_payload(events[-1])["response"])
+        failure = cast("dict[str, object]", response["error"])
+        assert failure == {
+            "code": expected_code,
+            "message": "Invalid temperature.",
+            "type": "invalid_request_error",
+            "param": "temperature",
+            "request_id": "req_test",
+            "status_code": 400,
+        }
+
     @pytest.mark.parametrize("unsafe_value", [b"not-json", object(), float("nan")])
     async def test_stream_rejects_non_json_provider_body(self, unsafe_value: object) -> None:
         class ProviderError(Exception):

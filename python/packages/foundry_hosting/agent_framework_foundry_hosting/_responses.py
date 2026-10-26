@@ -171,10 +171,10 @@ def _provider_error_from_chat_client(exception: BaseException) -> dict[str, Any]
             if isinstance(body, Mapping)
             else {}
         )
-        payload.setdefault("code", code if isinstance(code, str) and code else "server_error")
-        payload.setdefault("message", message)
-        if not isinstance(payload["code"], str) or not isinstance(payload["message"], str):
-            return None
+        if not isinstance(payload.get("code"), str) or not payload["code"]:
+            payload["code"] = code if isinstance(code, str) and code else "server_error"
+        if not isinstance(payload.get("message"), str) or not payload["message"]:
+            payload["message"] = message
         if isinstance(status_code, int) and not isinstance(status_code, bool):
             payload["status_code"] = status_code
         json.dumps(payload, allow_nan=False)

@@ -178,6 +178,48 @@ def test_failure_event_classifies_provider_http_failures(status: int, code: str,
     assert failure_mapping["status_code"] == status
 
 
+@pytest.mark.parametrize(("exception_code", "expected_code"), [(None, "server_error"), ("sdk_code", "sdk_code")])
+def test_failure_event_preserves_provider_body_when_code_is_null(
+    exception_code: str | None,
+    expected_code: str,
+) -> None:
+    class ProviderError(Exception):
+        code = exception_code
+        message = "rendered SDK exception"
+        status_code = 400
+        body = {
+            "code": None,
+            "message": "Invalid temperature.",
+            "type": "invalid_request_error",
+            "param": "temperature",
+            "request_id": "req_test",
+        }
+
+    error = ChatClientException("provider wrapper", inner_exception=ProviderError())
+    stream = ResponseEventStream(response_id="resp_null_provider_code")
+    stream.emit_created()
+    stream.emit_in_progress()
+    events = list(
+        ResponsesHostServer._emit_failure(
+            "resp_null_provider_code",
+            "provider failure",
+            stream,
+            None,
+            error,
+        )
+    )
+    terminal = cast(dict[str, Any], events[-1])
+    response = cast(dict[str, Any], terminal["response"])
+    assert response["error"] == {
+        "code": expected_code,
+        "message": "Invalid temperature.",
+        "type": "invalid_request_error",
+        "param": "temperature",
+        "request_id": "req_test",
+        "status_code": 400,
+    }
+
+
 @pytest.mark.parametrize("unsafe_value", [b"not-json", object(), float("nan")])
 def test_failure_event_rejects_non_json_provider_body(unsafe_value: object) -> None:
     class ProviderError(Exception):
