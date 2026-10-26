@@ -1658,6 +1658,15 @@ class TestGitHubCopilotAgentRuntimeConnections:
         [
             {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
             {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
+            {
+                "custom_agents": [
+                    {
+                        "name": "runtime",
+                        "prompt": "Use the runtime MCP server.",
+                        "mcp_servers": {"runtime": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
+                    }
+                ]
+            },
         ],
     )
     async def test_run_rejects_runtime_connections_by_default(
@@ -1687,27 +1696,79 @@ class TestGitHubCopilotAgentRuntimeConnections:
     @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize("resume", [False, True])
-    @pytest.mark.parametrize("runtime_connections", [False, True])
+    @pytest.mark.parametrize("runtime_mode", ["defaults", "custom_agent", "connections"])
     async def test_run_preserves_defaults_and_supports_explicit_runtime_opt_in(
         self,
         agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
         stream: bool,
         resume: bool,
-        runtime_connections: bool,
+        runtime_mode: str,
         mock_client: MagicMock,
         mock_session: MagicMock,
         assistant_message_event: SessionEvent,
         assistant_delta_event: SessionEvent,
         session_idle_event: SessionEvent,
     ) -> None:
-        defaults: GitHubCopilotOptions = {
-            "provider": {"type": "azure", "base_url": "https://application.example/api"},
-            "mcp_servers": {"application": {"type": "http", "url": "https://application.example/mcp", "tools": ["*"]}},
-        }
-        options: GitHubCopilotOptions = {"model": "runtime-model", "timeout": 3}
-        if runtime_connections:
-            options["provider"] = {"type": "openai", "base_url": "https://runtime.example/api"}
-            options["mcp_servers"] = {"runtime": {"type": "http", "url": "https://runtime.example/mcp", "tools": ["*"]}}
+        application_custom_agents: list[dict[str, Any]] = [
+            {
+                "name": "application",
+                "prompt": "Use the application MCP server.",
+                "mcp_servers": {
+                    "application": {
+                        "type": "http",
+                        "url": "https://application.example/custom-agent-mcp",
+                        "tools": ["*"],
+                    }
+                },
+            }
+        ]
+        defaults = cast(
+            GitHubCopilotOptions,
+            {
+                "provider": {"type": "azure", "base_url": "https://application.example/api"},
+                "mcp_servers": {
+                    "application": {"type": "http", "url": "https://application.example/mcp", "tools": ["*"]}
+                },
+                "custom_agents": application_custom_agents,
+            },
+        )
+        runtime_custom_agents: list[dict[str, Any]] | None = None
+        if runtime_mode == "connections":
+            runtime_custom_agents = [
+                {
+                    "name": "runtime",
+                    "prompt": "Use the runtime MCP server.",
+                    "mcp_servers": {
+                        "runtime": {
+                            "type": "http",
+                            "url": "https://runtime.example/custom-agent-mcp",
+                            "tools": ["*"],
+                        }
+                    },
+                }
+            ]
+            options = cast(
+                GitHubCopilotOptions,
+                {
+                    "model": "runtime-model",
+                    "timeout": 3,
+                    "provider": {"type": "openai", "base_url": "https://runtime.example/api"},
+                    "mcp_servers": {"runtime": {"type": "http", "url": "https://runtime.example/mcp", "tools": ["*"]}},
+                    "custom_agents": runtime_custom_agents,
+                },
+            )
+        elif runtime_mode == "custom_agent":
+            runtime_custom_agents = [{"name": "runtime", "prompt": "Use only built-in tools."}]
+            options = cast(
+                GitHubCopilotOptions,
+                {
+                    "model": "runtime-model",
+                    "timeout": 3,
+                    "custom_agents": runtime_custom_agents,
+                },
+            )
+        else:
+            options = GitHubCopilotOptions(model="runtime-model", timeout=3)
 
         def mock_on(handler: Any) -> Any:
             handler(assistant_delta_event)
@@ -1719,7 +1780,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
         agent = agent_type(
             client=mock_client,
             default_options=defaults,
-            allow_runtime_connection_overrides=runtime_connections,
+            allow_runtime_connection_overrides=runtime_mode == "connections",
         )
         session = AgentSession(service_session_id="existing-session" if resume else None)
         if stream:
@@ -1730,8 +1791,11 @@ class TestGitHubCopilotAgentRuntimeConnections:
             assert response.text == "Test response"
 
         config = (mock_client.resume_session if resume else mock_client.create_session).call_args.kwargs
-        assert config["provider"] == (options["provider"] if runtime_connections else defaults["provider"])
-        assert config["mcp_servers"] == (options["mcp_servers"] if runtime_connections else defaults["mcp_servers"])
+        assert config["provider"] == (options["provider"] if runtime_mode == "connections" else defaults["provider"])
+        assert config["mcp_servers"] == (
+            options["mcp_servers"] if runtime_mode == "connections" else defaults["mcp_servers"]
+        )
+        assert config["custom_agents"] == (runtime_custom_agents or application_custom_agents)
         assert config["model"] == "runtime-model"
         assert "allow_runtime_connection_overrides" not in config
         assert agent.default_options == defaults
@@ -1777,10 +1841,30 @@ class TestGitHubCopilotAgentRuntimeConnections:
         store_provider.get_store.return_value = store
         agent = agent_type(client=mock_client, allow_runtime_connection_overrides=True)
         server = hosting.InvocationsHostServer(agent, agent_session_store_provider=store_provider)
+        runtime_custom_agents: list[dict[str, Any]] = [
+            {
+                "name": "runtime",
+                "prompt": "Use the runtime MCP server.",
+                "mcp_servers": {
+                    "runtime": {
+                        "type": "http",
+                        "url": "https://runtime.example/custom-agent-mcp",
+                        "tools": ["*"],
+                    }
+                },
+            }
+        ]
         options: GitHubCopilotOptions = {
             "provider": {"type": "openai", "base_url": "https://runtime.example/api"},
             "mcp_servers": {"runtime": {"type": "http", "url": "https://runtime.example/mcp", "tools": ["*"]}},
         }
+        options = cast(
+            GitHubCopilotOptions,
+            {
+                **options,
+                "custom_agents": runtime_custom_agents,
+            },
+        )
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server), base_url="http://test") as client:
             response = await client.post(
                 "/invocations",
@@ -1798,10 +1882,19 @@ class TestGitHubCopilotAgentRuntimeConnections:
         config = mock_client.create_session.call_args.kwargs
         assert config["provider"] == options["provider"]
         assert config["mcp_servers"] == options["mcp_servers"]
+        assert config["custom_agents"] == runtime_custom_agents
         store.set.assert_awaited_once()
 
     @pytest.mark.parametrize(
-        "options", [{"provider": None}, {"provider": {}}, {"mcp_servers": None}, {"mcp_servers": {}}]
+        "options",
+        [
+            {"provider": None},
+            {"provider": {}},
+            {"mcp_servers": None},
+            {"mcp_servers": {}},
+            {"custom_agents": [{"name": "runtime", "prompt": "Empty MCP", "mcp_servers": None}]},
+            {"custom_agents": [{"name": "runtime", "prompt": "Empty MCP", "mcp_servers": {}}]},
+        ],
     )
     async def test_empty_runtime_connection_options_are_rejected(
         self, options: dict[str, Any], mock_client: MagicMock

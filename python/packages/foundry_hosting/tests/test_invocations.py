@@ -951,6 +951,15 @@ class TestParsedRequests:
         [
             {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
             {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
+            {
+                "custom_agents": [
+                    {
+                        "name": "runtime",
+                        "prompt": "Use the runtime MCP server.",
+                        "mcp_servers": {"runtime": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
+                    }
+                ]
+            },
         ],
     )
     async def test_connection_options_are_governed_by_the_agent(

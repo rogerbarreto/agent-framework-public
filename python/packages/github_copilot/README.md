@@ -13,11 +13,13 @@ The GitHub Copilot agent enables integration with GitHub Copilot, allowing you t
 ## Runtime connection configuration
 
 `GitHubCopilotAgent` and `RawGitHubCopilotAgent` default to
-`allow_runtime_connection_overrides=False`. Per-run `provider` and `mcp_servers`
-options raise `AgentInvalidRequestException` before the agent starts the SDK client,
-creates a session, or resumes one. This includes supplying a connection when no
-default is configured, and clearing a configuration with an empty object or `None`.
-Ordinary runtime options, such as `model` and `timeout`, remain supported.
+`allow_runtime_connection_overrides=False`. Per-run `provider`, top-level
+`mcp_servers`, and `custom_agents[].mcp_servers` options raise
+`AgentInvalidRequestException` before the agent starts the SDK client, creates a
+session, or resumes one. This includes supplying a connection when no default is
+configured, and clearing a configuration with an empty object or `None`. Runtime
+custom agents without `mcp_servers` remain supported. Ordinary runtime options,
+such as `model` and `timeout`, remain supported.
 
 Configure application-owned connections in `default_options`:
 
@@ -31,20 +33,20 @@ agent = GitHubCopilotAgent(
 )
 ```
 
-**Migration:** existing code passing `provider` or `mcp_servers` through
-`run(options=...)` must move those settings to `default_options`, or explicitly
-enable trusted runtime connection configuration:
+**Migration:** existing code passing `provider`, top-level `mcp_servers`, or
+custom-agent MCP servers through `run(options=...)` must move those settings to
+`default_options`, or explicitly enable trusted runtime connection configuration:
 
 ```python
 agent = GitHubCopilotAgent(allow_runtime_connection_overrides=True)
 ```
 
 With opt-in, runtime connection options retain their existing precedence over
-defaults. The flag is a constructor argument, not an SDK session option; it cannot
-be enabled through the incoming options mapping. Apply the same policy to both
-streaming and non-streaming calls. Applications opting in are responsible for
-validating or filtering connection settings received over HTTP or from other
-untrusted inputs.
+defaults, including replacement custom-agent configurations. The flag is a
+constructor argument, not an SDK session option; it cannot be enabled through the
+incoming options mapping. Apply the same policy to both streaming and non-streaming
+calls. Applications opting in are responsible for validating or filtering
+connection settings received over HTTP or from other untrusted inputs.
 
 ## Tool approval (`approval_mode="always_require"`)
 
