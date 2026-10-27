@@ -210,6 +210,7 @@ _SESSION_RUN_LOCKS: weakref.WeakValueDictionary[tuple[int, str], asyncio.Lock] =
 _RUNTIME_CONNECTION_OPTION_NAMES = frozenset({
     "agent_directories",
     "auth_client_id_metadata_url",
+    "capi",
     "config_directory",
     "disabled_mcp_servers",
     "enable_config_discovery",

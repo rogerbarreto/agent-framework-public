@@ -528,12 +528,13 @@ class InvocationsHostServer(InvocationAgentServerHost):
             logger.warning("DEPRECATION: %s", message)
 
     @asynccontextmanager
-    async def _request_agent(self) -> AsyncGenerator[SupportsAgentRun]:
+    async def _request_agent(self, options: Mapping[str, Any]) -> AsyncGenerator[SupportsAgentRun]:
         if self._agent is None:
             raise RuntimeError("No agent is configured for Invocations.")
         agent = await resolve_agent(self._agent)
         if isinstance(agent, WorkflowAgent):
             self._warn_legacy_workflow()
+        await self._validate_agent_options(agent, options)
         async with AsyncExitStack() as resources:
             if self._owns_request_agent and isinstance(agent, AbstractAsyncContextManager):
                 await resources.enter_async_context(agent)
@@ -690,9 +691,8 @@ class InvocationsHostServer(InvocationAgentServerHost):
                 token: Token[FoundryAgentRequestContext] | None = set_request_context(context)
                 try:
                     lock = self._session_locks.setdefault(partition_key, asyncio.Lock())
-                    async with lock, self._request_agent() as agent:
+                    async with lock, self._request_agent(options) as agent:
                         run_kwargs = self._agent_kwargs(agent, options)
-                        await self._validate_agent_options(agent, options)
                         async with self._request_session(partition_key, context, hosted_scope=hosted_scope) as session:
                             stream = agent.run(parsed.messages, session=session, stream=True, **run_kwargs)
                             completed = False
@@ -750,9 +750,8 @@ class InvocationsHostServer(InvocationAgentServerHost):
 
         try:
             lock = self._session_locks.setdefault(partition_key, asyncio.Lock())
-            async with lock, self._request_agent() as agent:
+            async with lock, self._request_agent(options) as agent:
                 run_kwargs = self._agent_kwargs(agent, options)
-                await self._validate_agent_options(agent, options)
                 async with self._request_session(partition_key, context, hosted_scope=hosted_scope) as session:
                     response = await agent.run(parsed.messages, session=session, **run_kwargs)
             if self._legacy_wire_format:

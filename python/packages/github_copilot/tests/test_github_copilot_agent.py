@@ -77,7 +77,7 @@ def test_copilot_sdk_dependency_stops_at_latest_reviewed_version() -> None:
         if line.strip().startswith('"github-copilot-sdk')
     )
 
-    assert "<1.0.26" in dependency
+    assert "<=1.0.25" in dependency
 
 
 def shell_request(
@@ -1694,6 +1694,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
                     }
                 ]
             },
+            {"capi": {"enable_web_socket_responses": False}},
         ],
     )
     async def test_run_rejects_runtime_connections_by_default(
@@ -1911,6 +1912,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
             {"on_mcp_auth_request": lambda _request: {"kind": "cancelled"}},
             {"github_mcp_tool_config": {"enable_all_tools": True}},
             {"disabled_mcp_servers": ["application"]},
+            {"capi": {"enable_web_socket_responses": False}},
         ],
     )
     async def test_runtime_connection_defaults_and_opt_in_are_forwarded(
@@ -2062,12 +2064,14 @@ class TestGitHubCopilotAgentRuntimeConnections:
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize("resume", [False, True])
     @pytest.mark.parametrize("source", ["request", "parser", "hook"])
+    @pytest.mark.parametrize("agent_source", ["instance", "factory"])
     async def test_invocations_preserves_named_provider_opt_in(
         self,
         agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
         stream: bool,
         resume: bool,
         source: str,
+        agent_source: str,
         monkeypatch: pytest.MonkeyPatch,
         mock_client: MagicMock,
         mock_session: MagicMock,
@@ -2105,7 +2109,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
             },
         )
         server = hosting.InvocationsHostServer(
-            agent,
+            agent if agent_source == "instance" else lambda: agent,
             agent_session_store_provider=store_provider,
             parse_request=(lambda _request: hosting.InvocationRun(messages="Hello", options=options, stream=stream))
             if source == "parser"
@@ -2139,6 +2143,19 @@ class TestGitHubCopilotAgentRuntimeConnections:
             {"provider": {}},
             {"providers": None},
             {"providers": []},
+            {"plugin_directories": []},
+            {"agent_directories": []},
+            {"config_directory": None},
+            {"enable_config_discovery": None},
+            {"working_directory": None},
+            {"github_token": None},
+            {"github_token_provider": None},
+            {"auth_client_id_metadata_url": None},
+            {"mcp_oauth_token_storage": None},
+            {"on_mcp_auth_request": None},
+            {"github_mcp_tool_config": {}},
+            {"disabled_mcp_servers": []},
+            {"capi": {}},
             {
                 "providers": [{"name": "runtime", "type": "openai", "base_url": "https://runtime.example/api"}],
                 "models": [{"id": "runtime-model", "provider": "runtime"}],

@@ -399,9 +399,9 @@ A hook may strip denied caller fields before validation; allowed generation and 
 available. These restrictions apply to both wire formats and every `unsupported_options` policy.
 Connection option names such as `provider` and `mcp_servers` are not reserved host-wide.
 The hosted agent owns their policy. Agents may expose `validate_run_options(options)` for a side-effect-free
-preflight before the host reads or writes session storage. The updated `GitHubCopilotAgent` and
-`RawGitHubCopilotAgent` use this preflight to reject runtime connections by default while preserving connections in
-`default_options`. Trusted applications can enable them with the constructor-only
+preflight before the host enters a request-scoped agent context or reads or writes session storage. The updated
+`GitHubCopilotAgent` and `RawGitHubCopilotAgent` use this preflight to reject runtime connections by default while
+preserving connections in `default_options`. Trusted applications can enable them with the constructor-only
 `allow_runtime_connection_overrides=True` flag and filter request input through `prepare_options`.
 Update the Copilot package as well as the host to obtain that default-deny policy; older Copilot versions retain their
 existing runtime connection behavior.

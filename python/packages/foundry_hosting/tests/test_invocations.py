@@ -84,6 +84,7 @@ _COPILOT_RUNTIME_CONNECTION_OPTIONS: list[dict[str, Any]] = [
     {"mcp_oauth_token_storage": "persistent"},
     {"github_mcp_tool_config": {"enable_all_tools": True}},
     {"disabled_mcp_servers": ["application"]},
+    {"capi": {"enable_web_socket_responses": False}},
     {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
     {
         "custom_agents": [
@@ -999,10 +1000,11 @@ class TestParsedRequests:
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize("resume", [False, True])
     @pytest.mark.parametrize("source", ["request", "parser", "hook"])
+    @pytest.mark.parametrize("agent_source", ["instance", "factory"])
     @pytest.mark.parametrize("agent_type", ["RawGitHubCopilotAgent", "GitHubCopilotAgent"])
     @pytest.mark.parametrize("options", _COPILOT_RUNTIME_CONNECTION_OPTIONS)
     async def test_http_route_reports_copilot_connection_policy_rejections_as_client_errors(
-        self, stream: bool, resume: bool, source: str, agent_type: str, options: dict[str, Any]
+        self, stream: bool, resume: bool, source: str, agent_source: str, agent_type: str, options: dict[str, Any]
     ) -> None:
         copilot_agents = pytest.importorskip("agent_framework_github_copilot")
         sdk_client = MagicMock()
@@ -1017,7 +1019,7 @@ class TestParsedRequests:
                 service_session_id="existing-session",
             )
         server = InvocationsHostServer(
-            agent,
+            agent if agent_source == "instance" else lambda: agent,
             agent_session_store_provider=_SessionStoreProvider(store),
             parse_request=(lambda _request: InvocationRun(messages="hi", options=options, stream=stream))
             if source == "parser"

@@ -51,14 +51,15 @@ remain supported, and ordinary runtime options retain their existing behavior. T
 constructor flag is never read from run options or forwarded to the SDK.
 
 The agents expose a side-effect-free `validate_run_options` preflight. Invocations
-uses it after resolving the request-scoped agent and before accessing session storage.
-Direct runs still validate at entry, and session assembly validates again.
+uses it after resolving the request-scoped agent and before entering its async
+context or accessing session storage. Direct runs still validate at entry, and
+session assembly validates again.
 
 Trusted applications may opt in to preserve runtime connection precedence over
 defaults. This is an intentional behavioral compatibility change: existing callers
 must move connections into defaults or enable the constructor flag.
 
-The package bounds `github-copilot-sdk` below 1.0.26 because 1.0.25 is the latest
+The package bounds `github-copilot-sdk` at 1.0.25 because it is the latest
 reviewed session configuration surface. Widening the bound requires classifying new
 `create_session` and `resume_session` parameters and adding regression coverage before
 publication.
