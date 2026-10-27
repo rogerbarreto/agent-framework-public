@@ -504,8 +504,8 @@ class GitHubCopilotOptions(TypedDict, total=False):
     ``reasoning_effort``, ``context_tier``, ``enable_citations``, ``available_tools``,
     ``memory``, ...) may also be supplied and is forwarded verbatim to the SDK. An
     unrecognized parameter name surfaces as a ``TypeError`` from the SDK, so typos are
-    caught rather than silently ignored. Per-run ``provider``, top-level ``mcp_servers``,
-    and ``custom_agents[].mcp_servers`` require constructor opt-in through
+    caught rather than silently ignored. Per-run ``provider``, ``providers``, top-level
+    ``mcp_servers``, and ``custom_agents[].mcp_servers`` require constructor opt-in through
     ``allow_runtime_connection_overrides=True``.
     """
 
@@ -684,9 +684,9 @@ class RawGitHubCopilotAgent(BaseAgent, Generic[OptionsT]):
                 or tool definition dicts. These are converted to Copilot SDK tools internally.
             default_options: Default options for the agent. Can include cli_path, model,
                 timeout, log_level, etc.
-            allow_runtime_connection_overrides: Allow per-run `provider`, top-level `mcp_servers`,
-                and `custom_agents[].mcp_servers` configuration. Defaults to False. Configure
-                application-owned connections through `default_options` instead.
+            allow_runtime_connection_overrides: Allow per-run `provider`, `providers`, top-level
+                `mcp_servers`, and `custom_agents[].mcp_servers` configuration. Defaults to False.
+                Configure application-owned connections through `default_options` instead.
             env_file_path: Optional path to .env file for loading configuration.
             env_file_encoding: Encoding of the .env file, defaults to 'utf-8'.
 
@@ -1982,9 +1982,9 @@ class GitHubCopilotAgent(  # type: ignore[misc]
                 These are converted to Copilot SDK tools internally.
             default_options: Default options for the agent. Can include cli_path, model,
                 timeout, log_level, etc.
-            allow_runtime_connection_overrides: Allow per-run `provider`, top-level `mcp_servers`,
-                and `custom_agents[].mcp_servers` configuration. Defaults to False. Configure
-                application-owned connections through `default_options` instead.
+            allow_runtime_connection_overrides: Allow per-run `provider`, `providers`, top-level
+                `mcp_servers`, and `custom_agents[].mcp_servers` configuration. Defaults to False.
+                Configure application-owned connections through `default_options` instead.
             env_file_path: Optional path to .env file for loading configuration.
             env_file_encoding: Encoding of the .env file, defaults to 'utf-8'.
         """

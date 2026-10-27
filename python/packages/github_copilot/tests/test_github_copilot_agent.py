@@ -1657,6 +1657,11 @@ class TestGitHubCopilotAgentRuntimeConnections:
         "options",
         [
             {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
+            {
+                "providers": [{"name": "runtime", "type": "openai", "base_url": "https://example.com/api"}],
+                "models": [{"id": "runtime-model", "provider": "runtime"}],
+                "model": "runtime/runtime-model",
+            },
             {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
             {
                 "custom_agents": [
@@ -1800,6 +1805,72 @@ class TestGitHubCopilotAgentRuntimeConnections:
         assert "allow_runtime_connection_overrides" not in config
         assert agent.default_options == defaults
 
+    @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("resume", [False, True])
+    @pytest.mark.parametrize("source", ["defaults", "runtime"])
+    async def test_named_provider_defaults_and_opt_in_are_forwarded(
+        self,
+        agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
+        stream: bool,
+        resume: bool,
+        source: str,
+        mock_client: MagicMock,
+        mock_session: MagicMock,
+        assistant_message_event: SessionEvent,
+        assistant_delta_event: SessionEvent,
+        session_idle_event: SessionEvent,
+    ) -> None:
+        providers = [{"name": "runtime", "type": "openai", "base_url": "https://runtime.example/api"}]
+        models = [{"id": "runtime-model", "provider": "runtime"}]
+        connections = cast(
+            GitHubCopilotOptions,
+            {
+                "providers": providers,
+                "models": models,
+                "model": "runtime/runtime-model",
+            },
+        )
+
+        def mock_on(handler: Any) -> Any:
+            handler(assistant_delta_event)
+            handler(session_idle_event)
+            return lambda: None
+
+        mock_session.on = mock_on
+        mock_session.send_and_wait.return_value = assistant_message_event
+        agent = agent_type(
+            client=mock_client,
+            default_options=connections if source == "defaults" else None,
+            allow_runtime_connection_overrides=source == "runtime",
+        )
+        session = AgentSession(service_session_id="existing-session" if resume else None)
+
+        if stream:
+            updates = [
+                update
+                async for update in agent.run(
+                    "Hello",
+                    session=session,
+                    options=connections if source == "runtime" else None,
+                    stream=True,
+                )
+            ]
+            assert "".join(update.text for update in updates) == "Hello"
+        else:
+            response = await agent.run(
+                "Hello",
+                session=session,
+                options=connections if source == "runtime" else None,
+            )
+            assert response.text == "Test response"
+
+        config = (mock_client.resume_session if resume else mock_client.create_session).call_args.kwargs
+        assert config["providers"] == providers
+        assert config["models"] == models
+        assert config["model"] == "runtime/runtime-model"
+        assert agent.default_options == (connections if source == "defaults" else {})
+
     async def test_runtime_options_cannot_enable_connection_overrides(self, mock_client: MagicMock) -> None:
         agent: RawGitHubCopilotAgent[GitHubCopilotOptions] = RawGitHubCopilotAgent(client=mock_client)
         with pytest.raises(AgentInvalidRequestException, match="provider"):
@@ -1883,6 +1954,67 @@ class TestGitHubCopilotAgentRuntimeConnections:
         assert config["provider"] == options["provider"]
         assert config["mcp_servers"] == options["mcp_servers"]
         assert config["custom_agents"] == runtime_custom_agents
+        store.set.assert_awaited_once()
+
+    @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
+    @pytest.mark.parametrize("stream", [False, True])
+    async def test_invocations_preserves_named_provider_opt_in(
+        self,
+        agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
+        stream: bool,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_client: MagicMock,
+        mock_session: MagicMock,
+        assistant_message_event: SessionEvent,
+        assistant_delta_event: SessionEvent,
+        session_idle_event: SessionEvent,
+    ) -> None:
+        hosting = pytest.importorskip("agent_framework_foundry_hosting")
+        import httpx
+
+        monkeypatch.setattr("azure.ai.agentserver.core._tracing._configure_tracing", lambda **kwargs: None)
+
+        def mock_on(handler: Any) -> Any:
+            handler(assistant_delta_event)
+            handler(session_idle_event)
+            return lambda: None
+
+        mock_session.on = mock_on
+        mock_session.send_and_wait.return_value = assistant_message_event
+        store = MagicMock(spec=SessionStore)
+        store.get.return_value = None
+        store_provider = MagicMock(spec=hosting.StoreProvider)
+        store_provider.get_store.return_value = store
+        agent = agent_type(client=mock_client, allow_runtime_connection_overrides=True)
+        server = hosting.InvocationsHostServer(agent, agent_session_store_provider=store_provider)
+        providers = [{"name": "runtime", "type": "openai", "base_url": "https://runtime.example/api"}]
+        models = [{"id": "runtime-model", "provider": "runtime"}]
+        options = cast(
+            GitHubCopilotOptions,
+            {
+                "providers": providers,
+                "models": models,
+                "model": "runtime/runtime-model",
+            },
+        )
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server), base_url="http://test") as client:
+            response = await client.post(
+                "/invocations",
+                params={"agent_session_id": f"trusted-named-provider-{uuid4().hex}"},
+                json={"message": "Hello", "stream": stream, "options": options},
+            )
+
+        assert response.status_code == 200
+        if stream:
+            assert 'event: delta\ndata: {"text": "Hello"}' in response.text
+            assert "event: done" in response.text
+            assert "event: error" not in response.text
+        else:
+            assert response.json() == {"response": "Test response"}
+        config = mock_client.create_session.call_args.kwargs
+        assert config["providers"] == providers
+        assert config["models"] == models
+        assert config["model"] == "runtime/runtime-model"
         store.set.assert_awaited_once()
 
     @pytest.mark.parametrize(

@@ -950,6 +950,11 @@ class TestParsedRequests:
         "options",
         [
             {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
+            {
+                "providers": [{"name": "runtime", "type": "openai", "base_url": "https://example.com/api"}],
+                "models": [{"id": "runtime-model", "provider": "runtime"}],
+                "model": "runtime/runtime-model",
+            },
             {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
             {
                 "custom_agents": [
