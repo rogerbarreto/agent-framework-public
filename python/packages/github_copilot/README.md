@@ -13,7 +13,7 @@ The GitHub Copilot agent enables integration with GitHub Copilot, allowing you t
 ## Runtime connection configuration
 
 `GitHubCopilotAgent` and `RawGitHubCopilotAgent` default to
-`allow_runtime_connection_overrides=False`. Per-run `provider`, top-level
+`allow_runtime_connection_overrides=False`. Per-run `provider`, `providers`, top-level
 `mcp_servers`, and `custom_agents[].mcp_servers` options raise
 `AgentInvalidRequestException` before the agent starts the SDK client, creates a
 session, or resumes one. This includes supplying a connection when no default is
@@ -33,7 +33,7 @@ agent = GitHubCopilotAgent(
 )
 ```
 
-**Migration:** existing code passing `provider`, top-level `mcp_servers`, or
+**Migration:** existing code passing `provider`, `providers`, top-level `mcp_servers`, or
 custom-agent MCP servers through `run(options=...)` must move those settings to
 `default_options`, or explicitly enable trusted runtime connection configuration:
 

@@ -10,7 +10,7 @@ deciders: rogerbarreto, eavanvalkenburg, westey-m
 ## Context and Problem Statement
 
 The Invocations host passes application-parsed options to agents. For the Copilot
-agent, `provider`, top-level `mcp_servers`, and MCP servers nested in
+agent, `provider`, the named `providers` registry, top-level `mcp_servers`, and MCP servers nested in
 `custom_agents` are serializable SDK connection configurations, not Python client
 objects. Forwarding unfiltered request options can therefore change the
 connections selected for a session.
@@ -43,7 +43,7 @@ application parsers and option hooks. The compatibility concern is tracked in
 
 Choose the agent-owned policy. Both `GitHubCopilotAgent` and
 `RawGitHubCopilotAgent` expose `allow_runtime_connection_overrides=False`.
-They reject per-run `provider`, top-level `mcp_servers`, and
+They reject per-run `provider`, `providers`, top-level `mcp_servers`, and
 `custom_agents[].mcp_servers`, including empty or null values, before SDK startup
 and again before assembling SDK session configuration. Application
 `default_options` remain allowed, runtime custom agents without MCP configuration

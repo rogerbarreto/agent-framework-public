@@ -1732,7 +1732,7 @@ class RawGitHubCopilotAgent(BaseAgent, Generic[OptionsT]):
     def _validate_runtime_connection_options(self, options: Mapping[str, Any]) -> None:
         if self._allow_runtime_connection_overrides:
             return
-        reserved = {"mcp_servers", "provider"}.intersection(options)
+        reserved = {"mcp_servers", "provider", "providers"}.intersection(options)
         custom_agents = options.get("custom_agents")
         if (
             isinstance(custom_agents, Sequence)

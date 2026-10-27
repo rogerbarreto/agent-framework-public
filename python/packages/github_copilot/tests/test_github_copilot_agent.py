@@ -1890,6 +1890,13 @@ class TestGitHubCopilotAgentRuntimeConnections:
         [
             {"provider": None},
             {"provider": {}},
+            {"providers": None},
+            {"providers": []},
+            {
+                "providers": [{"name": "runtime", "type": "openai", "base_url": "https://runtime.example/api"}],
+                "models": [{"id": "runtime-model", "provider": "runtime"}],
+                "model": "runtime-model",
+            },
             {"mcp_servers": None},
             {"mcp_servers": {}},
             {"custom_agents": [{"name": "runtime", "prompt": "Empty MCP", "mcp_servers": None}]},

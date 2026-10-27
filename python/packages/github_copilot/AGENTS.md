@@ -27,7 +27,7 @@ from agent_framework_github_copilot import GitHubCopilotAgent
 
 ## Session Option Defaults
 
-`GitHubCopilotAgent` and `RawGitHubCopilotAgent` reject per-run `provider`,
+`GitHubCopilotAgent` and `RawGitHubCopilotAgent` reject per-run `provider`, `providers`,
 top-level `mcp_servers`, and `custom_agents[].mcp_servers` by default. Application
 defaults remain supported; runtime connection configuration requires the
 constructor-only `allow_runtime_connection_overrides=True` flag. Validate before
