@@ -50,6 +50,10 @@ SDK startup and again before assembling SDK session configuration. Application
 remain supported, and ordinary runtime options retain their existing behavior. The
 constructor flag is never read from run options or forwarded to the SDK.
 
+The agents expose a side-effect-free `validate_run_options` preflight. Invocations
+uses it after resolving the request-scoped agent and before accessing session storage.
+Direct runs still validate at entry, and session assembly validates again.
+
 Trusted applications may opt in to preserve runtime connection precedence over
 defaults. This is an intentional behavioral compatibility change: existing callers
 must move connections into defaults or enable the constructor flag.

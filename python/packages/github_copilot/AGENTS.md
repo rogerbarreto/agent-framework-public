@@ -40,6 +40,10 @@ surface. Before widening it, compare `create_session` and `resume_session` param
 against `_RUNTIME_CONNECTION_OPTION_NAMES`, add red/green coverage for new connection
 paths, and preserve the constructor opt-in.
 
+`validate_run_options` is the side-effect-free hosting preflight. Keep it aligned
+with validation at the start of direct streaming and non-streaming runs and with the
+second validation in `_build_session_kwargs`.
+
 `_build_session_kwargs` forwards options to the SDK verbatim except for a few keys that get
 an explicit default: `on_permission_request` (deny-all) and `enable_file_hooks` (`False`, so
 a session behaves the same way in every working directory). Callers opt in through

@@ -1769,6 +1769,10 @@ class RawGitHubCopilotAgent(BaseAgent, Generic[OptionsT]):
                 "when constructing the agent."
             )
 
+    def validate_run_options(self, options: Mapping[str, Any] | None = None) -> None:
+        """Validate per-run options without starting the SDK client or opening a session."""
+        self._validate_runtime_connection_options(options or {})
+
     def _build_session_kwargs(
         self,
         streaming: bool,

@@ -260,6 +260,14 @@ def _invocation_failure(exc: Exception) -> tuple[str, int, str]:
     return "Agent invocation failed.", 500, "invocation_failed"
 
 
+def _contains_exception(cause: BaseException | None, exception_type: type[BaseException]) -> bool:
+    while cause is not None:
+        if isinstance(cause, exception_type):
+            return True
+        cause = cause.__cause__
+    return False
+
+
 def _workflow_failure(exc: Exception) -> tuple[str, int, str]:
     if isinstance(exc, _WorkflowOutputError):
         return str(exc), 500, "invalid_workflow_output"
@@ -558,17 +566,18 @@ class InvocationsHostServer(InvocationAgentServerHost):
             yield session
         finally:
             failure = sys.exc_info()[1]
-            try:
-                await store.set(session_id, session)
-            except Exception as exc:
-                logger.exception("Failed to persist invocation session")
-                if failure is None:
-                    raise
-                if isinstance(failure, Exception):
-                    raise RuntimeError(
-                        f"Invocation failed: {str(failure) or type(failure).__name__}; "
-                        f"session persistence also failed: {str(exc) or type(exc).__name__}"
-                    ) from exc
+            if not _contains_exception(failure, AgentInvalidRequestException):
+                try:
+                    await store.set(session_id, session)
+                except Exception as exc:
+                    logger.exception("Failed to persist invocation session")
+                    if failure is None:
+                        raise
+                    if isinstance(failure, Exception):
+                        raise RuntimeError(
+                            f"Invocation failed: {str(failure) or type(failure).__name__}; "
+                            f"session persistence also failed: {str(exc) or type(exc).__name__}"
+                        ) from exc
 
     async def _parse(self, request: Request) -> InvocationRun | WorkflowTurn[Any]:
         if self._parse_request is not None:
@@ -627,6 +636,15 @@ class InvocationsHostServer(InvocationAgentServerHost):
         return {"options": options}
 
     @staticmethod
+    async def _validate_agent_options(agent: SupportsAgentRun, options: Mapping[str, Any]) -> None:
+        validator = getattr(agent, "validate_run_options", None)
+        if not callable(validator):
+            return
+        result = validator(options)
+        if inspect.isawaitable(result):
+            await result
+
+    @staticmethod
     async def _close_interrupted_stream(stream: object) -> None:
         if isinstance(stream, ResponseStream):
             close = getattr(cast(object, stream), "close", None)
@@ -674,6 +692,7 @@ class InvocationsHostServer(InvocationAgentServerHost):
                     lock = self._session_locks.setdefault(partition_key, asyncio.Lock())
                     async with lock, self._request_agent() as agent:
                         run_kwargs = self._agent_kwargs(agent, options)
+                        await self._validate_agent_options(agent, options)
                         async with self._request_session(partition_key, context, hosted_scope=hosted_scope) as session:
                             stream = agent.run(parsed.messages, session=session, stream=True, **run_kwargs)
                             completed = False
@@ -733,6 +752,7 @@ class InvocationsHostServer(InvocationAgentServerHost):
             lock = self._session_locks.setdefault(partition_key, asyncio.Lock())
             async with lock, self._request_agent() as agent:
                 run_kwargs = self._agent_kwargs(agent, options)
+                await self._validate_agent_options(agent, options)
                 async with self._request_session(partition_key, context, hosted_scope=hosted_scope) as session:
                     response = await agent.run(parsed.messages, session=session, **run_kwargs)
             if self._legacy_wire_format:

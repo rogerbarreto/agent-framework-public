@@ -21,6 +21,9 @@ configured, and clearing a configuration with an empty object or `None`. Runtime
 custom agents without `mcp_servers` remain supported. Ordinary runtime options,
 such as `model` and `timeout`, remain supported.
 
+The Invocations host calls `validate_run_options` before loading session storage, so
+rejected hosted options do not read or write an agent session.
+
 Configure application-owned connections in `default_options`:
 
 ```python

@@ -1049,6 +1049,8 @@ class TestParsedRequests:
         sdk_client.start.assert_not_awaited()
         sdk_client.create_session.assert_not_awaited()
         sdk_client.resume_session.assert_not_awaited()
+        store.get.assert_not_awaited()
+        store.set.assert_not_awaited()
 
     @pytest.mark.parametrize("stream", [False, True])
     async def test_generation_options_preserve_application_connection_defaults(self, stream: bool) -> None:
