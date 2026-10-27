@@ -34,6 +34,9 @@ application code.
 - Authenticate and authorize endpoints with ASP.NET Core middleware; protocol adapters do not do this for you. Never
   expose DevUI publicly.
 - Make session, checkpoint, response, identity, approval, storage, and cleanup ownership explicit.
+- For Foundry toolbox OAuth consent, handle `oauth_consent_request` and `response.incomplete`, then
+  resend the request in the same conversation after authorization. Consent-required or skipped tool
+  results are not success, and OAuth authorization does not replace a separate tool-approval decision.
 
 Read the selected host's XML docs and maintained sample for options, history modes, storage providers, and protocol
 details.

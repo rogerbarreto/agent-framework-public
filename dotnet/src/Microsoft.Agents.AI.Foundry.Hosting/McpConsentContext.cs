@@ -26,7 +26,7 @@ internal sealed class RequestConsentState
     /// <summary>Consent information set by the tool wrapper when -32006 is detected.</summary>
     internal McpConsentInfo? Pending { get; set; }
 
-    /// <summary>The linked CTS to cancel when consent is required.</summary>
+    /// <summary>The linked CTS for consent handoff outside a function-invoking loop.</summary>
     internal CancellationTokenSource? CancellationSource { get; set; }
 }
 

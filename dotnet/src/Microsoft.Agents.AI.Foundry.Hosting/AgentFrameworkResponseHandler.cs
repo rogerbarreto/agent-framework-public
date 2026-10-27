@@ -341,13 +341,37 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         // 6. Set up consent context for -32006 OAuth consent interception.
-        //    We create a linked CTS so the consent-aware tool wrapper can cancel the agent
-        //    run mid-loop when a -32006 error is returned by the proxy. The RequestConsentState
-        //    is a shared mutable object that flows via AsyncLocal to the tool wrapper.
+        //    The consent-aware tool wrapper terminates the function loop with a consent-required
+        //    result. A linked CTS also supports agents invoking tools outside that loop. The
+        //    RequestConsentState flows via AsyncLocal to the tool wrapper.
         using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             context.Shutdown);
         var consentState = new RequestConsentState { CancellationSource = consentCts };
+
+        if (agent.GetService<FunctionInvokingChatClient>() is { } functionClient)
+        {
+            agent = agent.AsBuilder().Use(async (_, invocation, next, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    return consentState.Pending is null
+                        ? await next(invocation, ct).ConfigureAwait(false)
+                        : "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
+                }
+                finally
+                {
+                    if (consentState.Pending is not null)
+                    {
+                        // Serial termination skips the remaining calls without producing results.
+                        // Drain them through this callback instead, without invoking their tools.
+                        invocation.Terminate = functionClient.AllowConcurrentInvocation
+                            || invocation.FunctionCallIndex == invocation.FunctionCount - 1;
+                    }
+                }
+            }).Build();
+        }
 
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
@@ -443,6 +467,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     if (evt is ResponseCompletedEvent)
                     {
                         consentCts.Token.ThrowIfCancellationRequested();
+                        consentInfo = consentState.Pending;
                     }
 
                     shutdownDetected =
@@ -478,9 +503,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
 
                 if (consentInfo is not null)
                 {
-                    // Emit oauth_consent_request output item + incomplete for the consent URL.
-                    // The tool wrapper records every -32006 and cancels the loop, so a rejected link
-                    // fails the turn here instead of reaching the model as a tool error.
+                    // The loop has recorded consent-required/skipped results before terminating.
+                    // Emit the consent item instead of completed, without another model request.
+                    // A rejected link fails the turn rather than exposing that link.
                     foreach (var consentEvent in this.EmitConsentRequiredResponse(
                         stream,
                         [consentInfo],

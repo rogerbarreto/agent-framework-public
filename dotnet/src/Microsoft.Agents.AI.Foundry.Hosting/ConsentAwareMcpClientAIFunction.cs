@@ -19,11 +19,11 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <remarks>
 /// <para>
 /// When the proxy returns -32006, the consent URL is stored in <see cref="McpConsentContext.Current"/>
-/// and the per-request <see cref="RequestConsentState.CancellationSource"/> is cancelled. This causes
-/// <see cref="FunctionInvokingChatClient"/> to stop the tool loop (it guards
-/// exceptions with <c>when (!ct.IsCancellationRequested)</c>) and surfaces an
-/// <see cref="OperationCanceledException"/> to the handler. The handler then emits the
+/// and the current <see cref="FunctionInvocationContext"/> terminates the tool loop after recording
+/// an explicit consent-required result. Cancelling instead would discard that result and leave an
+/// unmatched function call in the platform's conversation history. The handler then emits the
 /// <c>oauth_consent_request</c> output item and marks the response as <c>incomplete</c>.
+/// Outside a function-invoking loop, cancellation signals the handoff to the handler.
 /// </para>
 /// </remarks>
 internal sealed class ConsentAwareMcpClientAIFunction : AIFunction
@@ -73,6 +73,12 @@ internal sealed class ConsentAwareMcpClientAIFunction : AIFunction
                     _ => string.Empty,
                 };
                 state.Pending = new McpConsentInfo(this._toolboxName, this._inner.Name, consentUrl);
+                if (FunctionInvokingChatClient.CurrentContext is { } invocation)
+                {
+                    invocation.Terminate = true;
+                    return "Error: OAuth consent is required. This tool invocation did not complete. After authorizing, retry the request.";
+                }
+
                 state.CancellationSource?.Cancel();
             }
 
