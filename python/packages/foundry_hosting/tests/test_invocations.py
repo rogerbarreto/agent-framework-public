@@ -67,6 +67,25 @@ from agent_framework_foundry_hosting._state_store import FoundryAgentSessionStor
 
 pytestmark = pytest.mark.filterwarnings("ignore:.*SessionStore is experimental.*")
 
+_COPILOT_RUNTIME_CONNECTION_OPTIONS: list[dict[str, Any]] = [
+    {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
+    {
+        "providers": [{"name": "runtime", "type": "openai", "base_url": "https://example.com/api"}],
+        "models": [{"id": "runtime-model", "provider": "runtime"}],
+        "model": "runtime/runtime-model",
+    },
+    {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
+    {
+        "custom_agents": [
+            {
+                "name": "runtime",
+                "prompt": "Use the runtime MCP server.",
+                "mcp_servers": {"runtime": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
+            }
+        ]
+    },
+]
+
 # region Helpers
 
 
@@ -946,27 +965,7 @@ class TestParsedRequests:
 
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize("source", ["request", "parser", "hook"])
-    @pytest.mark.parametrize(
-        "options",
-        [
-            {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
-            {
-                "providers": [{"name": "runtime", "type": "openai", "base_url": "https://example.com/api"}],
-                "models": [{"id": "runtime-model", "provider": "runtime"}],
-                "model": "runtime/runtime-model",
-            },
-            {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
-            {
-                "custom_agents": [
-                    {
-                        "name": "runtime",
-                        "prompt": "Use the runtime MCP server.",
-                        "mcp_servers": {"runtime": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}},
-                    }
-                ]
-            },
-        ],
-    )
+    @pytest.mark.parametrize("options", _COPILOT_RUNTIME_CONNECTION_OPTIONS)
     async def test_connection_options_are_governed_by_the_agent(
         self, stream: bool, source: str, options: dict[str, Any]
     ) -> None:
@@ -988,29 +987,38 @@ class TestParsedRequests:
         assert agent.calls[0]["options"] == options
 
     @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("resume", [False, True])
+    @pytest.mark.parametrize("source", ["request", "parser", "hook"])
     @pytest.mark.parametrize("agent_type", ["RawGitHubCopilotAgent", "GitHubCopilotAgent"])
-    @pytest.mark.parametrize(
-        "options",
-        [
-            {"provider": {"type": "openai", "base_url": "https://example.com/api"}},
-            {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
-        ],
-    )
+    @pytest.mark.parametrize("options", _COPILOT_RUNTIME_CONNECTION_OPTIONS)
     async def test_http_route_reports_copilot_connection_policy_rejections_as_client_errors(
-        self, stream: bool, agent_type: str, options: dict[str, Any]
+        self, stream: bool, resume: bool, source: str, agent_type: str, options: dict[str, Any]
     ) -> None:
         copilot_agents = pytest.importorskip("agent_framework_github_copilot")
         sdk_client = MagicMock()
         sdk_client.start = AsyncMock()
-        sdk_client.create_session = AsyncMock()
-        sdk_client.resume_session = AsyncMock()
+        sdk_client.create_session = AsyncMock(side_effect=AssertionError("create_session must not be called"))
+        sdk_client.resume_session = AsyncMock(side_effect=AssertionError("resume_session must not be called"))
         agent = getattr(copilot_agents, agent_type)(client=sdk_client)
-        server = InvocationsHostServer(agent, agent_session_store_provider=_SessionStoreProvider(_mock_session_store()))
+        store = _mock_session_store()
+        if resume:
+            store.get.return_value = AgentSession(
+                session_id="connection-policy",
+                service_session_id="existing-session",
+            )
+        server = InvocationsHostServer(
+            agent,
+            agent_session_store_provider=_SessionStoreProvider(store),
+            parse_request=(lambda _request: InvocationRun(messages="hi", options=options, stream=stream))
+            if source == "parser"
+            else None,
+            prepare_options=(lambda _request, _options: options) if source == "hook" else None,
+        )
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server), base_url="http://test") as client:
             response = await client.post(
                 "/invocations",
                 params={"agent_session_id": f"connection-policy-{uuid.uuid4().hex}"},
-                json={"message": "hi", "stream": stream, "options": options},
+                json={"message": "hi", "stream": stream, "options": options if source == "request" else {}},
             )
 
         if stream:
