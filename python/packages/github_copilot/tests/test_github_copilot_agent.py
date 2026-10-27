@@ -2060,10 +2060,14 @@ class TestGitHubCopilotAgentRuntimeConnections:
 
     @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
     @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("resume", [False, True])
+    @pytest.mark.parametrize("source", ["request", "parser", "hook"])
     async def test_invocations_preserves_named_provider_opt_in(
         self,
         agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
         stream: bool,
+        resume: bool,
+        source: str,
         monkeypatch: pytest.MonkeyPatch,
         mock_client: MagicMock,
         mock_session: MagicMock,
@@ -2084,11 +2088,12 @@ class TestGitHubCopilotAgentRuntimeConnections:
         mock_session.on = mock_on
         mock_session.send_and_wait.return_value = assistant_message_event
         store = MagicMock(spec=SessionStore)
-        store.get.return_value = None
+        store.get.return_value = (
+            AgentSession(session_id="trusted-named-provider", service_session_id="existing-session") if resume else None
+        )
         store_provider = MagicMock(spec=hosting.StoreProvider)
         store_provider.get_store.return_value = store
         agent = agent_type(client=mock_client, allow_runtime_connection_overrides=True)
-        server = hosting.InvocationsHostServer(agent, agent_session_store_provider=store_provider)
         providers = [{"name": "runtime", "type": "openai", "base_url": "https://runtime.example/api"}]
         models = [{"id": "runtime-model", "provider": "runtime"}]
         options = cast(
@@ -2099,11 +2104,19 @@ class TestGitHubCopilotAgentRuntimeConnections:
                 "model": "runtime/runtime-model",
             },
         )
+        server = hosting.InvocationsHostServer(
+            agent,
+            agent_session_store_provider=store_provider,
+            parse_request=(lambda _request: hosting.InvocationRun(messages="Hello", options=options, stream=stream))
+            if source == "parser"
+            else None,
+            prepare_options=(lambda _request, _options: options) if source == "hook" else None,
+        )
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server), base_url="http://test") as client:
             response = await client.post(
                 "/invocations",
                 params={"agent_session_id": f"trusted-named-provider-{uuid4().hex}"},
-                json={"message": "Hello", "stream": stream, "options": options},
+                json={"message": "Hello", "stream": stream, "options": options if source == "request" else {}},
             )
 
         assert response.status_code == 200
@@ -2113,7 +2126,7 @@ class TestGitHubCopilotAgentRuntimeConnections:
             assert "event: error" not in response.text
         else:
             assert response.json() == {"response": "Test response"}
-        config = mock_client.create_session.call_args.kwargs
+        config = (mock_client.resume_session if resume else mock_client.create_session).call_args.kwargs
         assert config["providers"] == providers
         assert config["models"] == models
         assert config["model"] == "runtime/runtime-model"
