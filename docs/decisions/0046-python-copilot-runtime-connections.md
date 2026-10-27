@@ -10,10 +10,10 @@ deciders: rogerbarreto, eavanvalkenburg, westey-m
 ## Context and Problem Statement
 
 The Invocations host passes application-parsed options to agents. For the Copilot
-agent, `provider`, the named `providers` registry, top-level `mcp_servers`, and MCP servers nested in
-`custom_agents` are serializable SDK connection configurations, not Python client
-objects. Forwarding unfiltered request options can therefore change the
-connections selected for a session.
+agent, provider settings, MCP settings, custom-agent MCP settings, and discovery
+roots are serializable SDK session configuration, not Python client objects.
+Forwarding unfiltered request options can therefore change the connections selected
+for a session.
 
 The same option names can have different meanings for other agent implementations.
 An Invocations-wide denylist also rejects connection settings produced by trusted
@@ -43,12 +43,12 @@ application parsers and option hooks. The compatibility concern is tracked in
 
 Choose the agent-owned policy. Both `GitHubCopilotAgent` and
 `RawGitHubCopilotAgent` expose `allow_runtime_connection_overrides=False`.
-They reject per-run `provider`, `providers`, top-level `mcp_servers`, and
-`custom_agents[].mcp_servers`, including empty or null values, before SDK startup
-and again before assembling SDK session configuration. Application
-`default_options` remain allowed, runtime custom agents without MCP configuration
-remain supported, and ordinary runtime options retain their existing behavior. The
-constructor flag is never read from run options or forwarded to the SDK.
+They reject per-run provider configuration, MCP configuration, and discovery roots,
+including empty or null values, before SDK startup and again before assembling SDK
+session configuration. Application `default_options` remain allowed, runtime custom
+agents without MCP configuration remain supported, and ordinary runtime options
+retain their existing behavior. The constructor flag is never read from run options
+or forwarded to the SDK.
 
 Trusted applications may opt in to preserve runtime connection precedence over
 defaults. This is an intentional behavioral compatibility change: existing callers

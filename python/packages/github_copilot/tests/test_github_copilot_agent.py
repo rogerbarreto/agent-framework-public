@@ -1662,6 +1662,11 @@ class TestGitHubCopilotAgentRuntimeConnections:
                 "models": [{"id": "runtime-model", "provider": "runtime"}],
                 "model": "runtime/runtime-model",
             },
+            {"plugin_directories": ["C:\\caller-plugin"]},
+            {"agent_directories": ["C:\\caller-agents"]},
+            {"config_directory": "C:\\caller-config"},
+            {"enable_config_discovery": True},
+            {"working_directory": "C:\\caller-workspace"},
             {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
             {
                 "custom_agents": [
@@ -1870,6 +1875,79 @@ class TestGitHubCopilotAgentRuntimeConnections:
         assert config["models"] == models
         assert config["model"] == "runtime/runtime-model"
         assert agent.default_options == (connections if source == "defaults" else {})
+
+    @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("resume", [False, True])
+    @pytest.mark.parametrize("source", ["defaults", "runtime"])
+    @pytest.mark.parametrize(
+        "connections",
+        [
+            {"plugin_directories": ["C:\\trusted-plugin"]},
+            {"config_directory": "C:\\trusted-config"},
+            {"enable_config_discovery": True},
+            {"working_directory": "C:\\trusted-workspace"},
+        ],
+    )
+    async def test_runtime_connection_defaults_and_opt_in_are_forwarded(
+        self,
+        agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
+        stream: bool,
+        resume: bool,
+        source: str,
+        connections: dict[str, Any],
+        mock_client: MagicMock,
+        mock_session: MagicMock,
+        assistant_message_event: SessionEvent,
+        assistant_delta_event: SessionEvent,
+        session_idle_event: SessionEvent,
+    ) -> None:
+        def mock_on(handler: Any) -> Any:
+            handler(assistant_delta_event)
+            handler(session_idle_event)
+            return lambda: None
+
+        mock_session.on = mock_on
+        mock_session.send_and_wait.return_value = assistant_message_event
+        agent = agent_type(
+            client=mock_client,
+            default_options=cast(GitHubCopilotOptions, connections) if source == "defaults" else None,
+            allow_runtime_connection_overrides=source == "runtime",
+        )
+        session = AgentSession(service_session_id="existing-session" if resume else None)
+        options = cast(GitHubCopilotOptions, connections) if source == "runtime" else None
+
+        if stream:
+            updates = [update async for update in agent.run("Hello", session=session, options=options, stream=True)]
+            assert "".join(update.text for update in updates) == "Hello"
+        else:
+            response = await agent.run("Hello", session=session, options=options)
+            assert response.text == "Test response"
+
+        config = (mock_client.resume_session if resume else mock_client.create_session).call_args.kwargs
+        for key, value in connections.items():
+            assert config[key] == value
+        assert agent.default_options == (connections if source == "defaults" else {})
+
+    @pytest.mark.parametrize("agent_type", [RawGitHubCopilotAgent, GitHubCopilotAgent])
+    async def test_newer_sdk_runtime_connection_opt_in_is_forwarded(
+        self,
+        agent_type: type[RawGitHubCopilotAgent[GitHubCopilotOptions]],
+        mock_session: MagicMock,
+        assistant_message_event: SessionEvent,
+    ) -> None:
+        mock_session.send_and_wait.return_value = assistant_message_event
+        client = MagicMock()
+        client.start = AsyncMock()
+        client.create_session = AsyncMock(return_value=mock_session)
+        client.resume_session = AsyncMock(return_value=mock_session)
+        agent = agent_type(client=client, allow_runtime_connection_overrides=True)
+        options = cast(GitHubCopilotOptions, {"agent_directories": ["C:\\trusted-agents"]})
+
+        response = await agent.run("Hello", session=AgentSession(), options=options)
+
+        assert response.text == "Test response"
+        assert client.create_session.call_args.kwargs["agent_directories"] == ["C:\\trusted-agents"]
 
     async def test_runtime_options_cannot_enable_connection_overrides(self, mock_client: MagicMock) -> None:
         agent: RawGitHubCopilotAgent[GitHubCopilotOptions] = RawGitHubCopilotAgent(client=mock_client)

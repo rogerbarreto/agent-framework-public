@@ -74,6 +74,11 @@ _COPILOT_RUNTIME_CONNECTION_OPTIONS: list[dict[str, Any]] = [
         "models": [{"id": "runtime-model", "provider": "runtime"}],
         "model": "runtime/runtime-model",
     },
+    {"plugin_directories": ["C:\\caller-plugin"]},
+    {"agent_directories": ["C:\\caller-agents"]},
+    {"config_directory": "C:\\caller-config"},
+    {"enable_config_discovery": True},
+    {"working_directory": "C:\\caller-workspace"},
     {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
     {
         "custom_agents": [
