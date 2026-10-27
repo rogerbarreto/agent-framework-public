@@ -14,8 +14,7 @@ The GitHub Copilot agent enables integration with GitHub Copilot, allowing you t
 
 `GitHubCopilotAgent` and `RawGitHubCopilotAgent` default to
 `allow_runtime_connection_overrides=False`. Per-run provider and MCP configuration,
-plus discovery roots such as `plugin_directories`, `agent_directories`,
-`config_directory`, `enable_config_discovery`, and `working_directory`, raise
+session credentials, authentication controls, and discovery roots raise
 `AgentInvalidRequestException` before the agent starts the SDK client, creates a
 session, or resumes one. This includes supplying a connection when no default is
 configured, and clearing a configuration with an empty object or `None`. Runtime
@@ -34,9 +33,10 @@ agent = GitHubCopilotAgent(
 )
 ```
 
-**Migration:** existing code passing provider configuration, MCP configuration, or
-discovery roots through `run(options=...)` must move those settings to `default_options`,
-or explicitly enable trusted runtime connection configuration:
+**Migration:** existing code passing provider configuration, MCP configuration,
+session credentials, authentication controls, or discovery roots through
+`run(options=...)` must move those settings to `default_options`, or explicitly enable
+trusted runtime connection configuration:
 
 ```python
 agent = GitHubCopilotAgent(allow_runtime_connection_overrides=True)

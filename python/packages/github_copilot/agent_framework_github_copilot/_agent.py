@@ -207,6 +207,24 @@ def _provider_service_session_state_keys(agent: object, client: object | None) -
 # Entries disappear once no run holds or awaits the lock.
 _SESSION_RUN_LOCKS: weakref.WeakValueDictionary[tuple[int, str], asyncio.Lock] = weakref.WeakValueDictionary()
 
+_RUNTIME_CONNECTION_OPTION_NAMES = frozenset({
+    "agent_directories",
+    "auth_client_id_metadata_url",
+    "config_directory",
+    "disabled_mcp_servers",
+    "enable_config_discovery",
+    "github_mcp_tool_config",
+    "github_token",
+    "github_token_provider",
+    "mcp_oauth_token_storage",
+    "mcp_servers",
+    "on_mcp_auth_request",
+    "plugin_directories",
+    "provider",
+    "providers",
+    "working_directory",
+})
+
 _MCP_TOOL_MESSAGE = (
     "MCP server '{name}' cannot be passed to GitHubCopilotAgent as a tool: the Copilot SDK "
     "connects to MCP servers itself, so a framework-managed MCPTool would keep none of its "
@@ -505,9 +523,8 @@ class GitHubCopilotOptions(TypedDict, total=False):
     ``memory``, ...) may also be supplied and is forwarded verbatim to the SDK. An
     unrecognized parameter name surfaces as a ``TypeError`` from the SDK, so typos are
     caught rather than silently ignored. Per-run provider configuration, MCP configuration,
-    and discovery roots such as ``plugin_directories``, ``agent_directories``,
-    ``config_directory``, ``enable_config_discovery``, and ``working_directory`` require
-    constructor opt-in through ``allow_runtime_connection_overrides=True``.
+    session credentials, authentication controls, and discovery roots require constructor
+    opt-in through ``allow_runtime_connection_overrides=True``.
     """
 
     system_message: SystemMessageConfig
@@ -686,8 +703,8 @@ class RawGitHubCopilotAgent(BaseAgent, Generic[OptionsT]):
             default_options: Default options for the agent. Can include cli_path, model,
                 timeout, log_level, etc.
             allow_runtime_connection_overrides: Allow per-run provider configuration, MCP
-                configuration, and discovery roots. Defaults to False. Configure application-owned
-                connections and discovery through `default_options` instead.
+                configuration, session credentials, authentication controls, and discovery roots.
+                Defaults to False. Configure application-owned connections through `default_options`.
             env_file_path: Optional path to .env file for loading configuration.
             env_file_encoding: Encoding of the .env file, defaults to 'utf-8'.
 
@@ -1733,16 +1750,7 @@ class RawGitHubCopilotAgent(BaseAgent, Generic[OptionsT]):
     def _validate_runtime_connection_options(self, options: Mapping[str, Any]) -> None:
         if self._allow_runtime_connection_overrides:
             return
-        reserved = {
-            "agent_directories",
-            "config_directory",
-            "enable_config_discovery",
-            "mcp_servers",
-            "plugin_directories",
-            "provider",
-            "providers",
-            "working_directory",
-        }.intersection(options)
+        reserved = set(_RUNTIME_CONNECTION_OPTION_NAMES.intersection(options))
         custom_agents = options.get("custom_agents")
         if (
             isinstance(custom_agents, Sequence)
@@ -1993,8 +2001,8 @@ class GitHubCopilotAgent(  # type: ignore[misc]
             default_options: Default options for the agent. Can include cli_path, model,
                 timeout, log_level, etc.
             allow_runtime_connection_overrides: Allow per-run provider configuration, MCP
-                configuration, and discovery roots. Defaults to False. Configure application-owned
-                connections and discovery through `default_options` instead.
+                configuration, session credentials, authentication controls, and discovery roots.
+                Defaults to False. Configure application-owned connections through `default_options`.
             env_file_path: Optional path to .env file for loading configuration.
             env_file_encoding: Encoding of the .env file, defaults to 'utf-8'.
         """

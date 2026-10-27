@@ -79,6 +79,11 @@ _COPILOT_RUNTIME_CONNECTION_OPTIONS: list[dict[str, Any]] = [
     {"config_directory": "C:\\caller-config"},
     {"enable_config_discovery": True},
     {"working_directory": "C:\\caller-workspace"},
+    {"github_token": "caller-token"},
+    {"auth_client_id_metadata_url": "https://caller.example/oauth-client.json"},
+    {"mcp_oauth_token_storage": "persistent"},
+    {"github_mcp_tool_config": {"enable_all_tools": True}},
+    {"disabled_mcp_servers": ["application"]},
     {"mcp_servers": {"application": {"type": "http", "url": "https://example.com/mcp", "tools": ["*"]}}},
     {
         "custom_agents": [

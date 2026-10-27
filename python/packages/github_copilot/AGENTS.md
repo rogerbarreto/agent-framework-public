@@ -28,12 +28,12 @@ from agent_framework_github_copilot import GitHubCopilotAgent
 ## Session Option Defaults
 
 `GitHubCopilotAgent` and `RawGitHubCopilotAgent` reject per-run provider and MCP
-configuration plus discovery roots such as plugin, agent, config, and working
-directories by default. Application defaults remain supported; runtime connection
-configuration requires the constructor-only `allow_runtime_connection_overrides=True`
-flag. Validate before SDK startup and again when assembling session kwargs so creation
-and resumption share the policy. Runtime custom agents without MCP configuration and
-ordinary runtime options keep their existing behavior.
+configuration, session credentials, authentication controls, and discovery roots by
+default. Application defaults remain supported; runtime connection configuration
+requires the constructor-only `allow_runtime_connection_overrides=True` flag. Validate
+before SDK startup and again when assembling session kwargs so creation and resumption
+share the policy. Runtime custom agents without MCP configuration and ordinary runtime
+options keep their existing behavior.
 
 `_build_session_kwargs` forwards options to the SDK verbatim except for a few keys that get
 an explicit default: `on_permission_request` (deny-all) and `enable_file_hooks` (`False`, so
