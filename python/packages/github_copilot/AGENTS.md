@@ -35,6 +35,11 @@ before SDK startup and again when assembling session kwargs so creation and resu
 share the policy. Runtime custom agents without MCP configuration and ordinary runtime
 options keep their existing behavior.
 
+The `github-copilot-sdk` upper bound reflects the latest reviewed session-option
+surface. Before widening it, compare `create_session` and `resume_session` parameters
+against `_RUNTIME_CONNECTION_OPTION_NAMES`, add red/green coverage for new connection
+paths, and preserve the constructor opt-in.
+
 `_build_session_kwargs` forwards options to the SDK verbatim except for a few keys that get
 an explicit default: `on_permission_request` (deny-all) and `enable_file_hooks` (`False`, so
 a session behaves the same way in every working directory). Callers opt in through

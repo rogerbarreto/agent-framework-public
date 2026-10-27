@@ -54,6 +54,11 @@ Trusted applications may opt in to preserve runtime connection precedence over
 defaults. This is an intentional behavioral compatibility change: existing callers
 must move connections into defaults or enable the constructor flag.
 
+The package bounds `github-copilot-sdk` below 1.0.26 because 1.0.25 is the latest
+reviewed session configuration surface. Widening the bound requires classifying new
+`create_session` and `resume_session` parameters and adding regression coverage before
+publication.
+
 Invocations no longer reserves these connection names for every agent. It reports
 the existing `AgentInvalidRequestException` as a sanitized HTTP 400 or typed SSE
 client error, while retaining generic provider-failure sanitization and legacy wire

@@ -70,6 +70,16 @@ def pre_tool_use_input(tool_name: str) -> PreToolUseHookInput:
     }
 
 
+def test_copilot_sdk_dependency_stops_at_latest_reviewed_version() -> None:
+    dependency = next(
+        line.strip()
+        for line in (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith('"github-copilot-sdk')
+    )
+
+    assert "<1.0.26" in dependency
+
+
 def shell_request(
     command_identifiers: Sequence[str], can_offer_session_approval: bool = True
 ) -> PermissionRequestShell:

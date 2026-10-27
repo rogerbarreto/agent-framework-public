@@ -46,8 +46,14 @@ With opt-in, runtime connection options retain their existing precedence over
 defaults, including replacement custom-agent configurations. The flag is a
 constructor argument, not an SDK session option; it cannot be enabled through the
 incoming options mapping. Apply the same policy to both streaming and non-streaming
-calls. Applications opting in are responsible for validating or filtering
-connection settings received over HTTP or from other untrusted inputs.
+calls.
+
+Applications opting in are responsible for validating or filtering connection
+settings received over HTTP or from other untrusted inputs.
+
+The package accepts Copilot SDK versions through 1.0.25, the latest session
+configuration surface reviewed for this boundary. A later SDK requires an Agent
+Framework update that classifies any new session options before widening the bound.
 
 ## Tool approval (`approval_mode="always_require"`)
 
