@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.Collections.Concurrent;
 using System.Threading;
 using Microsoft.Extensions.AI;
 
@@ -23,8 +24,16 @@ internal sealed record McpConsentInfo(string ToolboxName, string ToolName, strin
 /// </remarks>
 internal sealed class RequestConsentState
 {
-    /// <summary>Consent information set by the tool wrapper when -32006 is detected.</summary>
-    internal McpConsentInfo? Pending { get; set; }
+    private readonly ConcurrentQueue<McpConsentInfo> _pendingConsents = new();
+
+    /// <summary>Whether any tool wrapper detected -32006 during this request.</summary>
+    internal bool HasPendingConsents => !this._pendingConsents.IsEmpty;
+
+    /// <summary>Adds consent information detected by a tool wrapper.</summary>
+    internal void AddPendingConsent(McpConsentInfo consent) => this._pendingConsents.Enqueue(consent);
+
+    /// <summary>Returns a snapshot of every consent requirement detected during this request.</summary>
+    internal McpConsentInfo[] GetPendingConsents() => this._pendingConsents.ToArray();
 
     /// <summary>The linked CTS for consent handoff outside a function-invoking loop.</summary>
     internal CancellationTokenSource? CancellationSource { get; set; }

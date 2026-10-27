@@ -38,6 +38,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private const string LatestWorkflowCheckpointIdMetadataKey = "_last_checkpoint_id";
     private const string UserPartitionName = "user";
     private const string ConsentLinkRejectedMessage = "The OAuth consent request was rejected by the consent link policy.";
+    private const string ConsentInterruptedToolResult = "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AgentFrameworkResponseHandler> _logger;
@@ -349,30 +350,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             context.Shutdown);
         var consentState = new RequestConsentState { CancellationSource = consentCts };
 
-        if (agent.GetService<FunctionInvokingChatClient>() is { } functionClient)
-        {
-            agent = agent.AsBuilder().Use(async (_, invocation, next, ct) =>
-            {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    return consentState.Pending is null
-                        ? await next(invocation, ct).ConfigureAwait(false)
-                        : "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
-                }
-                finally
-                {
-                    if (consentState.Pending is not null)
-                    {
-                        // Serial termination skips the remaining calls without producing results.
-                        // Drain them through this callback instead, without invoking their tools.
-                        invocation.Terminate = functionClient.AllowConcurrentInvocation
-                            || invocation.FunctionCallIndex == invocation.FunctionCount - 1;
-                    }
-                }
-            }).Build();
-        }
-
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
         // and inside catch blocks. We use a flag to defer the yield to outside the try/catch.
@@ -413,7 +390,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 HostedCallContext.ToolboxCacheScopeId = toolboxRequestScope?.Id;
 
                 bool shutdownDetected = false;
-                McpConsentInfo? consentInfo = null;
+                IReadOnlyList<McpConsentInfo>? pendingConsents = null;
                 ResponseStreamEvent? failedEvent = null;
                 ResponseStreamEvent? evt = null;
                 try
@@ -467,16 +444,17 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     if (evt is ResponseCompletedEvent)
                     {
                         consentCts.Token.ThrowIfCancellationRequested();
-                        consentInfo = consentState.Pending;
+                        var consents = consentState.GetPendingConsents();
+                        pendingConsents = consents.Length > 0 ? consents : null;
                     }
 
                     shutdownDetected =
                         context.IsShutdownRequested && !emittedTerminal;
                 }
-                catch (OperationCanceledException) when (!emittedTerminal && consentState.Pending is not null)
+                catch (OperationCanceledException) when (!emittedTerminal && consentState.HasPendingConsents)
                 {
                     // -32006 consent error: the tool wrapper cancelled consentCts and stored consent info.
-                    consentInfo = consentState.Pending;
+                    pendingConsents = consentState.GetPendingConsents();
                 }
                 catch (OperationCanceledException) when (context.IsShutdownRequested && !emittedTerminal)
                 {
@@ -501,14 +479,24 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                         ex.Message);
                 }
 
-                if (consentInfo is not null)
+                if (pendingConsents is not null)
                 {
-                    // The loop has recorded consent-required/skipped results before terminating.
-                    // Emit the consent item instead of completed, without another model request.
-                    // A rejected link fails the turn rather than exposing that link.
+                    if (evt is ResponseCompletedEvent completed)
+                    {
+                        foreach (var skippedResultEvent in EmitConsentInterruptedToolResults(
+                            stream,
+                            completed.Response.Output))
+                        {
+                            yield return skippedResultEvent;
+                        }
+                    }
+
+                    // The loop has recorded the consent-required result and stopped before another
+                    // model request. Add explicit results for every remaining call, then emit all
+                    // consent requirements. A rejected link fails the turn without exposing it.
                     foreach (var consentEvent in this.EmitConsentRequiredResponse(
                         stream,
-                        [consentInfo],
+                        pendingConsents,
                         context.ResponseId))
                     {
                         // Mark the failure before yielding it, so the finally block below does not keep
@@ -897,6 +885,44 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         }
 
         yield return stream.EmitIncomplete(reason: null);
+    }
+
+    /// <summary>
+    /// Emits explicit not-executed results for function calls left unmatched when OAuth consent
+    /// terminates a sequential function batch.
+    /// </summary>
+    private static IEnumerable<ResponseStreamEvent> EmitConsentInterruptedToolResults(
+        ResponseEventStream stream,
+        IList<OutputItem> output)
+    {
+        var completedCallIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in output)
+        {
+            if (item is OutputItemFunctionToolCallOutput result)
+            {
+                completedCallIds.Add(result.CallId);
+            }
+        }
+
+        var missingCallIds = new List<string>();
+        foreach (var item in output)
+        {
+            if (item is OutputItemFunctionToolCall call &&
+                !completedCallIds.Contains(call.CallId))
+            {
+                missingCallIds.Add(call.CallId);
+            }
+        }
+
+        foreach (var callId in missingCallIds)
+        {
+            foreach (var evt in stream.OutputItemFunctionCallOutput(
+                callId,
+                BinaryData.FromString(OutputConverter.EncodeFunctionResultAsJsonStringPayload(ConsentInterruptedToolResult))))
+            {
+                yield return evt;
+            }
+        }
     }
 
     /// <summary>

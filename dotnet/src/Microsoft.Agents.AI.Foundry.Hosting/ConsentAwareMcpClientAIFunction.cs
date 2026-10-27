@@ -72,7 +72,7 @@ internal sealed class ConsentAwareMcpClientAIFunction : AIFunction
                     // handler rejects this consent response instead of falling back to the message.
                     _ => string.Empty,
                 };
-                state.Pending = new McpConsentInfo(this._toolboxName, this._inner.Name, consentUrl);
+                state.AddPendingConsent(new McpConsentInfo(this._toolboxName, this._inner.Name, consentUrl));
                 if (FunctionInvokingChatClient.CurrentContext is { } invocation)
                 {
                     invocation.Terminate = true;

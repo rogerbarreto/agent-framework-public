@@ -216,6 +216,151 @@ public sealed class OAuthConsentToolInvocationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task CreateAsync_ConsentBeforeAdditionalOrUnknownTool_SkipsTrailingCallAsync(bool useAdditionalTool)
+    {
+        // Arrange
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var peer = new ConsentPeer(ConsentLink);
+        using var httpClient = new HttpClient(peer);
+        await using var transport = CreateTransport(httpClient);
+        await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
+        int trailingCalls = 0;
+        var trailingTool = AIFunctionFactory.Create(() =>
+        {
+            Interlocked.Increment(ref trailingCalls);
+            return "unexpected trailing result";
+        }, "trailing_tool");
+        int modelCalls = 0;
+        var chatClient = new Mock<IChatClient>(MockBehavior.Loose);
+        chatClient.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                var update = ++modelCalls == 1
+                    ? new ChatResponseUpdate(ChatRole.Assistant,
+                    [
+                        new FunctionCallContent("call_consent", "call_tool"),
+                        new FunctionCallContent("call_trailing", trailingTool.Name),
+                    ])
+                    : new ChatResponseUpdate(ChatRole.Assistant, "Unexpected continuation.");
+                update.MessageId = $"model_message_{modelCalls}";
+                update.FinishReason = modelCalls == 1 ? ChatFinishReason.ToolCalls : ChatFinishReason.Stop;
+                return YieldUpdateAsync(update);
+            });
+        var functionClient = new FunctionInvokingChatClient(chatClient.Object)
+        {
+            AdditionalTools = useAdditionalTool ? [trailingTool] : null,
+            TerminateOnUnknownCalls = false,
+        };
+        var agent = new ChatClientAgent(functionClient, new ChatClientAgentOptions
+        {
+            UseProvidedChatClientAsIs = true,
+            ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool")] },
+        });
+        using var provider = CreateProvider(agent);
+        var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
+
+        // Act
+        var events = await RunTurnAsync(handler, [], 0, timeout.Token);
+
+        // Assert
+        AssertNoFailure(events);
+        Assert.Equal(ConsentLink, GetConsentLink(events));
+        var output = Assert.IsType<ResponseIncompleteEvent>(events[^1]).Response.Output;
+        AssertPairedCalls(output);
+        var trailingResult = Assert.Single(
+            output.OfType<OutputItemFunctionToolCallOutput>(),
+            result => result.CallId == "call_trailing");
+        Assert.Contains("not executed because another tool requires OAuth consent", trailingResult.Output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, trailingCalls);
+        Assert.Equal(1, modelCalls);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConcurrentConsentBatch_EmitsEveryConsentRequirementAsync()
+    {
+        // Arrange
+        const string OtherConsentLink = "https://auth.example.com/authorize?state=other";
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var bothCallsEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int callsEntered = 0;
+        using var firstPeer = new ConsentPeer(ConsentLink) { BeforeToolCall = WaitForBothCallsAsync };
+        using var secondPeer = new ConsentPeer(OtherConsentLink) { BeforeToolCall = WaitForBothCallsAsync };
+        using var firstHttpClient = new HttpClient(firstPeer);
+        using var secondHttpClient = new HttpClient(secondPeer);
+        await using var firstTransport = CreateTransport(firstHttpClient);
+        await using var secondTransport = CreateTransport(secondHttpClient);
+        await using var firstClient = await McpClient.CreateAsync(firstTransport, cancellationToken: timeout.Token);
+        await using var secondClient = await McpClient.CreateAsync(secondTransport, cancellationToken: timeout.Token);
+        int modelCalls = 0;
+        var chatClient = new Mock<IChatClient>(MockBehavior.Loose);
+        chatClient.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                var update = ++modelCalls == 1
+                    ? new ChatResponseUpdate(ChatRole.Assistant,
+                    [
+                        new FunctionCallContent("call_first", "first_tool"),
+                        new FunctionCallContent("call_second", "second_tool"),
+                    ])
+                    : new ChatResponseUpdate(ChatRole.Assistant, "Unexpected continuation.");
+                update.MessageId = $"model_message_{modelCalls}";
+                update.FinishReason = modelCalls == 1 ? ChatFinishReason.ToolCalls : ChatFinishReason.Stop;
+                return YieldUpdateAsync(update);
+            });
+        var agent = new ChatClientAgent(chatClient.Object, new ChatClientAgentOptions
+        {
+            AllowConcurrentInvocation = true,
+            ChatOptions = new ChatOptions
+            {
+                Tools =
+                [
+                    CreateTool(firstClient, "first_tool"),
+                    CreateTool(secondClient, "second_tool"),
+                ],
+            },
+        });
+        using var provider = CreateProvider(agent);
+        var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
+
+        // Act
+        var events = await RunTurnAsync(handler, [], 0, timeout.Token);
+
+        // Assert
+        AssertNoFailure(events);
+        var output = Assert.IsType<ResponseIncompleteEvent>(events[^1]).Response.Output;
+        AssertPairedCalls(output);
+        var consents = events
+            .OfType<ResponseOutputItemAddedEvent>()
+            .Select(e => e.Item)
+            .OfType<OAuthConsentRequestOutputItem>()
+            .ToArray();
+        Assert.Equal(2, consents.Length);
+        Assert.Contains(consents, consent => string.Equals(consent.ConsentLink, ConsentLink, StringComparison.Ordinal));
+        Assert.Contains(consents, consent => string.Equals(consent.ConsentLink, OtherConsentLink, StringComparison.Ordinal));
+        Assert.Equal(1, firstPeer.ToolCalls);
+        Assert.Equal(1, secondPeer.ToolCalls);
+        Assert.Equal(1, modelCalls);
+
+        async Task WaitForBothCallsAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref callsEntered) == 2)
+            {
+                bothCallsEntered.TrySetResult();
+            }
+
+            await bothCallsEntered.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task CreateAsync_ConsentOnApprovedTool_PreservesApprovalRequirementAsync(bool approved)
     {
         // Arrange
@@ -395,7 +540,7 @@ public sealed class OAuthConsentToolInvocationTests
                 Assert.Equal(1, result.ModelCalls);
             });
             Assert.Same(callerState, McpConsentContext.Current.Value);
-            Assert.Null(callerState.Pending);
+            Assert.Empty(callerState.GetPendingConsents());
             Assert.False(callerCancellation.IsCancellationRequested);
         }
         finally
