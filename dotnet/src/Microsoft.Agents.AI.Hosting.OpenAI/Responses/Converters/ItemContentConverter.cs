@@ -3,6 +3,7 @@
 using System;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 using Microsoft.Extensions.AI;
@@ -111,6 +112,32 @@ internal static class ItemContentConverter
     public static ItemContent? ToItemContent(AIContent content)
     {
         // Check if we already have the raw representation to avoid unnecessary conversion
+        if (content is TextContent textWithRawOutput && content.RawRepresentation is ItemContentOutputText rawOutputText)
+        {
+            List<JsonElement> currentAnnotations = [.. ToAnnotations(textWithRawOutput)];
+            if (currentAnnotations.Count == 0)
+            {
+                return rawOutputText;
+            }
+
+            List<JsonElement> annotations = [.. rawOutputText.Annotations];
+            foreach (JsonElement annotation in currentAnnotations)
+            {
+                if (!annotations.Any(existing =>
+                    string.Equals(existing.GetRawText(), annotation.GetRawText(), StringComparison.Ordinal)))
+                {
+                    annotations.Add(annotation);
+                }
+            }
+
+            return new ItemContentOutputText
+            {
+                Text = rawOutputText.Text,
+                Annotations = annotations,
+                Logprobs = [.. rawOutputText.Logprobs]
+            };
+        }
+
         if (content.RawRepresentation is ItemContent itemContent)
         {
             return itemContent;
@@ -163,7 +190,7 @@ internal static class ItemContentConverter
     /// <summary>
     /// Converts supported citations using the OpenAI SDK's wire representation.
     /// </summary>
-    internal static IEnumerable<JsonElement> ToAnnotations(TextContent content)
+    internal static IEnumerable<JsonElement> ToAnnotations(AIContent content, int textOffset = 0)
     {
         foreach (AIAnnotation annotation in content.Annotations ?? [])
         {
@@ -172,23 +199,33 @@ internal static class ItemContentConverter
                 continue;
             }
 
+            bool isProviderAnnotation = citation.RawRepresentation is ResponseMessageAnnotation;
+            TextSpanAnnotatedRegion[]? regions = citation.AnnotatedRegions?
+                .OfType<TextSpanAnnotatedRegion>()
+                .Where(region => region.StartIndex is not null && region.EndIndex is not null)
+                .ToArray();
+
+            if (citation.Url is { } url && regions is { Length: > 0 })
+            {
+                foreach (TextSpanAnnotatedRegion region in regions)
+                {
+                    int start = region.StartIndex!.Value;
+                    int end = region.EndIndex!.Value;
+                    if (!isProviderAnnotation)
+                    {
+                        start += textOffset;
+                        end += textOffset;
+                    }
+
+                    yield return SerializeAnnotation(new UriCitationMessageAnnotation(url, start, end, citation.Title ?? string.Empty));
+                }
+
+                continue;
+            }
+
             if (citation.RawRepresentation is ResponseMessageAnnotation rawAnnotation)
             {
                 yield return SerializeAnnotation(rawAnnotation);
-                continue;
-            }
-
-            if (citation.Url is not { } url || citation.AnnotatedRegions is not { } regions)
-            {
-                continue;
-            }
-
-            foreach (AnnotatedRegion region in regions)
-            {
-                if (region is TextSpanAnnotatedRegion { StartIndex: int start, EndIndex: int end })
-                {
-                    yield return SerializeAnnotation(new UriCitationMessageAnnotation(url, start, end, citation.Title ?? string.Empty));
-                }
             }
         }
 

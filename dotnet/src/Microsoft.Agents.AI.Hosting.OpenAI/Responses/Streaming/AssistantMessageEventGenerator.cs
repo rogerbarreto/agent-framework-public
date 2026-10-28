@@ -43,9 +43,17 @@ internal sealed class AssistantMessageEventGenerator(
             throw new InvalidOperationException("Cannot process content after the generator has been completed.");
         }
 
-        // Only process TextContent
+        // Annotation-only AIContent updates apply only to an already active text item.
         if (content is not TextContent textContent)
         {
+            if (this._currentState == State.AccumulatingText)
+            {
+                foreach (StreamingResponseEvent evt in this.EmitAnnotations(content, textOffset: 0))
+                {
+                    yield return evt;
+                }
+            }
+
             yield break;
         }
 
@@ -78,6 +86,9 @@ internal sealed class AssistantMessageEventGenerator(
             this._currentState = State.AccumulatingText;
         }
 
+        // Capture the current item offset before appending this content's text.
+        int textOffset = this._text.Length;
+
         // Accumulate text and emit delta event
         this._text.Append(textContent.Text);
 
@@ -90,7 +101,15 @@ internal sealed class AssistantMessageEventGenerator(
             Delta = textContent.Text
         };
 
-        foreach (JsonElement annotation in ItemContentConverter.ToAnnotations(textContent))
+        foreach (StreamingResponseEvent evt in this.EmitAnnotations(textContent, textOffset))
+        {
+            yield return evt;
+        }
+    }
+
+    private IEnumerable<StreamingResponseEvent> EmitAnnotations(AIContent content, int textOffset)
+    {
+        foreach (JsonElement annotation in ItemContentConverter.ToAnnotations(content, textOffset))
         {
             bool isDuplicate = false;
             foreach (JsonElement existingAnnotation in this._annotations)

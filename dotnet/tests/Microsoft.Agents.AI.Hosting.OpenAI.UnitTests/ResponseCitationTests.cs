@@ -4,8 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Agents.AI.Hosting.OpenAI.Responses;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Converters;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 using Microsoft.Agents.AI.Hosting.OpenAI.Tests;
@@ -39,6 +42,18 @@ public sealed class ResponseCitationTests : ConformanceTestBase
             Title = "Another title",
             AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
         };
+        var providerFirstRegion = new CitationAnnotation
+        {
+            RawRepresentation = new UriCitationMessageAnnotation(new Uri("https://example.com/source"), 0, 5, "Source")
+        };
+        var providerSecondRegion = new CitationAnnotation
+        {
+            RawRepresentation = new UriCitationMessageAnnotation(new Uri("https://example.com/source"), 6, 11, "Source")
+        };
+        var providerDistinctCitation = new CitationAnnotation
+        {
+            RawRepresentation = new UriCitationMessageAnnotation(new Uri("https://example.com/source"), 0, 5, "Another title")
+        };
         List<AIAnnotation> annotations =
         [
             sourceCitation,
@@ -54,8 +69,8 @@ public sealed class ResponseCitationTests : ConformanceTestBase
             _ => annotationOnly
                 ?
                 [
-                    new TextContent("Hello ") { Annotations = annotations.GetRange(0, 1) },
-                    new TextContent("world") { Annotations = [sourceCitation, distinctCitation] },
+                    new TextContent("Hello ") { Annotations = [providerFirstRegion, providerSecondRegion] },
+                    new TextContent("world") { Annotations = [providerFirstRegion, providerSecondRegion, providerDistinctCitation] },
                     new TextContent(string.Empty) { Annotations = annotations.GetRange(2, annotations.Count - 2) },
                     new TextContent(string.Empty) { Annotations = [annotations[2]] }
                 ]
@@ -182,6 +197,192 @@ public sealed class ResponseCitationTests : ConformanceTestBase
         Assert.Equal(4, annotation.GetProperty("end_index").GetInt32());
     }
 
+    [Fact]
+    public void ToItemContent_RawOutputTextWithNewCitation_PreservesRawMetadataWithoutMutation()
+    {
+        // Arrange
+        using JsonDocument existingAnnotation = JsonDocument.Parse("""{"type":"file_path","file_id":"file_1","index":2}""");
+        using JsonDocument existingLogprob = JsonDocument.Parse("""{"token":"Hello","logprob":-0.1}""");
+        var original = new ItemContentOutputText
+        {
+            Text = "Hello",
+            Annotations = [existingAnnotation.RootElement.Clone()],
+            Logprobs = [existingLogprob.RootElement.Clone()]
+        };
+        var text = Assert.IsType<TextContent>(ItemContentConverter.ToAIContent(original));
+        text.Annotations =
+        [
+            new CitationAnnotation
+            {
+                Url = new Uri("https://example.com/current"),
+                Title = "Current",
+                AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
+            }
+        ];
+
+        // Act
+        var output = Assert.IsType<ItemContentOutputText>(ItemContentConverter.ToItemContent(text));
+
+        // Assert
+        Assert.NotSame(original, output);
+        Assert.Equal("Hello", output.Text);
+        Assert.Equal(2, output.Annotations.Count);
+        Assert.Equal("file_path", output.Annotations[0].GetProperty("type").GetString());
+        Assert.Equal("https://example.com/current", output.Annotations[1].GetProperty("url").GetString());
+        Assert.Equal(existingLogprob.RootElement.GetRawText(), Assert.Single(output.Logprobs).GetRawText());
+        Assert.Single(original.Annotations);
+        Assert.Equal(existingLogprob.RootElement.GetRawText(), Assert.Single(original.Logprobs).GetRawText());
+    }
+
+    [Fact]
+    public void ToItemContent_StructuredUrlCitationOverridesRawUrlMetadata()
+    {
+        // Arrange
+        var text = new TextContent("Hello world")
+        {
+            Annotations =
+            [
+                new CitationAnnotation
+                {
+                    Url = new Uri("https://example.com/current"),
+                    Title = "Current",
+                    AnnotatedRegions =
+                    [
+                        new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 },
+                        new TextSpanAnnotatedRegion { StartIndex = 6, EndIndex = 11 }
+                    ],
+                    RawRepresentation = new UriCitationMessageAnnotation(new Uri("https://example.com/raw"), 1, 4, "Original")
+                }
+            ]
+        };
+
+        // Act
+        var output = Assert.IsType<ItemContentOutputText>(ItemContentConverter.ToItemContent(text));
+
+        // Assert
+        Assert.Equal(2, output.Annotations.Count);
+        Assert.Equal("https://example.com/current", output.Annotations[0].GetProperty("url").GetString());
+        Assert.Equal("Current", output.Annotations[0].GetProperty("title").GetString());
+        Assert.Equal(0, output.Annotations[0].GetProperty("start_index").GetInt32());
+        Assert.Equal(5, output.Annotations[0].GetProperty("end_index").GetInt32());
+        Assert.Equal(6, output.Annotations[1].GetProperty("start_index").GetInt32());
+        Assert.Equal(11, output.Annotations[1].GetProperty("end_index").GetInt32());
+    }
+
+    [Fact]
+    public async Task ToStreamingResponse_AnnotationOnlyUpdateOnCurrentMessage_PreservesCitationAsync()
+    {
+        // Arrange
+        AgentResponseUpdate[] updates =
+        [
+            new()
+            {
+                MessageId = "message-1",
+                Role = ChatRole.Assistant,
+                Contents = [new TextContent("Hello")]
+            },
+            new()
+            {
+                MessageId = "message-1",
+                Role = ChatRole.Assistant,
+                Contents = [new AIContent { Annotations = [CreateUrlCitation(0, 5)] }]
+            }
+        ];
+
+        // Act
+        List<StreamingResponseEvent> events = await CollectStreamingEventsAsync(updates);
+
+        // Assert
+        StreamingOutputTextAnnotationAdded annotationEvent = Assert.Single(events.OfType<StreamingOutputTextAnnotationAdded>());
+        Assert.Equal(0, annotationEvent.AnnotationIndex);
+        Assert.Equal("https://example.com/source", annotationEvent.Annotation.GetProperty("url").GetString());
+        StreamingOutputItemDone itemDone = Assert.Single(events.OfType<StreamingOutputItemDone>());
+        ItemContentOutputText itemContent = Assert.IsType<ItemContentOutputText>(
+            Assert.Single(Assert.IsType<ResponsesAssistantMessageItemResource>(itemDone.Item).Content));
+        Assert.Equal("Hello", itemContent.Text);
+        Assert.Equal(0, Assert.Single(itemContent.Annotations).GetProperty("start_index").GetInt32());
+        StreamingContentPartDone partDone = Assert.Single(events.OfType<StreamingContentPartDone>());
+        Assert.Equal("https://example.com/source", Assert.Single(Assert.IsType<ItemContentOutputText>(partDone.Part).Annotations)
+            .GetProperty("url").GetString());
+        StreamingResponseCompleted completed = Assert.Single(events.OfType<StreamingResponseCompleted>());
+        ResponsesAssistantMessageItemResource completedItem = Assert.IsType<ResponsesAssistantMessageItemResource>(
+            Assert.Single(completed.Response.Output));
+        Assert.Equal("https://example.com/source", Assert.Single(Assert.IsType<ItemContentOutputText>(
+            Assert.Single(completedItem.Content)).Annotations).GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task ToStreamingResponse_AnnotationOnlyUpdateOnDifferentMessage_DoesNotAttachToPreviousMessageAsync()
+    {
+        // Arrange
+        AgentResponseUpdate[] updates =
+        [
+            new()
+            {
+                MessageId = "message-1",
+                Role = ChatRole.Assistant,
+                Contents = [new TextContent("Hello")]
+            },
+            new()
+            {
+                MessageId = "message-2",
+                Role = ChatRole.Assistant,
+                Contents = [new AIContent { Annotations = [CreateUrlCitation(0, 5)] }]
+            }
+        ];
+
+        // Act
+        List<StreamingResponseEvent> events = await CollectStreamingEventsAsync(updates);
+
+        // Assert
+        Assert.Empty(events.OfType<StreamingOutputTextAnnotationAdded>());
+        StreamingOutputItemDone itemDone = Assert.Single(events.OfType<StreamingOutputItemDone>());
+        ItemContentOutputText itemContent = Assert.IsType<ItemContentOutputText>(
+            Assert.Single(Assert.IsType<ResponsesAssistantMessageItemResource>(itemDone.Item).Content));
+        Assert.Equal("Hello", itemContent.Text);
+        Assert.Empty(itemContent.Annotations);
+    }
+
+    [Theory]
+    [InlineData("See ", 4)]
+    [InlineData("😀", 2)]
+    public async Task ToStreamingResponse_SiblingTextContent_RebasesStructuredRegionsButNotProviderOffsetsAsync(string prefix, int textOffset)
+    {
+        // Arrange
+        var response = new AgentResponse(new ChatMessage(ChatRole.Assistant,
+        [
+            new TextContent(prefix),
+            new TextContent("Python")
+            {
+                Annotations =
+                [
+                    CreateUrlCitation(0, 6),
+                    new CitationAnnotation
+                    {
+                        RawRepresentation = new UriCitationMessageAnnotation(
+                            new Uri("https://example.com/provider"), textOffset, textOffset + 6, "Provider")
+                    }
+                ]
+            }
+        ]));
+        AgentResponseUpdate[] updates = response.ToAgentResponseUpdates();
+
+        // Act
+        List<StreamingResponseEvent> events = await CollectStreamingEventsAsync(updates);
+
+        // Assert
+        StreamingOutputItemDone itemDone = Assert.Single(events.OfType<StreamingOutputItemDone>());
+        ItemContentOutputText itemContent = Assert.IsType<ItemContentOutputText>(
+            Assert.Single(Assert.IsType<ResponsesAssistantMessageItemResource>(itemDone.Item).Content));
+        Assert.Equal($"{prefix}Python", itemContent.Text);
+        Assert.Equal(2, itemContent.Annotations.Count);
+        Assert.Equal(textOffset, itemContent.Annotations[0].GetProperty("start_index").GetInt32());
+        Assert.Equal(textOffset + 6, itemContent.Annotations[0].GetProperty("end_index").GetInt32());
+        Assert.Equal("https://example.com/provider", itemContent.Annotations[1].GetProperty("url").GetString());
+        Assert.Equal(textOffset, itemContent.Annotations[1].GetProperty("start_index").GetInt32());
+        Assert.Equal(textOffset + 6, itemContent.Annotations[1].GetProperty("end_index").GetInt32());
+    }
+
     private static void AssertAnnotations(JsonElement annotations)
     {
         Assert.Equal(6, annotations.GetArrayLength());
@@ -208,5 +409,42 @@ public sealed class ResponseCitationTests : ConformanceTestBase
         Assert.Equal("chart.png", annotations[5].GetProperty("filename").GetString());
         Assert.Equal(6, annotations[5].GetProperty("start_index").GetInt32());
         Assert.Equal(11, annotations[5].GetProperty("end_index").GetInt32());
+    }
+
+    private static CitationAnnotation CreateUrlCitation(int start, int end) =>
+        new()
+        {
+            Url = new Uri("https://example.com/source"),
+            Title = "Source",
+            AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = start, EndIndex = end }]
+        };
+
+    private static async Task<List<StreamingResponseEvent>> CollectStreamingEventsAsync(IEnumerable<AgentResponseUpdate> updates)
+    {
+        var request = new CreateResponse
+        {
+            Input = ResponseInput.FromText("test"),
+            Model = "test"
+        };
+        var context = new AgentInvocationContext(new IdGenerator("resp_test", "conv_test"));
+        List<StreamingResponseEvent> events = [];
+        await foreach (StreamingResponseEvent evt in ToAsyncEnumerableAsync(updates).ToStreamingResponseAsync(request, context))
+        {
+            events.Add(evt);
+        }
+
+        return events;
+    }
+
+    private static async IAsyncEnumerable<T> ToAsyncEnumerableAsync<T>(
+        IEnumerable<T> values,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (T value in values)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return value;
+            await Task.Yield();
+        }
     }
 }
