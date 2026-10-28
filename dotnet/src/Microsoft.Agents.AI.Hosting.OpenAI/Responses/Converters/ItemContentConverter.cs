@@ -1,10 +1,14 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 using Microsoft.Extensions.AI;
+using OpenAI.Responses;
+
+#pragma warning disable OPENAI001 // Responses API annotation models are experimental.
 
 namespace Microsoft.Agents.AI.Hosting.OpenAI.Responses.Converters;
 
@@ -114,7 +118,7 @@ internal static class ItemContentConverter
 
         ItemContent? result = content switch
         {
-            TextContent textContent => new ItemContentOutputText { Text = textContent.Text ?? string.Empty, Annotations = [], Logprobs = [] },
+            TextContent textContent => new ItemContentOutputText { Text = textContent.Text ?? string.Empty, Annotations = [.. ToAnnotations(textContent)], Logprobs = [] },
             TextReasoningContent reasoningContent => new ItemContentOutputText { Text = reasoningContent.Text ?? string.Empty, Annotations = [], Logprobs = [] },
             ErrorContent errorContent => new ItemContentRefusal { Refusal = errorContent.Message ?? string.Empty },
             UriContent uriContent when uriContent.HasTopLevelMediaType("image") =>
@@ -154,6 +158,46 @@ internal static class ItemContentConverter
         result?.RawRepresentation = content;
 
         return result;
+    }
+
+    /// <summary>
+    /// Converts supported citations using the OpenAI SDK's wire representation.
+    /// </summary>
+    internal static IEnumerable<JsonElement> ToAnnotations(TextContent content)
+    {
+        foreach (AIAnnotation annotation in content.Annotations ?? [])
+        {
+            if (annotation is not CitationAnnotation citation)
+            {
+                continue;
+            }
+
+            if (citation.RawRepresentation is ResponseMessageAnnotation rawAnnotation)
+            {
+                yield return SerializeAnnotation(rawAnnotation);
+                continue;
+            }
+
+            if (citation.Url is not { } url || citation.AnnotatedRegions is not { } regions)
+            {
+                continue;
+            }
+
+            foreach (AnnotatedRegion region in regions)
+            {
+                if (region is TextSpanAnnotatedRegion { StartIndex: int start, EndIndex: int end })
+                {
+                    yield return SerializeAnnotation(new UriCitationMessageAnnotation(url, start, end, citation.Title ?? string.Empty));
+                }
+            }
+        }
+
+        static JsonElement SerializeAnnotation(ResponseMessageAnnotation annotation)
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                ((IPersistableModel<ResponseMessageAnnotation>)annotation).Write(ModelReaderWriterOptions.Json).ToMemory());
+            return document.RootElement.Clone();
+        }
     }
 
     /// <summary>

@@ -3,6 +3,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
+using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Converters;
 using Microsoft.Agents.AI.Hosting.OpenAI.Responses.Models;
 using Microsoft.Extensions.AI;
 
@@ -20,6 +22,7 @@ internal sealed class AssistantMessageEventGenerator(
     private State _currentState = State.Initial;
     private readonly string _itemId = idGenerator.GenerateMessageId();
     private readonly StringBuilder _text = new();
+    private readonly List<JsonElement> _annotations = [];
 
     /// <summary>
     /// Represents the state of the event generator.
@@ -86,6 +89,21 @@ internal sealed class AssistantMessageEventGenerator(
             ContentIndex = 0,
             Delta = textContent.Text
         };
+
+        foreach (JsonElement annotation in ItemContentConverter.ToAnnotations(textContent))
+        {
+            int annotationIndex = this._annotations.Count;
+            this._annotations.Add(annotation);
+            yield return new StreamingOutputTextAnnotationAdded
+            {
+                SequenceNumber = seq.Increment(),
+                ItemId = this._itemId,
+                OutputIndex = outputIndex,
+                ContentIndex = 0,
+                AnnotationIndex = annotationIndex,
+                Annotation = annotation
+            };
+        }
     }
 
     public override IEnumerable<StreamingResponseEvent> Complete()
@@ -106,7 +124,7 @@ internal sealed class AssistantMessageEventGenerator(
         var itemContent = new ItemContentOutputText
         {
             Text = finalText,
-            Annotations = [],
+            Annotations = [.. this._annotations],
             Logprobs = []
         };
 
