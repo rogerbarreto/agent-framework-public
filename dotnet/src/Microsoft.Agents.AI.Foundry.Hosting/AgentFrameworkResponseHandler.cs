@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
@@ -895,14 +896,9 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         ResponseEventStream stream,
         IList<OutputItem> output)
     {
-        var completedCallIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var item in output)
-        {
-            if (item is OutputItemFunctionToolCallOutput result)
-            {
-                completedCallIds.Add(result.CallId);
-            }
-        }
+        var completedCallIds = new HashSet<string>(
+            output.OfType<OutputItemFunctionToolCallOutput>().Select(x => x.CallId),
+            StringComparer.Ordinal);
 
         var missingCallIds = new List<string>();
         foreach (var item in output)
