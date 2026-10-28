@@ -23,18 +23,26 @@ public sealed class ResponseCitationTests : ConformanceTestBase
     public async Task Response_PreservesCitationMetadataAsync(bool streaming, bool annotationOnly)
     {
         // Arrange
+        var sourceCitation = new CitationAnnotation
+        {
+            Url = new Uri("https://example.com/source"),
+            Title = "Source",
+            AnnotatedRegions =
+            [
+                new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 },
+                new TextSpanAnnotatedRegion { StartIndex = 6, EndIndex = 11 }
+            ]
+        };
+        var distinctCitation = new CitationAnnotation
+        {
+            Url = new Uri("https://example.com/source"),
+            Title = "Another title",
+            AnnotatedRegions = [new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 }]
+        };
         List<AIAnnotation> annotations =
         [
-            new CitationAnnotation
-            {
-                Url = new Uri("https://example.com/source"),
-                Title = "Source",
-                AnnotatedRegions =
-                [
-                    new TextSpanAnnotatedRegion { StartIndex = 0, EndIndex = 5 },
-                    new TextSpanAnnotatedRegion { StartIndex = 6, EndIndex = 11 }
-                ]
-            },
+            sourceCitation,
+            distinctCitation,
             new CitationAnnotation { RawRepresentation = new FileCitationMessageAnnotation("file_123", 2, "report.pdf") },
             new CitationAnnotation { RawRepresentation = new FilePathMessageAnnotation("file_456", 3) },
             new CitationAnnotation
@@ -47,8 +55,9 @@ public sealed class ResponseCitationTests : ConformanceTestBase
                 ?
                 [
                     new TextContent("Hello ") { Annotations = annotations.GetRange(0, 1) },
-                    new TextContent("world"),
-                    new TextContent(string.Empty) { Annotations = annotations.GetRange(1, annotations.Count - 1) }
+                    new TextContent("world") { Annotations = [sourceCitation, distinctCitation] },
+                    new TextContent(string.Empty) { Annotations = annotations.GetRange(2, annotations.Count - 2) },
+                    new TextContent(string.Empty) { Annotations = [annotations[2]] }
                 ]
                 : [new TextContent("Hello world") { Annotations = annotations }]);
 
@@ -73,7 +82,7 @@ public sealed class ResponseCitationTests : ConformanceTestBase
             events.Add(document.RootElement.Clone());
         }
         JsonElement[] annotationEvents = events.Where(e => e.GetProperty("type").GetString() == "response.output_text.annotation.added").ToArray();
-        Assert.Equal(5, annotationEvents.Length);
+        Assert.Equal(6, annotationEvents.Length);
         for (int i = 0; i < annotationEvents.Length; i++)
         {
             Assert.Equal(i, annotationEvents[i].GetProperty("annotation_index").GetInt32());
@@ -175,7 +184,7 @@ public sealed class ResponseCitationTests : ConformanceTestBase
 
     private static void AssertAnnotations(JsonElement annotations)
     {
-        Assert.Equal(5, annotations.GetArrayLength());
+        Assert.Equal(6, annotations.GetArrayLength());
         Assert.Equal("url_citation", annotations[0].GetProperty("type").GetString());
         Assert.Equal("https://example.com/source", annotations[0].GetProperty("url").GetString());
         Assert.Equal("Source", annotations[0].GetProperty("title").GetString());
@@ -183,18 +192,21 @@ public sealed class ResponseCitationTests : ConformanceTestBase
         Assert.Equal(5, annotations[0].GetProperty("end_index").GetInt32());
         Assert.Equal(6, annotations[1].GetProperty("start_index").GetInt32());
         Assert.Equal(11, annotations[1].GetProperty("end_index").GetInt32());
-        Assert.Equal("file_citation", annotations[2].GetProperty("type").GetString());
-        Assert.Equal("file_123", annotations[2].GetProperty("file_id").GetString());
-        Assert.Equal(2, annotations[2].GetProperty("index").GetInt32());
-        Assert.Equal("report.pdf", annotations[2].GetProperty("filename").GetString());
-        Assert.Equal("file_path", annotations[3].GetProperty("type").GetString());
-        Assert.Equal("file_456", annotations[3].GetProperty("file_id").GetString());
-        Assert.Equal(3, annotations[3].GetProperty("index").GetInt32());
-        Assert.Equal("container_file_citation", annotations[4].GetProperty("type").GetString());
-        Assert.Equal("container_1", annotations[4].GetProperty("container_id").GetString());
-        Assert.Equal("file_789", annotations[4].GetProperty("file_id").GetString());
-        Assert.Equal("chart.png", annotations[4].GetProperty("filename").GetString());
-        Assert.Equal(6, annotations[4].GetProperty("start_index").GetInt32());
-        Assert.Equal(11, annotations[4].GetProperty("end_index").GetInt32());
+        Assert.Equal("Another title", annotations[2].GetProperty("title").GetString());
+        Assert.Equal(0, annotations[2].GetProperty("start_index").GetInt32());
+        Assert.Equal(5, annotations[2].GetProperty("end_index").GetInt32());
+        Assert.Equal("file_citation", annotations[3].GetProperty("type").GetString());
+        Assert.Equal("file_123", annotations[3].GetProperty("file_id").GetString());
+        Assert.Equal(2, annotations[3].GetProperty("index").GetInt32());
+        Assert.Equal("report.pdf", annotations[3].GetProperty("filename").GetString());
+        Assert.Equal("file_path", annotations[4].GetProperty("type").GetString());
+        Assert.Equal("file_456", annotations[4].GetProperty("file_id").GetString());
+        Assert.Equal(3, annotations[4].GetProperty("index").GetInt32());
+        Assert.Equal("container_file_citation", annotations[5].GetProperty("type").GetString());
+        Assert.Equal("container_1", annotations[5].GetProperty("container_id").GetString());
+        Assert.Equal("file_789", annotations[5].GetProperty("file_id").GetString());
+        Assert.Equal("chart.png", annotations[5].GetProperty("filename").GetString());
+        Assert.Equal(6, annotations[5].GetProperty("start_index").GetInt32());
+        Assert.Equal(11, annotations[5].GetProperty("end_index").GetInt32());
     }
 }

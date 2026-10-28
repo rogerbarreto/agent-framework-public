@@ -92,6 +92,21 @@ internal sealed class AssistantMessageEventGenerator(
 
         foreach (JsonElement annotation in ItemContentConverter.ToAnnotations(textContent))
         {
+            bool isDuplicate = false;
+            foreach (JsonElement existingAnnotation in this._annotations)
+            {
+                if (string.Equals(existingAnnotation.GetRawText(), annotation.GetRawText(), StringComparison.Ordinal))
+                {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+
+            if (isDuplicate)
+            {
+                continue;
+            }
+
             int annotationIndex = this._annotations.Count;
             this._annotations.Add(annotation);
             yield return new StreamingOutputTextAnnotationAdded
