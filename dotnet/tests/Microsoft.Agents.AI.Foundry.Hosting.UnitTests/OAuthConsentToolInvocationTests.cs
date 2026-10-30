@@ -218,6 +218,7 @@ public sealed class OAuthConsentToolInvocationTests
     public async Task CreateAsync_ConsentWithStoredOutputEnabled_ReconcilesResultsBeforeIncompleteAsync()
     {
         // Arrange
+        const string CustomInterruptedResult = "The user must authorize another tool before this call can run.";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var peer = new ConsentPeer(ConsentLink);
         using var httpClient = new HttpClient(peer);
@@ -269,7 +270,7 @@ public sealed class OAuthConsentToolInvocationTests
                         results,
                         result => string.Equals(result.CallId, "call_trailing", StringComparison.Ordinal));
                     Assert.Contains("OAuth consent", GetFunctionResultText(consentResult), StringComparison.Ordinal);
-                    Assert.Contains("not executed", GetFunctionResultText(trailingResult), StringComparison.Ordinal);
+                    Assert.Equal(CustomInterruptedResult, GetFunctionResultText(trailingResult));
 
                     await Task.Yield();
                     yield return new ChatResponseUpdate(ChatRole.Assistant, "Authorization is required.")
@@ -296,7 +297,10 @@ public sealed class OAuthConsentToolInvocationTests
             UseProvidedChatClientAsIs = true,
             ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool")] },
         });
-        using var provider = CreateProvider(agent, allowStoredOutputEnabled: true);
+        using var provider = CreateProvider(
+            agent,
+            allowStoredOutputEnabled: true,
+            oauthConsentInterruptedToolResult: CustomInterruptedResult);
         var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
 
         // Act
@@ -320,6 +324,7 @@ public sealed class OAuthConsentToolInvocationTests
     public async Task CreateAsync_ConsentWithStoreDisabled_RetryDoesNotDependOnPersistedOutputAsync()
     {
         // Arrange
+        const string CustomInterruptedResult = "Authorization is required before this companion call can run.";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var peer = new ConsentPeer(ConsentLink);
         using var httpClient = new HttpClient(peer);
@@ -327,6 +332,12 @@ public sealed class OAuthConsentToolInvocationTests
         await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
         var modelInputs = new List<ChatMessage[]>();
         int protectedCalls = 0;
+        int trailingCalls = 0;
+        var trailingTool = AIFunctionFactory.Create(() =>
+        {
+            Interlocked.Increment(ref trailingCalls);
+            return "unexpected trailing result";
+        }, "trailing_tool");
         var chatClient = new Mock<IChatClient>(MockBehavior.Loose);
         chatClient.Setup(c => c.GetStreamingResponseAsync(
                 It.IsAny<IEnumerable<ChatMessage>>(),
@@ -338,11 +349,25 @@ public sealed class OAuthConsentToolInvocationTests
                 modelInputs.Add(input);
                 ValidateModelInput(input);
 
-                var update = input[^1].Role == ChatRole.Tool && peer.SuccessfulProtectedToolCalls > 0
-                    ? new ChatResponseUpdate(ChatRole.Assistant, "Protected tool succeeded.")
-                    : new ChatResponseUpdate(
+                ChatResponseUpdate update;
+                if (modelInputs.Count == 1)
+                {
+                    update = new ChatResponseUpdate(
                         ChatRole.Assistant,
-                        [new FunctionCallContent($"call_store_false_{++protectedCalls}", "call_tool")]);
+                        [
+                            new FunctionCallContent($"call_store_false_{++protectedCalls}", "call_tool"),
+                            new FunctionCallContent("call_store_false_trailing", trailingTool.Name),
+                        ]);
+                }
+                else
+                {
+                    update = input[^1].Role == ChatRole.Tool && peer.SuccessfulProtectedToolCalls > 0
+                        ? new ChatResponseUpdate(ChatRole.Assistant, "Protected tool succeeded.")
+                        : new ChatResponseUpdate(
+                            ChatRole.Assistant,
+                            [new FunctionCallContent($"call_store_false_{++protectedCalls}", "call_tool")]);
+                }
+
                 update.MessageId = $"model_message_{modelInputs.Count}";
                 update.FinishReason = update.Contents.OfType<FunctionCallContent>().Any()
                     ? ChatFinishReason.ToolCalls
@@ -351,9 +376,11 @@ public sealed class OAuthConsentToolInvocationTests
             });
         var agent = new ChatClientAgent(chatClient.Object, new ChatClientAgentOptions
         {
-            ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool")] },
+            ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool"), trailingTool] },
         });
-        using var provider = CreateProvider(agent);
+        using var provider = CreateProvider(
+            agent,
+            oauthConsentInterruptedToolResult: CustomInterruptedResult);
         var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
 
         // Act
@@ -378,6 +405,11 @@ public sealed class OAuthConsentToolInvocationTests
         Assert.Equal(ConsentLink, GetConsentLink(first));
         var incomplete = Assert.IsType<ResponseIncompleteEvent>(first[^1]);
         AssertPairedCalls(incomplete.Response.Output);
+        var trailingResult = Assert.Single(
+            incomplete.Response.Output.OfType<OutputItemFunctionToolCallOutput>(),
+            result => string.Equals(result.CallId, "call_store_false_trailing", StringComparison.Ordinal));
+        Assert.Equal($"\"{CustomInterruptedResult}\"", trailingResult.Output.ToString());
+        Assert.Equal(0, trailingCalls);
 
         AssertNoFailure(second);
         var completed = Assert.IsType<ResponseCompletedEvent>(second[^1]);
@@ -756,14 +788,26 @@ public sealed class OAuthConsentToolInvocationTests
         }, serializerOptions: null),
         "test-toolbox");
 
-    private static ServiceProvider CreateProvider(AIAgent agent, bool allowStoredOutputEnabled = false)
+    private static ServiceProvider CreateProvider(
+        AIAgent agent,
+        bool allowStoredOutputEnabled = false,
+        string? oauthConsentInterruptedToolResult = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<AgentSessionStore>(new InMemoryAgentSessionStore());
         services.AddSingleton(agent);
         services.AddSingleton<HostedSessionIsolationKeyProvider>(new FakeHostedSessionIsolationKeyProvider());
+        var options = new FoundryResponsesOptions
+        {
+            AllowStoredOutputEnabled = allowStoredOutputEnabled,
+        };
+        if (oauthConsentInterruptedToolResult is not null)
+        {
+            options.OAuthConsentInterruptedToolResult = oauthConsentInterruptedToolResult;
+        }
+
         services.AddSingleton(
-            Options.Create(new FoundryResponsesOptions { AllowStoredOutputEnabled = allowStoredOutputEnabled }));
+            Options.Create(options));
         return services.BuildServiceProvider();
     }
 

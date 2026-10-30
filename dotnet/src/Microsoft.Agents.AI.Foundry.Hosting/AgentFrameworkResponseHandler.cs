@@ -361,6 +361,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             CancellationSource = consentCts,
             ReconcileDownstreamHistory = allowStoredOutputEnabled,
+            InterruptedToolResult = hostingOptions?.OAuthConsentInterruptedToolResult
+                ?? McpConsentResults.NotExecuted,
         };
 
         // 7. Run the agent and convert output
@@ -498,7 +500,8 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                     {
                         foreach (var skippedResultEvent in EmitConsentInterruptedToolResults(
                             stream,
-                            completed.Response.Output))
+                            completed.Response.Output,
+                            consentState.InterruptedToolResult))
                         {
                             yield return skippedResultEvent;
                         }
@@ -906,27 +909,35 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     /// </summary>
     private static IEnumerable<ResponseStreamEvent> EmitConsentInterruptedToolResults(
         ResponseEventStream stream,
-        IList<OutputItem> output)
+        IList<OutputItem> output,
+        string interruptedToolResult)
     {
-        var completedCallIds = new HashSet<string>(
-            output.OfType<OutputItemFunctionToolCallOutput>().Select(x => x.CallId),
-            StringComparer.Ordinal);
+        HashSet<string>? completedCallIds = null;
+        foreach (var result in output.OfType<OutputItemFunctionToolCallOutput>())
+        {
+            (completedCallIds ??= new(StringComparer.Ordinal)).Add(result.CallId);
+        }
 
-        var missingCallIds = new List<string>();
+        List<string>? missingCallIds = null;
         foreach (var item in output)
         {
             if (item is OutputItemFunctionToolCall call &&
-                !completedCallIds.Contains(call.CallId))
+                completedCallIds?.Contains(call.CallId) is not true)
             {
-                missingCallIds.Add(call.CallId);
+                (missingCallIds ??= []).Add(call.CallId);
             }
+        }
+
+        if (missingCallIds is null)
+        {
+            yield break;
         }
 
         foreach (var callId in missingCallIds)
         {
             foreach (var evt in stream.OutputItemFunctionCallOutput(
                 callId,
-                BinaryData.FromString(OutputConverter.EncodeFunctionResultAsJsonStringPayload(McpConsentResults.NotExecuted))))
+                BinaryData.FromString(OutputConverter.EncodeFunctionResultAsJsonStringPayload(interruptedToolResult))))
             {
                 yield return evt;
             }

@@ -17,8 +17,8 @@ internal sealed record McpConsentInfo(string ToolboxName, string ToolName, strin
 /// <summary>Function results used when OAuth consent interrupts a tool batch.</summary>
 internal static class McpConsentResults
 {
-    internal const string ConsentRequired = "Error: OAuth consent is required. This tool invocation did not complete. After authorizing, retry the request.";
-    internal const string NotExecuted = "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
+    internal const string ConsentRequired = "Error: OAuth consent is required. This tool invocation did not complete. The user must authorize access before this tool can be invoked in a later request.";
+    internal const string NotExecuted = "Error: This tool invocation was not executed because another tool requires OAuth consent. The user must authorize access before protected tools can be invoked in a later request.";
 }
 
 /// <summary>
@@ -46,6 +46,9 @@ internal sealed class RequestConsentState
     /// Whether the function loop must send its complete result batch back to a downstream service-managed conversation.
     /// </summary>
     internal bool ReconcileDownstreamHistory { get; init; }
+
+    /// <summary>The result returned for other calls skipped after consent is required.</summary>
+    internal string InterruptedToolResult { get; init; } = McpConsentResults.NotExecuted;
 
     /// <summary>The linked CTS for consent handoff outside a function-invoking loop.</summary>
     internal CancellationTokenSource? CancellationSource { get; set; }

@@ -136,9 +136,9 @@ internal static class ConsentBlockingFunctionInvoker
             {
                 ReconcileDownstreamHistory: true,
                 HasPendingConsents: true,
-            })
+            } state)
         {
-            return new ValueTask<object?>(McpConsentResults.NotExecuted);
+            return new ValueTask<object?>(state.InterruptedToolResult);
         }
 
         return innerInvoker is not null
