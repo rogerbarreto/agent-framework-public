@@ -14,6 +14,13 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <param name="ConsentUrl">The OAuth consent URL the user must visit.</param>
 internal sealed record McpConsentInfo(string ToolboxName, string ToolName, string ConsentUrl);
 
+/// <summary>Function results used when OAuth consent interrupts a tool batch.</summary>
+internal static class McpConsentResults
+{
+    internal const string ConsentRequired = "Error: OAuth consent is required. This tool invocation did not complete. After authorizing, retry the request.";
+    internal const string NotExecuted = "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
+}
+
 /// <summary>
 /// Per-request mutable state shared between <see cref="ConsentAwareMcpClientAIFunction"/> (child context)
 /// and <see cref="AgentFrameworkResponseHandler"/> (parent context) via <see cref="McpConsentContext.Current"/>.
@@ -34,6 +41,11 @@ internal sealed class RequestConsentState
 
     /// <summary>Returns a snapshot of every consent requirement detected during this request.</summary>
     internal McpConsentInfo[] GetPendingConsents() => this._pendingConsents.ToArray();
+
+    /// <summary>
+    /// Whether the function loop must send its complete result batch back to a downstream service-managed conversation.
+    /// </summary>
+    internal bool ReconcileDownstreamHistory { get; init; }
 
     /// <summary>The linked CTS for consent handoff outside a function-invoking loop.</summary>
     internal CancellationTokenSource? CancellationSource { get; set; }

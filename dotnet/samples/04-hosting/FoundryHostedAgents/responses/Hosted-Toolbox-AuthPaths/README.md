@@ -106,12 +106,23 @@ When a tool requires authorization, the response includes an `oauth_consent_requ
 `response.incomplete`. Complete authorization as the intended user, then resend the request in the
 **same conversation**. OAuth authorization does not grant a separate tool-approval request.
 
+With `store=true`, the incomplete response and its paired function results are persisted, so the
+client can continue through the same conversation or `previous_response_id`. With `store=false`, the
+response is ephemeral and cannot be used as a stored replay anchor; after authorization, resend the
+prompt without depending on the incomplete response ID. Both modes return paired function calls and
+results, so neither retry sends an orphaned call to the model.
+
 The hosting implementation records an explicit consent-required result for the blocked invocation,
 and a not-executed result for any remaining sequential calls skipped by the handoff. Completed tool
 results are retained. These results are not tool success: the next turn must actually invoke the
 protected tool after authorization. This keeps function calls paired with results in the recorded
 conversation without deleting pending calls from unrelated flows. Updating the host prevents new
 unmatched calls; it does not repair conversation history already recorded by an older host.
+
+When `FoundryResponsesOptions.AllowStoredOutputEnabled` permits the agent's inference service to
+keep a second history, the function loop sends the complete result batch in one final request with
+tool invocation disabled. This keeps the inference-service history aligned with the Hosted Agent
+response before the host emits `oauth_consent_request` and `response.incomplete`.
 
 ## Deploy to Foundry (source / ZIP)
 

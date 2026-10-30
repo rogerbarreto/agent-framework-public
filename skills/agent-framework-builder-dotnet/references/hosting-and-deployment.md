@@ -37,6 +37,10 @@ application code.
 - For Foundry toolbox OAuth consent, handle `oauth_consent_request` and `response.incomplete`, then
   resend the request in the same conversation after authorization. Consent-required or skipped tool
   results are not success, and OAuth authorization does not replace a separate tool-approval decision.
+  A `store=true` response can be continued through its stored conversation or `previous_response_id`;
+  a `store=false` response is ephemeral, so resend the prompt without using that response as a replay anchor.
+  When downstream stored output is explicitly allowed, the host performs a final no-tools inference
+  request so the downstream conversation records the same function-result batch before the incomplete response.
 
 Read the selected host's XML docs and maintained sample for options, history modes, storage providers, and protocol
 details.

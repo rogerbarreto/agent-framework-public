@@ -39,7 +39,6 @@ public class AgentFrameworkResponseHandler : ResponseHandler
     private const string LatestWorkflowCheckpointIdMetadataKey = "_last_checkpoint_id";
     private const string UserPartitionName = "user";
     private const string ConsentLinkRejectedMessage = "The OAuth consent request was rejected by the consent link policy.";
-    private const string ConsentInterruptedToolResult = "Error: This tool invocation was not executed because another tool requires OAuth consent. After authorizing, retry the request.";
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AgentFrameworkResponseHandler> _logger;
@@ -319,6 +318,14 @@ public class AgentFrameworkResponseHandler : ResponseHandler
             }
         }
 
+        if (allowStoredOutputEnabled &&
+            agent.GetService<FunctionInvokingChatClient>() is { } functionInvokingClient)
+        {
+            // The FICC instance is shared, so install one AsyncLocal-aware gate rather than
+            // replacing its invoker per request. It is a no-op outside a stored-output consent turn.
+            ConsentBlockingFunctionInvoker.EnsureInstalled(functionInvokingClient);
+        }
+
         var options = new ChatClientAgentRunOptions(chatOptions);
 
         // We only use a volatile provider for the conversation history if the agent is a
@@ -342,14 +349,19 @@ public class AgentFrameworkResponseHandler : ResponseHandler
                 new VolatileChatHistoryProvider(InputConverter.ConvertOutputItemsToMessages(history, session?.StateBag)));
         }
 
-        // 6. Set up consent context for -32006 OAuth consent interception.
-        //    The consent-aware tool wrapper terminates the function loop with a consent-required
-        //    result. A linked CTS also supports agents invoking tools outside that loop. The
-        //    RequestConsentState flows via AsyncLocal to the tool wrapper.
+        // 6. Set up consent context for -32006 OAuth consent interception. When the downstream
+        //    service stores its own history, FICC makes one final no-tools request to persist the
+        //    complete result batch. Otherwise it terminates before that unnecessary request. A
+        //    linked CTS supports agents invoking tools outside the loop, and the shared state flows
+        //    via AsyncLocal to the tool wrapper and the request-aware FICC invoker.
         using var consentCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             context.Shutdown);
-        var consentState = new RequestConsentState { CancellationSource = consentCts };
+        var consentState = new RequestConsentState
+        {
+            CancellationSource = consentCts,
+            ReconcileDownstreamHistory = allowStoredOutputEnabled,
+        };
 
         // 7. Run the agent and convert output
         // NOTE: C# forbids 'yield return' inside a try block that has a catch clause,
@@ -914,7 +926,7 @@ public class AgentFrameworkResponseHandler : ResponseHandler
         {
             foreach (var evt in stream.OutputItemFunctionCallOutput(
                 callId,
-                BinaryData.FromString(OutputConverter.EncodeFunctionResultAsJsonStringPayload(ConsentInterruptedToolResult))))
+                BinaryData.FromString(OutputConverter.EncodeFunctionResultAsJsonStringPayload(McpConsentResults.NotExecuted))))
             {
                 yield return evt;
             }

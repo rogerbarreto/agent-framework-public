@@ -14,6 +14,7 @@ using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
 using Moq;
 
@@ -211,6 +212,181 @@ public sealed class OAuthConsentToolInvocationTests
         Assert.Equal(3, modelCalls);
         Assert.Equal(2, peer.ProtectedToolCalls);
         Assert.Equal(1, peer.SuccessfulProtectedToolCalls);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConsentWithStoredOutputEnabled_ReconcilesResultsBeforeIncompleteAsync()
+    {
+        // Arrange
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var peer = new ConsentPeer(ConsentLink);
+        using var httpClient = new HttpClient(peer);
+        await using var transport = CreateTransport(httpClient);
+        await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
+        int trailingCalls = 0;
+        var trailingTool = AIFunctionFactory.Create(() =>
+        {
+            Interlocked.Increment(ref trailingCalls);
+            return "unexpected trailing result";
+        }, "trailing_tool");
+        int modelCalls = 0;
+        int customInvokerCalls = 0;
+        var chatClient = new Mock<IChatClient>(MockBehavior.Loose);
+        chatClient.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken) =>
+            {
+                var input = messages.ToArray();
+                return ++modelCalls switch
+                {
+                    1 => YieldUpdateAsync(new ChatResponseUpdate(
+                        ChatRole.Assistant,
+                        [
+                            new FunctionCallContent("call_consent", "call_tool"),
+                            new FunctionCallContent("call_trailing", trailingTool.Name),
+                        ])
+                    {
+                        ConversationId = "resp_" + new string('1', 46),
+                        MessageId = "model_message_1",
+                        FinishReason = ChatFinishReason.ToolCalls,
+                    }),
+                    2 => ReconcileAsync(),
+                    _ => throw new InvalidOperationException("Unexpected additional model call."),
+                };
+
+                async IAsyncEnumerable<ChatResponseUpdate> ReconcileAsync()
+                {
+                    Assert.Equal(ChatToolMode.None, options?.ToolMode);
+                    Assert.Equal("resp_" + new string('1', 46), options?.ConversationId);
+                    ValidateModelInput(input);
+                    var results = input.SelectMany(m => m.Contents).OfType<FunctionResultContent>().ToArray();
+                    var consentResult = Assert.Single(
+                        results,
+                        result => string.Equals(result.CallId, "call_consent", StringComparison.Ordinal));
+                    var trailingResult = Assert.Single(
+                        results,
+                        result => string.Equals(result.CallId, "call_trailing", StringComparison.Ordinal));
+                    Assert.Contains("OAuth consent", GetFunctionResultText(consentResult), StringComparison.Ordinal);
+                    Assert.Contains("not executed", GetFunctionResultText(trailingResult), StringComparison.Ordinal);
+
+                    await Task.Yield();
+                    yield return new ChatResponseUpdate(ChatRole.Assistant, "Authorization is required.")
+                    {
+                        ConversationId = "resp_" + new string('2', 46),
+                        MessageId = "model_message_2",
+                        FinishReason = ChatFinishReason.Stop,
+                    };
+                }
+            });
+        var functionClient = new FunctionInvokingChatClient(chatClient.Object)
+        {
+            AdditionalTools = [trailingTool],
+            FunctionInvoker = async (context, cancellationToken) =>
+            {
+                Interlocked.Increment(ref customInvokerCalls);
+                return await context.Function
+                    .InvokeAsync(context.Arguments, cancellationToken)
+                    .ConfigureAwait(false);
+            },
+        };
+        var agent = new ChatClientAgent(functionClient, new ChatClientAgentOptions
+        {
+            UseProvidedChatClientAsIs = true,
+            ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool")] },
+        });
+        using var provider = CreateProvider(agent, allowStoredOutputEnabled: true);
+        var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
+
+        // Act
+        var events = await RunTurnAsync(handler, [], 0, timeout.Token);
+
+        // Assert
+        AssertNoFailure(events);
+        Assert.Equal(ConsentLink, GetConsentLink(events));
+        var output = Assert.IsType<ResponseIncompleteEvent>(events[^1]).Response.Output;
+        AssertPairedCalls(output);
+        Assert.Contains(
+            output.OfType<OutputItemMessage>(),
+            message => message.Content.OfType<MessageContentOutputTextContent>()
+                .Any(content => string.Equals(content.Text, "Authorization is required.", StringComparison.Ordinal)));
+        Assert.Equal(0, trailingCalls);
+        Assert.Equal(1, customInvokerCalls);
+        Assert.Equal(2, modelCalls);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConsentWithStoreDisabled_RetryDoesNotDependOnPersistedOutputAsync()
+    {
+        // Arrange
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var peer = new ConsentPeer(ConsentLink);
+        using var httpClient = new HttpClient(peer);
+        await using var transport = CreateTransport(httpClient);
+        await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
+        var modelInputs = new List<ChatMessage[]>();
+        int protectedCalls = 0;
+        var chatClient = new Mock<IChatClient>(MockBehavior.Loose);
+        chatClient.Setup(c => c.GetStreamingResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> messages, ChatOptions? options, CancellationToken cancellationToken) =>
+            {
+                var input = messages.ToArray();
+                modelInputs.Add(input);
+                ValidateModelInput(input);
+
+                var update = input[^1].Role == ChatRole.Tool && peer.SuccessfulProtectedToolCalls > 0
+                    ? new ChatResponseUpdate(ChatRole.Assistant, "Protected tool succeeded.")
+                    : new ChatResponseUpdate(
+                        ChatRole.Assistant,
+                        [new FunctionCallContent($"call_store_false_{++protectedCalls}", "call_tool")]);
+                update.MessageId = $"model_message_{modelInputs.Count}";
+                update.FinishReason = update.Contents.OfType<FunctionCallContent>().Any()
+                    ? ChatFinishReason.ToolCalls
+                    : ChatFinishReason.Stop;
+                return YieldUpdateAsync(update);
+            });
+        var agent = new ChatClientAgent(chatClient.Object, new ChatClientAgentOptions
+        {
+            ChatOptions = new ChatOptions { Tools = [CreateTool(client, "call_tool")] },
+        });
+        using var provider = CreateProvider(agent);
+        var handler = new AgentFrameworkResponseHandler(provider, NullLogger<AgentFrameworkResponseHandler>.Instance);
+
+        // Act
+        var first = await RunTurnAsync(
+            handler,
+            [],
+            turn: 0,
+            cancellationToken: timeout.Token,
+            store: false,
+            conversationId: null);
+        peer.Authorized = true;
+        var second = await RunTurnAsync(
+            handler,
+            [],
+            turn: 1,
+            cancellationToken: timeout.Token,
+            store: false,
+            conversationId: null);
+
+        // Assert
+        AssertNoFailure(first);
+        Assert.Equal(ConsentLink, GetConsentLink(first));
+        var incomplete = Assert.IsType<ResponseIncompleteEvent>(first[^1]);
+        AssertPairedCalls(incomplete.Response.Output);
+
+        AssertNoFailure(second);
+        var completed = Assert.IsType<ResponseCompletedEvent>(second[^1]);
+        AssertPairedCalls(completed.Response.Output);
+        Assert.Equal(2, peer.ProtectedToolCalls);
+        Assert.Equal(1, peer.SuccessfulProtectedToolCalls);
+        Assert.DoesNotContain(
+            modelInputs[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>(),
+            result => string.Equals(result.CallId, "call_store_false_1", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -580,12 +756,14 @@ public sealed class OAuthConsentToolInvocationTests
         }, serializerOptions: null),
         "test-toolbox");
 
-    private static ServiceProvider CreateProvider(AIAgent agent)
+    private static ServiceProvider CreateProvider(AIAgent agent, bool allowStoredOutputEnabled = false)
     {
         var services = new ServiceCollection();
         services.AddSingleton<AgentSessionStore>(new InMemoryAgentSessionStore());
         services.AddSingleton(agent);
         services.AddSingleton<HostedSessionIsolationKeyProvider>(new FakeHostedSessionIsolationKeyProvider());
+        services.AddSingleton(
+            Options.Create(new FoundryResponsesOptions { AllowStoredOutputEnabled = allowStoredOutputEnabled }));
         return services.BuildServiceProvider();
     }
 
@@ -594,15 +772,19 @@ public sealed class OAuthConsentToolInvocationTests
         IReadOnlyList<OutputItem> history,
         int turn,
         CancellationToken cancellationToken,
-        BinaryData? input = null)
+        BinaryData? input = null,
+        bool store = true,
+        string? conversationId = "conv-oauth-continuation")
     {
         var request = new CreateResponse
         {
             Model = "test",
             Background = false,
-            Store = true,
+            Store = store,
             Stream = true,
-            Conversation = BinaryData.FromString("\"conv-oauth-continuation\""),
+            Conversation = conversationId is null
+                ? null
+                : BinaryData.FromString($"\"{conversationId}\""),
             Input = input ?? BinaryData.FromObjectAsJson(turn == 0 ? InitialPrompt : "Continue after authorization."),
         };
         var context = new Mock<ResponseContext>("resp_" + new string((char)('0' + turn), 46)) { CallBase = true };
@@ -629,6 +811,12 @@ public sealed class OAuthConsentToolInvocationTests
             output.OfType<OutputItemFunctionToolCall>().Select(c => c.CallId).Order(StringComparer.Ordinal),
             output.OfType<OutputItemFunctionToolCallOutput>().Select(r => r.CallId).Order(StringComparer.Ordinal));
     }
+
+    private static string GetFunctionResultText(FunctionResultContent result) => result.Result switch
+    {
+        JsonElement { ValueKind: JsonValueKind.String } element => element.GetString()!,
+        _ => result.Result?.ToString() ?? string.Empty,
+    };
 
     private static void ValidateModelInput(IEnumerable<ChatMessage> messages)
     {
