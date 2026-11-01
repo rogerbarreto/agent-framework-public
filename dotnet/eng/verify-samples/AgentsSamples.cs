@@ -1234,6 +1234,24 @@ internal static class AgentsSamples
 
         new SampleDefinition
         {
+            Name = "FoundryAgent_Step27_BrowserAutomation",
+            ProjectPath = "samples/02-agents/AgentProviders/foundry/Agent_Step27_BrowserAutomation",
+            RequiredEnvironmentVariables = ["FOUNDRY_PROJECT_ENDPOINT", "BROWSER_AUTOMATION_CONNECTION_NAME"],
+            OptionalEnvironmentVariables = ["FOUNDRY_MODEL"],
+            SkipReason = "Requires a Playwright Workspace and a Browser Automation connection.",
+        },
+
+        new SampleDefinition
+        {
+            Name = "FoundryAgent_Step28_BrowserAutomationToolbox",
+            ProjectPath = "samples/02-agents/AgentProviders/foundry/Agent_Step28_BrowserAutomationToolbox",
+            RequiredEnvironmentVariables = ["FOUNDRY_PROJECT_ENDPOINT", "BROWSER_AUTOMATION_CONNECTION_NAME"],
+            OptionalEnvironmentVariables = ["FOUNDRY_MODEL"],
+            SkipReason = "Requires a Playwright Workspace and a Browser Automation connection.",
+        },
+
+        new SampleDefinition
+        {
             Name = "FoundryAgent_Step21_WebSearch",
             ProjectPath = "samples/02-agents/AgentProviders/foundry/Agent_Step21_WebSearch",
             RequiredEnvironmentVariables = ["FOUNDRY_PROJECT_ENDPOINT"],
