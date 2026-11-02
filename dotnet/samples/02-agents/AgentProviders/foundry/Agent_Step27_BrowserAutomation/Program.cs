@@ -36,7 +36,7 @@ var browserAutomationOptions = new BrowserAutomationToolOptions(new BrowserAutom
 // Create a AIAgent with the Browser Automation tool.
 AIAgent agent = aiProjectClient.AsAIAgent(deploymentName,
     instructions: AgentInstructions,
-    name: "BrowserAutomationAgent-RAPI",
+    name: "BrowserAutomationAgent",
     tools: [FoundryAITool.CreateBrowserAutomationTool(browserAutomationOptions)]);
 
 Console.WriteLine($"Created agent: {agent.Name}");
@@ -47,7 +47,7 @@ ChatClientAgentRunOptions runOptions = new()
     ChatOptions = new ChatOptions { ToolMode = ChatToolMode.RequireAny }
 };
 
-const string Task = """
+const string Query = """
     Your goal is to report the percent of Microsoft year-to-date stock price change.
     To do that, go to the website finance.yahoo.com.
     At the top of the page, you will find a search bar.
@@ -59,7 +59,7 @@ const string Task = """
 // WARNING: The streamed text can include a live view URL that grants access to the browser session.
 // Treat it as sensitive: only display it in a trusted terminal and redact it before sharing output or saving logs.
 Console.WriteLine("\n=== Agent Response ===");
-await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(Task, options: runOptions))
+await foreach (AgentResponseUpdate update in agent.RunStreamingAsync(Query, options: runOptions))
 {
     Console.Write(update.Text);
 }
