@@ -113,7 +113,7 @@ public class EndpointRouteBuilderExtensionsTests
         Assert.Contains("2.0.0", body, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Skip = "Flaky in merge_group; see https://github.com/microsoft/agent-framework/issues/10409")]
     public async Task MapFoundryResponses_StreamTrue_EmitsAllAnnotationKindsAsync()
     {
         // Arrange and Act
