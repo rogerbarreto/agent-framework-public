@@ -28,6 +28,8 @@ public static class ResponsesHostApplicationBuilderExtensions
     /// Every request is answered by <paramref name="agent"/>: the request's <c>agent.name</c>, <c>model</c>, and
     /// <c>metadata["entity_id"]</c> do not select it, and no <see cref="AIAgent"/> registered in dependency
     /// injection is used. Call one <c>AddFoundryResponses</c> overload once per host; a second call throws.
+    /// Another protocol registration in the same container can serve the same agent when it receives the same
+    /// agent instance, or the same factory delegate with the same lifetime; a different agent throws.
     /// The agent is reused for every request and is never disposed by hosting, because the caller created it.
     /// </para>
     /// <para>
@@ -49,7 +51,10 @@ public static class ResponsesHostApplicationBuilderExtensions
     /// </param>
     /// <param name="options">Optional hosting behavior. Required inputs belong on the extension method parameters.</param>
     /// <returns>The host application builder for chaining.</returns>
-    /// <exception cref="InvalidOperationException"><c>AddFoundryResponses</c> was already called for <paramref name="host"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddFoundryResponses</c> was already called for <paramref name="host"/>, or another protocol registration
+    /// registered a different agent.
+    /// </exception>
     public static IHostApplicationBuilder AddFoundryResponses(
         this IHostApplicationBuilder host,
         AIAgent agent,
@@ -62,7 +67,7 @@ public static class ResponsesHostApplicationBuilderExtensions
         ResponsesServiceCollectionExtensions.AddFoundryResponsesCore(
             host.Services,
             host,
-            ServiceCollectionExtensions.DescribeAgentSource(agent),
+            FoundryHostedAgentRegistration.ForInstance(agent, nameof(AddFoundryResponses)),
             agentSessionStore,
             ResolveFoundryResponsesServerOptions(host, options),
             optionsSupplied: options is not null);
@@ -123,7 +128,10 @@ public static class ResponsesHostApplicationBuilderExtensions
     /// <param name="lifetime">How long a created agent is reused. Defaults to <see cref="ServiceLifetime.Singleton"/>.</param>
     /// <param name="options">Optional hosting behavior. Required inputs belong on the extension method parameters.</param>
     /// <returns>The host application builder for chaining.</returns>
-    /// <exception cref="InvalidOperationException"><c>AddFoundryResponses</c> was already called for <paramref name="host"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddFoundryResponses</c> was already called for <paramref name="host"/>, or another protocol registration
+    /// registered a different agent.
+    /// </exception>
     public static IHostApplicationBuilder AddFoundryResponses(
         this IHostApplicationBuilder host,
         Func<IServiceProvider, AIAgent> agentFactory,
@@ -135,7 +143,7 @@ public static class ResponsesHostApplicationBuilderExtensions
         ResponsesServiceCollectionExtensions.AddFoundryResponsesCore(
             host.Services,
             host,
-            ServiceCollectionExtensions.DescribeAgentSource(agentFactory, lifetime),
+            FoundryHostedAgentRegistration.ForFactory(agentFactory, lifetime, nameof(AddFoundryResponses)),
             agentSessionStore: null,
             ResolveFoundryResponsesServerOptions(host, options),
             optionsSupplied: options is not null);

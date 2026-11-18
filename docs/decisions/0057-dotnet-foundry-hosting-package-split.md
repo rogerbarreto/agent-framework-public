@@ -125,6 +125,13 @@ A dependency is placed in the core package only when at least two protocol packa
   `ResponsesHostApplicationBuilderExtensions`, and `ResponsesEndpointRouteBuilderExtensions`. Two static classes with
   the same name in the same namespace and different assemblies would make the class name ambiguous for anyone who
   references both packages.
+- **Agent registration.** A container serves one agent, and it may expose that agent over several protocols. Every
+  protocol registration records its agent through an internal core registration. A later protocol registration that
+  passes the same agent instance, or the same factory delegate with the same lifetime, reuses the first registration;
+  one that passes a different agent throws before it changes anything. Hosting cannot tell whether two different
+  factories create the same agent, so applications pass one factory delegate to every protocol. Registering the same
+  protocol twice still throws. A public protocol-neutral registration, such as `AddFoundryHostedAgent`, can follow if
+  protocols need to share a factory-created agent without repeating it.
 - **Internal services.** The core package grants `InternalsVisibleTo` to its protocol packages instead of making the
   agent source, toolbox sessions, and consent state public. The same pattern already exists between
   `Microsoft.Agents.AI.Workflows` and `Microsoft.Agents.AI.DurableTask`. Shared source helpers, such as `Throw`, are

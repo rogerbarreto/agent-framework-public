@@ -117,39 +117,46 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Describes the source of an agent instance the caller owns. The instance registration is never
-    /// disposed by the container, matching that the agent is not either.
+    /// Registers the one agent a Foundry hosting container serves, on behalf of a protocol registration.
     /// </summary>
-    internal static IReadOnlyList<ServiceDescriptor> DescribeAgentSource(AIAgent agent) =>
-        [ServiceDescriptor.Singleton(new FoundryHostedAgentSource(agent))];
-
-    /// <summary>
-    /// Describes the source of an agent created by <paramref name="agentFactory"/>. The source is created by
-    /// the container, which disposes it, and with it a singleton agent, at shutdown.
-    /// </summary>
-    internal static IReadOnlyList<ServiceDescriptor> DescribeAgentSource(
-        Func<IServiceProvider, AIAgent> agentFactory,
-        ServiceLifetime lifetime)
+    /// <remarks>
+    /// The first protocol registration adds <paramref name="registration"/> and the services that supply the agent.
+    /// A later protocol registration that names the same agent reuses them, so one agent can be exposed over several
+    /// protocols. A later registration that names a different agent throws before anything is added, because a
+    /// container serves exactly one agent. See <see cref="FoundryHostedAgentRegistration"/> for what counts as the
+    /// same agent.
+    /// </remarks>
+    /// <param name="services">The service collection.</param>
+    /// <param name="registration">The agent the protocol registration serves.</param>
+    /// <exception cref="InvalidOperationException">A different agent is already registered.</exception>
+    internal static void RegisterHostedAgent(IServiceCollection services, FoundryHostedAgentRegistration registration)
     {
-        _ = Throw.IfNull(agentFactory);
-        FoundryHostedAgentSource.ValidateLifetime(lifetime);
+        _ = Throw.IfNull(services);
+        _ = Throw.IfNull(registration);
 
-        ServiceDescriptor source = ServiceDescriptor.Singleton(serviceProvider => new FoundryHostedAgentSource(
-            agentFactory,
-            lifetime,
-            serviceProvider));
+        FoundryHostedAgentRegistration? existing = services
+            .Where(static descriptor => descriptor.ServiceType == typeof(FoundryHostedAgentRegistration))
+            .Select(static descriptor => descriptor.ImplementationInstance)
+            .OfType<FoundryHostedAgentRegistration>()
+            .FirstOrDefault();
 
-        if (lifetime != ServiceLifetime.Singleton)
+        if (existing is not null)
         {
-            return [source];
+            if (existing.NamesSameAgentAs(registration))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"A Foundry hosted agent container serves exactly one agent, and {existing.RegisteredBy} already registered a different one. " +
+                $"Pass the same agent instance, or the same factory delegate with the same lifetime, to {registration.RegisteredBy} and every other protocol registration.");
         }
 
-        ServiceDescriptor owner = ServiceDescriptor.Singleton(serviceProvider =>
-            new FoundryHostedAgentSource.FoundryHostedSingletonAgentOwner(
-                agentFactory(serviceProvider)
-                    ?? throw new InvalidOperationException("The agent factory passed to AddFoundryResponses returned null.")));
-
-        return [owner, source];
+        services.AddSingleton(registration);
+        foreach (ServiceDescriptor descriptor in registration.DescribeServices())
+        {
+            services.Add(descriptor);
+        }
     }
 
     /// <summary>

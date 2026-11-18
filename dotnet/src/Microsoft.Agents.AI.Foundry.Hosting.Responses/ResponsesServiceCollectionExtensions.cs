@@ -2,7 +2,6 @@
 
 using System;
 using System.ClientModel.Primitives;
-using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Azure.AI.AgentServer.Core.Tasks;
@@ -36,7 +35,8 @@ public static class ResponsesServiceCollectionExtensions
     /// Every request is answered by <paramref name="agent"/>: the request's <c>agent.name</c>, <c>model</c>, and
     /// <c>metadata["entity_id"]</c> do not select it, and no <see cref="AIAgent"/> registered in dependency
     /// injection is used. Call one <c>AddFoundryResponses</c> overload once per service collection; a second
-    /// call throws.
+    /// call throws. Another protocol registration in the same container can serve the same agent when it receives the same
+    /// agent instance, or the same factory delegate with the same lifetime; a different agent throws.
     /// </para>
     /// <para>
     /// This overload is for local or non-hosted scenarios. Foundry hosted applications must call
@@ -85,7 +85,10 @@ public static class ResponsesServiceCollectionExtensions
     /// (resilient) background responses via <see cref="ResponsesServerOptions.ResilientBackground"/>.
     /// </param>
     /// <returns>The service collection for chaining.</returns>
-    /// <exception cref="InvalidOperationException"><c>AddFoundryResponses</c> was already called for <paramref name="services"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddFoundryResponses</c> was already called for <paramref name="services"/>, or another protocol registration
+    /// registered a different agent.
+    /// </exception>
     public static IServiceCollection AddFoundryResponses(
         this IServiceCollection services,
         AIAgent agent,
@@ -98,7 +101,7 @@ public static class ResponsesServiceCollectionExtensions
         AddFoundryResponsesCore(
             services,
             host: null,
-            ServiceCollectionExtensions.DescribeAgentSource(agent),
+            FoundryHostedAgentRegistration.ForInstance(agent, nameof(AddFoundryResponses)),
             agentSessionStore,
             CopyFoundryResponsesServerOptions(options),
             optionsSupplied: options is not null);
@@ -180,7 +183,10 @@ public static class ResponsesServiceCollectionExtensions
     /// (resilient) background responses via <see cref="ResponsesServerOptions.ResilientBackground"/>.
     /// </param>
     /// <returns>The service collection for chaining.</returns>
-    /// <exception cref="InvalidOperationException"><c>AddFoundryResponses</c> was already called for <paramref name="services"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddFoundryResponses</c> was already called for <paramref name="services"/>, or another protocol registration
+    /// registered a different agent.
+    /// </exception>
     public static IServiceCollection AddFoundryResponses(
         this IServiceCollection services,
         Func<IServiceProvider, AIAgent> agentFactory,
@@ -192,7 +198,7 @@ public static class ResponsesServiceCollectionExtensions
         AddFoundryResponsesCore(
             services,
             host: null,
-            ServiceCollectionExtensions.DescribeAgentSource(agentFactory, lifetime),
+            FoundryHostedAgentRegistration.ForFactory(agentFactory, lifetime, nameof(AddFoundryResponses)),
             agentSessionStore: null,
             CopyFoundryResponsesServerOptions(options),
             optionsSupplied: options is not null);
@@ -201,33 +207,38 @@ public static class ResponsesServiceCollectionExtensions
 
     /// <summary>
     /// Registers everything Foundry Responses hosting needs to serve the one agent described by
-    /// <paramref name="agentSource"/>.
+    /// <paramref name="agentRegistration"/>.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="host">The host application builder, or <see langword="null"/> for a service collection alone.</param>
-    /// <param name="agentSource">The registrations that supply and own the hosted agent.</param>
+    /// <param name="agentRegistration">The agent the container serves.</param>
     /// <param name="agentSessionStore">The session store passed with the agent, if any.</param>
     /// <param name="configuredOptions">The hosting options to apply.</param>
     /// <param name="optionsSupplied">Whether the caller passed options, rather than leaving them to configuration.</param>
-    /// <exception cref="InvalidOperationException"><c>AddFoundryResponses</c> was already called for <paramref name="services"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// <c>AddFoundryResponses</c> was already called for <paramref name="services"/>, or another protocol registration
+    /// registered a different agent.
+    /// </exception>
     internal static void AddFoundryResponsesCore(
         IServiceCollection services,
         IHostApplicationBuilder? host,
-        IReadOnlyList<ServiceDescriptor> agentSource,
+        FoundryHostedAgentRegistration agentRegistration,
         AgentSessionStore? agentSessionStore,
         FoundryResponsesServerOptions configuredOptions,
         bool optionsSupplied)
     {
-        if (services.Any(static descriptor => descriptor.ServiceType == typeof(FoundryHostedAgentSource)))
+        // The Responses protocol is mapped once per container, even when a second call names the same agent. Another
+        // protocol may already have registered the agent, so this check does not look at the agent registration.
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(FoundryResponsesRegistrationMarker)))
         {
             throw new InvalidOperationException(
                 "AddFoundryResponses has already been called for this service collection. A Foundry hosted agent container serves exactly one agent, so call AddFoundryResponses once, with that agent or a factory for it.");
         }
 
-        foreach (ServiceDescriptor descriptor in agentSource)
-        {
-            services.Add(descriptor);
-        }
+        // Runs before anything else is added, so a call naming a different agent than another protocol leaves the
+        // service collection unchanged.
+        ServiceCollectionExtensions.RegisterHostedAgent(services, agentRegistration);
+        services.AddSingleton(new FoundryResponsesRegistrationMarker());
 
         AddResponsesServer(services, host, configuredOptions, optionsSupplied);
         services.AddHealthChecks();
@@ -460,4 +471,10 @@ public static class ResponsesServiceCollectionExtensions
 
     private static readonly object s_boxedTrue = new();
     private static readonly ConditionalWeakTable<OpenAIRequestPolicies, object> s_userAgentRegistrations = new();
+
+    /// <summary>
+    /// Marks a service collection in which <c>AddFoundryResponses</c> registered the Responses protocol, so a second
+    /// call is rejected even when it names the same agent.
+    /// </summary>
+    private sealed class FoundryResponsesRegistrationMarker;
 }

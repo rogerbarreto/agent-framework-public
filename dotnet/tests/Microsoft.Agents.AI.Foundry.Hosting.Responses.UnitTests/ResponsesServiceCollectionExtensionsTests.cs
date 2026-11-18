@@ -111,6 +111,41 @@ public class ResponsesServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddFoundryResponses_SameAgentRegisteredByAnotherProtocol_ReusesIt()
+    {
+        // Arrange: another protocol, for example A2A, already exposes this agent in the same container.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AIAgent agent = Mock.Of<AIAgent>();
+        ServiceCollectionExtensions.RegisterHostedAgent(services, FoundryHostedAgentRegistration.ForInstance(agent, "AddFoundryA2A"));
+
+        // Act
+        services.AddFoundryResponses(agent);
+
+        // Assert
+        Assert.Single(services, d => d.ServiceType == typeof(FoundryHostedAgentSource));
+        Assert.Single(services, d => d.ServiceType == typeof(ResponseHandler));
+    }
+
+    [Fact]
+    public void AddFoundryResponses_DifferentAgentRegisteredByAnotherProtocol_ThrowsWithoutChanges()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        ServiceCollectionExtensions.RegisterHostedAgent(services, FoundryHostedAgentRegistration.ForInstance(Mock.Of<AIAgent>(), "AddFoundryA2A"));
+        int registrations = services.Count;
+
+        // Act
+        var exception = Assert.Throws<InvalidOperationException>(() => services.AddFoundryResponses(Mock.Of<AIAgent>()));
+
+        // Assert
+        Assert.Contains("AddFoundryA2A", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(registrations, services.Count);
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(ResponseHandler));
+    }
+
+    [Fact]
     public void AddFoundryResponses_OptionsObject_AppliesAllValues()
     {
         // Arrange
