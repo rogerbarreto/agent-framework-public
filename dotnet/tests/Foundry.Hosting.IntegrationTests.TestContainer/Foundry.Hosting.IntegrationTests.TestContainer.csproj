@@ -28,7 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Microsoft.Agents.AI\Microsoft.Agents.AI.csproj" />
     <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
     <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Workflows\Microsoft.Agents.AI.Workflows.csproj" />
   </ItemGroup>
 

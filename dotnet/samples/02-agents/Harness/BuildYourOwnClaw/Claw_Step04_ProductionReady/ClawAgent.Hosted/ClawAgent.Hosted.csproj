@@ -16,7 +16,7 @@
     <ProjectReference Include="../ClawAgent/ClawAgent.csproj" />
     <ProjectReference Include="../../../../../../src/Microsoft.Agents.AI.LocalCodeAct/Microsoft.Agents.AI.LocalCodeAct.csproj" />
     <ProjectReference Include="../../../../../../src/Microsoft.Agents.AI.Foundry/Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="../../../../../../src/Microsoft.Agents.AI.Foundry.Hosting/Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+    <ProjectReference Include="../../../../../../src/Microsoft.Agents.AI.Foundry.Hosting.Responses/Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
     <ProjectReference Include="../../../../../04-hosting/FoundryHostedAgents/responses/Hosted_Shared_Contributor_Setup/Hosted_Shared_Contributor_Setup.csproj" />
   </ItemGroup>
 

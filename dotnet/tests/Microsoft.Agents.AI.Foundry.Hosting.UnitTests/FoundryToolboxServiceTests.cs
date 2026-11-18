@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Core;
+using Microsoft.Agents.AI.Foundry.Hosting.TestUtilities;
 using Microsoft.Agents.AI.Foundry.UnitTests.Hosting;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;

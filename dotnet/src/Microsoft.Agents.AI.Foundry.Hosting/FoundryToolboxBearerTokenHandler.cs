@@ -106,9 +106,9 @@ internal sealed class FoundryToolboxBearerTokenHandler : DelegatingHandler
         // container protocol 2.0.0) so the toolbox proxy can resolve the server-side caller context.
         // The value is fixed when the connection is created, never read from ambient state, so the
         // MCP session and every request on it carry the identity of the response that opened it.
-        if (this._callId is { } callId && !request.Headers.Contains(HostedProtocolCompatibility.CallIdHeaderName))
+        if (this._callId is { } callId && !request.Headers.Contains(PlatformHeaders.FoundryCallId))
         {
-            request.Headers.TryAddWithoutValidation(HostedProtocolCompatibility.CallIdHeaderName, callId);
+            request.Headers.TryAddWithoutValidation(PlatformHeaders.FoundryCallId, callId);
         }
 
         PropagateTraceContext(request);

@@ -14,7 +14,7 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// <summary>
 /// An <see cref="AIFunction"/> wrapper around <see cref="McpClientTool"/> that intercepts
 /// JSON-RPC error -32006 (OAuth consent required) from the Foundry Toolsets proxy and
-/// propagates it back to <see cref="AgentFrameworkResponseHandler"/> via
+/// propagates it back to the protocol handler that runs the agent via
 /// <see cref="McpConsentContext"/>.
 /// </summary>
 /// <remarks>
@@ -23,8 +23,8 @@ namespace Microsoft.Agents.AI.Foundry.Hosting;
 /// and the current invocation records an explicit consent-required result. When the downstream
 /// inference service keeps its own history, the function loop performs one final no-tools request
 /// so that result batch is stored there. Otherwise it terminates before that unnecessary request.
-/// The handler then emits the <c>oauth_consent_request</c> output item and marks the response as
-/// <c>incomplete</c>.
+/// The protocol handler then asks the caller for consent; the Responses handler emits the
+/// <c>oauth_consent_request</c> output item and marks the response as <c>incomplete</c>.
 /// Outside a function-invoking loop, cancellation signals the handoff to the handler.
 /// </para>
 /// </remarks>

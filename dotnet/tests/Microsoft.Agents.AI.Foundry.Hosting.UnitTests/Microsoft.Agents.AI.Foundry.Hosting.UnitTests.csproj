@@ -7,22 +7,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging" />
-    <PackageReference Include="Azure.AI.AgentServer.Responses" />
-    <PackageReference Include="Azure.AI.Projects" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
-    <PackageReference Include="OpenTelemetry" />
-    <PackageReference Include="OpenTelemetry.Exporter.InMemory" />
+    <Compile Include="..\FeatureUsageAssert.cs" Link="FeatureUsageAssert.cs" />
+    <!-- Test helpers shared with Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests. -->
+    <Compile Include="..\Microsoft.Agents.AI.Foundry.Hosting.TestUtilities\*.cs" LinkBase="TestUtilities" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
-    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Harness\Microsoft.Agents.AI.Harness.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">
-    <ProjectReference Include="..\..\samples\04-hosting\FoundryHostedAgents\responses\Hosted-Harness-Research\HostedHarnessResearch.csproj" />
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

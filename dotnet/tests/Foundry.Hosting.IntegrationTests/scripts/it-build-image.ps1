@@ -75,6 +75,7 @@ if ([string]::IsNullOrWhiteSpace($registryHost)) {
 $hashedDirs = @(
     $TestContainerProject,
     "dotnet/src/Microsoft.Agents.AI.Foundry.Hosting",
+    "dotnet/src/Microsoft.Agents.AI.Foundry.Hosting.Responses",
     "dotnet/src/Microsoft.Agents.AI.Foundry",
     "dotnet/src/Microsoft.Agents.AI",
     "dotnet/src/Microsoft.Agents.AI.Abstractions",
@@ -112,7 +113,7 @@ if (Test-Path $out) {
 }
 
 # Always tell publish to skip ProjectReference rebuilds via --no-dependencies. Publish
-# resolves TestContainer's framework lib references (Foundry, Foundry.Hosting and their
+# resolves TestContainer's framework lib references (Foundry, Foundry.Hosting, Foundry.Hosting.Responses and their
 # transitive deps) by reading the prebuilt DLLs at src/<lib>/bin/Release/net11.0/*.dll.
 # This:
 #   1) Structurally avoids the MSB3026 "file is being used by another process" race that
@@ -124,7 +125,8 @@ if (Test-Path $out) {
 # preceding "Build Foundry hosted IT (and its deps)" step.
 $prebuildProbes = @(
     "dotnet/src/Microsoft.Agents.AI.Foundry/bin/Release/net11.0/Microsoft.Agents.AI.Foundry.dll",
-    "dotnet/src/Microsoft.Agents.AI.Foundry.Hosting/bin/Release/net11.0/Microsoft.Agents.AI.Foundry.Hosting.dll"
+    "dotnet/src/Microsoft.Agents.AI.Foundry.Hosting/bin/Release/net11.0/Microsoft.Agents.AI.Foundry.Hosting.dll",
+    "dotnet/src/Microsoft.Agents.AI.Foundry.Hosting.Responses/bin/Release/net11.0/Microsoft.Agents.AI.Foundry.Hosting.Responses.dll"
 )
 $missingPrebuilds = @($prebuildProbes | Where-Object { -not (Test-Path $_) })
 if ($missingPrebuilds.Count -gt 0) {

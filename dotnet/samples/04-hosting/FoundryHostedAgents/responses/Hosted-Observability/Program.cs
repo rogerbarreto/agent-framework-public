@@ -49,7 +49,7 @@ string GetWeather(
 // ── Create and host the agent ────────────────────────────────────────────────
 //
 // AddFoundryResponses automatically wraps `agent` with OpenTelemetryAgent
-// (see Microsoft.Agents.AI.Foundry.Hosting.ServiceCollectionExtensions.ApplyOpenTelemetry)
+// (see Microsoft.Agents.AI.Foundry.Hosting.ResponsesServiceCollectionExtensions.ApplyOpenTelemetry)
 // and the OTLP exporter is registered by Azure.AI.AgentServer.Core's
 // AddAgentHostTelemetry(). No additional observability wiring is required.
 

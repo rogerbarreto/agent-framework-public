@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>$(TargetFrameworksCore)</TargetFrameworks>
+    <!--
+      The Responses types keep the Microsoft.Agents.AI.Foundry.Hosting namespace they had before the package
+      split, so existing applications only change their package reference and keep compiling unchanged.
+    -->
+    <RootNamespace>Microsoft.Agents.AI.Foundry.Hosting</RootNamespace>
+    <VersionSuffix>preview</VersionSuffix>
+    <Title>Microsoft Agent Framework for Foundry Hosted Agents (Responses protocol)</Title>
+    <Description>Provides Microsoft Agent Framework support for hosting Foundry Agents with the Azure AI Agent Service over the Responses protocol. This version targets the Foundry Responses container protocol v2.0.</Description>
+    <PackageReleaseNotes>Breaking change: the Responses protocol integration (AddFoundryResponses, MapFoundryResponses, FoundryResponsesServerOptions) moved from Microsoft.Agents.AI.Foundry.Hosting to this package. Microsoft.Agents.AI.Foundry.Hosting now contains only the protocol-neutral Foundry hosting services. See docs/decisions/0057-dotnet-foundry-hosting-package-split.md.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Shared source helpers (Throw, DiagnosticIds) are not injected here: Microsoft.Agents.AI.Foundry.Hosting
+      injects them and grants this assembly access to its internals, so a second copy would conflict (CS0436).
+    -->
+    <NoWarn>$(NoWarn);OPENAI001;MEAI001;MAAI001</NoWarn>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <Import Project="$(RepoRoot)/dotnet/nuget/nuget-package.props" />
+
+  <!-- Disable package validation baseline until the first release -->
+  <PropertyGroup>
+    <PackageValidationBaselineVersion />
+    <EnablePackageValidation>false</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.AgentServer.Responses" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests" />
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+  </ItemGroup>
+
+</Project>

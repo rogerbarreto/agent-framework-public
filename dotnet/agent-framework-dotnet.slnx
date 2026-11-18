@@ -622,6 +622,7 @@
     <Project Path="src/Microsoft.Agents.AI.Declarative/Microsoft.Agents.AI.Declarative.csproj" />
     <Project Path="src/Microsoft.Agents.AI.DevUI/Microsoft.Agents.AI.DevUI.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Foundry.Hosting.A2A/Microsoft.Agents.AI.Foundry.Hosting.A2A.csproj" />
+    <Project Path="src/Microsoft.Agents.AI.Foundry.Hosting.Responses/Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Foundry.Hosting/Microsoft.Agents.AI.Foundry.Hosting.csproj" />
     <Project Path="src/Microsoft.Agents.AI.Foundry/Microsoft.Agents.AI.Foundry.csproj" />
     <Project Path="src/Microsoft.Agents.AI.GitHub.Copilot/Microsoft.Agents.AI.GitHub.Copilot.csproj" />
@@ -682,6 +683,7 @@
     <Project Path="tests/Microsoft.Agents.AI.FeatureRegistry.UnitTests/Microsoft.Agents.AI.FeatureRegistry.UnitTests.csproj">
       <Build Solution="Debug|*" Project="false" />
     </Project>
+    <Project Path="tests/Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests/Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Foundry.Hosting.UnitTests/Microsoft.Agents.AI.Foundry.Hosting.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.Foundry.UnitTests/Microsoft.Agents.AI.Foundry.UnitTests.csproj" />
     <Project Path="tests/Microsoft.Agents.AI.GitHub.Copilot.UnitTests/Microsoft.Agents.AI.GitHub.Copilot.UnitTests.csproj" />

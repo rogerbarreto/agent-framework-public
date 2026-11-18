@@ -5,8 +5,8 @@
     <RootNamespace>Microsoft.Agents.AI.Foundry.Hosting</RootNamespace>
     <VersionSuffix>preview</VersionSuffix>
     <Title>Microsoft Agent Framework for Foundry Hosted Agents</Title>
-    <Description>Provides Microsoft Agent Framework support for hosting Foundry Agents with the Azure AI Agent Service. Breaking change: this version targets the Foundry Responses container protocol v2.0 only and is not compatible with v1; use an earlier release for the v1 protocol definition.</Description>
-    <PackageReleaseNotes>Breaking change: this release migrates Foundry hosting to the Azure.AI.AgentServer 2.0 (Responses container protocol v2.0) surface. It is only compatible with responses protocol v2.0. Use a previous release for the v1 protocol definition. See docs/decisions/0034-hosted-platform-context-agentserver-2.0.md.</PackageReleaseNotes>
+    <Description>Provides the protocol-neutral Microsoft Agent Framework services for Foundry Hosted Agents: hosted agent registration, Foundry session and workflow checkpoint storage, and Foundry Toolbox integration. Add a protocol package, such as Microsoft.Agents.AI.Foundry.Hosting.Responses, to serve the agent.</Description>
+    <PackageReleaseNotes>Breaking change: the Responses protocol integration (AddFoundryResponses, MapFoundryResponses, FoundryResponsesServerOptions) moved to Microsoft.Agents.AI.Foundry.Hosting.Responses. Reference that package to keep hosting over the Responses protocol; the types keep the Microsoft.Agents.AI.Foundry.Hosting namespace. See docs/decisions/0057-dotnet-foundry-hosting-package-split.md.</PackageReleaseNotes>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -31,9 +31,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.AI.AgentServer.Responses" />
+    <PackageReference Include="Azure.AI.AgentServer.Core" />
     <PackageReference Include="Azure.Identity" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 
@@ -42,7 +41,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Protocol packages run the hosted agent through these internal services (agent source, toolbox
+      sessions, consent state). They ship in lockstep with this package.
+    -->
+    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.Responses" />
     <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.UnitTests" />
+    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 

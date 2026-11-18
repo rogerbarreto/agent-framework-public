@@ -61,6 +61,7 @@ $frameworkProjects = @(
     'Microsoft.Agents.AI.Mcp'
     'Microsoft.Agents.AI.Foundry'
     'Microsoft.Agents.AI.Foundry.Hosting'
+    'Microsoft.Agents.AI.Foundry.Hosting.Responses'
 )
 
 $target = (Resolve-Path $Path).Path
@@ -149,6 +150,10 @@ $nugetConfig = @'
 # keeps the checked-in sample free of contributor-only scaffolding. Reruns are safe: the pattern
 # matches whatever version is currently there.
 $projectXml = [System.IO.File]::ReadAllText($projectFile.FullName)
+# Checked-in samples reference the published Microsoft.Agents.AI.Foundry.Hosting package, which still contains
+# the Responses integration at their pinned version. A local build packs that integration separately as
+# Microsoft.Agents.AI.Foundry.Hosting.Responses, so the copy has to reference that package instead.
+$projectXml = $projectXml -replace '<PackageReference Include="Microsoft\.Agents\.AI\.Foundry\.Hosting" ', '<PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting.Responses" '
 $projectXml = $projectXml -replace '(?<open><AgentFrameworkVersion>)[^<]*(?<close></AgentFrameworkVersion>)', "`${open}$version`${close}"
 $projectXml = $projectXml -replace '(?<open><PackageReference Include="Microsoft\.Agents\.AI[^"]*" Version=")[^"]*(?<close>" />)', "`${open}$version`${close}"
 [System.IO.File]::WriteAllText($projectFile.FullName, $projectXml, [System.Text.UTF8Encoding]::new($true))

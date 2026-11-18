@@ -62,6 +62,7 @@ jobs:
             # changed. Keep this list in sync with $hashedDirs in scripts/it-build-image.ps1.
             foundryHosting:
               - 'dotnet/src/Microsoft.Agents.AI.Foundry.Hosting/**'
+              - 'dotnet/src/Microsoft.Agents.AI.Foundry.Hosting.Responses/**'
               - 'dotnet/src/Microsoft.Agents.AI.Foundry/**'
               - 'dotnet/src/Microsoft.Agents.AI/**'
               - 'dotnet/src/Microsoft.Agents.AI.Abstractions/**'

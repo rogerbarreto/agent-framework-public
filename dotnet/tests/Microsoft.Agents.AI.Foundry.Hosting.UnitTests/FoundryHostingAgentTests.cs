@@ -45,7 +45,7 @@ public sealed class FoundryHostingAgentTests
     {
         // Arrange
         var hostingAgent = new FoundryHostingAgent(new TestAgent("billing"), "name:billing");
-        AIAgent outerAgent = ServiceCollectionExtensions.ApplyOpenTelemetry(hostingAgent);
+        AIAgent outerAgent = hostingAgent.AsBuilder().UseOpenTelemetry().Build();
 
         // Act
         var resolved = outerAgent.GetService<FoundryHostingAgent>();

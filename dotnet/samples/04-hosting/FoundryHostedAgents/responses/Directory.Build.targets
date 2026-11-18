@@ -7,7 +7,7 @@
   -->
   <PropertyGroup>
     <_AgentFrameworkSourceRoot>$(MSBuildThisFileDirectory)..\..\..\..\src</_AgentFrameworkSourceRoot>
-    <UseLocalAgentFramework Condition="'$(UseLocalAgentFramework)' == '' and Exists('$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj')">true</UseLocalAgentFramework>
+    <UseLocalAgentFramework Condition="'$(UseLocalAgentFramework)' == '' and Exists('$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj')">true</UseLocalAgentFramework>
     <DefineConstants Condition="'$(UseLocalAgentFramework)' == 'true'">$(DefineConstants);USE_LOCAL_AGENT_FRAMEWORK_SOURCE</DefineConstants>
   </PropertyGroup>
 
@@ -18,8 +18,13 @@
         Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Abstractions'))' != ''" />
     <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj"
         Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Foundry'))' != ''" />
-    <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj"
-        Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Foundry.Hosting'))' != ''" />
+    <!--
+      Samples pin a published AgentFrameworkVersion whose Microsoft.Agents.AI.Foundry.Hosting package still
+      contains the Responses integration. From source that integration lives in the Responses project, which
+      brings the protocol-neutral Foundry.Hosting project with it, so either package identity maps to it.
+    -->
+    <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj"
+        Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Foundry.Hosting'))' != '' or '@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Foundry.Hosting.Responses'))' != ''" />
     <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Harness\Microsoft.Agents.AI.Harness.csproj"
         Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Harness'))' != ''" />
     <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Hosting\Microsoft.Agents.AI.Hosting.csproj"
@@ -31,7 +36,7 @@
     <ProjectReference Include="$(_AgentFrameworkSourceRoot)\Microsoft.Agents.AI.Workflows\Microsoft.Agents.AI.Workflows.csproj"
         Condition="'@(PackageReference->WithMetadataValue('Identity', 'Microsoft.Agents.AI.Workflows'))' != ''" />
 
-    <PackageReference Remove="Microsoft.Agents.AI;Microsoft.Agents.AI.Abstractions;Microsoft.Agents.AI.Foundry;Microsoft.Agents.AI.Foundry.Hosting;Microsoft.Agents.AI.Harness;Microsoft.Agents.AI.Hosting;Microsoft.Agents.AI.LocalCodeAct;Microsoft.Agents.AI.Mcp;Microsoft.Agents.AI.Workflows" />
+    <PackageReference Remove="Microsoft.Agents.AI;Microsoft.Agents.AI.Abstractions;Microsoft.Agents.AI.Foundry;Microsoft.Agents.AI.Foundry.Hosting;Microsoft.Agents.AI.Foundry.Hosting.Responses;Microsoft.Agents.AI.Harness;Microsoft.Agents.AI.Hosting;Microsoft.Agents.AI.LocalCodeAct;Microsoft.Agents.AI.Mcp;Microsoft.Agents.AI.Workflows" />
   </ItemGroup>
 
 </Project>

@@ -49,6 +49,7 @@ framework_projects=(
     Microsoft.Agents.AI.Mcp
     Microsoft.Agents.AI.Foundry
     Microsoft.Agents.AI.Foundry.Hosting
+    Microsoft.Agents.AI.Foundry.Hosting.Responses
 )
 
 target_input="${1:-.}"
@@ -145,6 +146,11 @@ EOF
 # matches whatever version is currently there. sed rewrites the line in place, leaving the file's
 # leading byte order mark untouched.
 sed -i.bak "s|<AgentFrameworkVersion>[^<]*</AgentFrameworkVersion>|<AgentFrameworkVersion>$version</AgentFrameworkVersion>|" "$project_file"
+rm -f "$project_file.bak"
+# Checked-in samples reference the published Microsoft.Agents.AI.Foundry.Hosting package, which still contains
+# the Responses integration at their pinned version. A local build packs that integration separately as
+# Microsoft.Agents.AI.Foundry.Hosting.Responses, so the copy has to reference that package instead.
+sed -i.bak 's|PackageReference Include="Microsoft\.Agents\.AI\.Foundry\.Hosting" |PackageReference Include="Microsoft.Agents.AI.Foundry.Hosting.Responses" |g' "$project_file"
 rm -f "$project_file.bak"
 sed -E -i.bak "s|(PackageReference Include=\"Microsoft\\.Agents\\.AI[^\"]*\" Version=\")[^\"]*(\" />)|\\1$version\\2|g" "$project_file"
 rm -f "$project_file.bak"

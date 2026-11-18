@@ -64,7 +64,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.UnitTests" />
-    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.UnitTests" />
+    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 

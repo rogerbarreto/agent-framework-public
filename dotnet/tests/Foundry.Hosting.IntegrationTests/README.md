@@ -1,6 +1,7 @@
 ﻿# Foundry.Hosting.IntegrationTests
 
-Integration tests for `Microsoft.Agents.AI.Foundry.Hosting` against real Foundry hosted agents.
+Integration tests for `Microsoft.Agents.AI.Foundry.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting.Responses`
+against real Foundry hosted agents.
 
 ## How it works
 
@@ -240,7 +241,8 @@ container, the test fixture, or their tooling changed:
    `scripts/it-build-image.ps1` against `vars.IT_HOSTED_AGENT_REGISTRY`. The image is
    rebuilt every IT run; its tag is content-hashed across the test container source AND
    its referenced framework projects (`Microsoft.Agents.AI.Foundry.Hosting`,
-   `Microsoft.Agents.AI.Foundry`, `Microsoft.Agents.AI`, `Microsoft.Agents.AI.Abstractions`),
+   `Microsoft.Agents.AI.Foundry.Hosting.Responses`, `Microsoft.Agents.AI.Foundry`, `Microsoft.Agents.AI`,
+   `Microsoft.Agents.AI.Abstractions`),
    so unchanged content is a `docker push` no-op while any framework code change forces
    a fresh image. The script pipes its `IT_HOSTED_AGENT_IMAGE=<tag>` line into
    `$GITHUB_ENV` for the next step.
@@ -295,4 +297,4 @@ human-only operation; CI only adds and deletes versions under existing agents.
 
 The scenarios marked (placeholder) are already wired into the test container `Program.cs`,
 but their assertions stay skipped pending live validation and stabilization of the relevant
-`Microsoft.Agents.AI.Foundry.Hosting` API surfaces.
+`Microsoft.Agents.AI.Foundry.Hosting` and `Microsoft.Agents.AI.Foundry.Hosting.Responses` API surfaces.

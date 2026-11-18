@@ -36,13 +36,13 @@
     <NoWarn>$(NoWarn);MAAI001</NoWarn>
     <AgentFrameworkVersion>1.27.0-preview.261030.1</AgentFrameworkVersion>
     <LocalAgentFrameworkRoot>$(MSBuildThisFileDirectory)..\..\..\..\..\src</LocalAgentFrameworkRoot>
-    <UseLocalAgentFramework Condition="'$(UseLocalAgentFramework)' == '' and Exists('$(LocalAgentFrameworkRoot)\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj')">true</UseLocalAgentFramework>
+    <UseLocalAgentFramework Condition="'$(UseLocalAgentFramework)' == '' and Exists('$(LocalAgentFrameworkRoot)\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj')">true</UseLocalAgentFramework>
     <DefineConstants Condition="'$(UseLocalAgentFramework)' == 'true'">$(DefineConstants);USE_LOCAL_AGENT_FRAMEWORK_SOURCE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(UseLocalAgentFramework)' == 'true'">
     <ProjectReference Include="$(LocalAgentFrameworkRoot)\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="$(LocalAgentFrameworkRoot)\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+    <ProjectReference Include="$(LocalAgentFrameworkRoot)\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalAgentFramework)' != 'true'">

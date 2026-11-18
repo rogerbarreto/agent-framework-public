@@ -23,7 +23,7 @@ internal static class McpConsentResults
 
 /// <summary>
 /// Per-request mutable state shared between <see cref="ConsentAwareMcpClientAIFunction"/> (child context)
-/// and <see cref="AgentFrameworkResponseHandler"/> (parent context) via <see cref="McpConsentContext.Current"/>.
+/// and the protocol handler that runs the agent (parent context) via <see cref="McpConsentContext.Current"/>.
 /// </summary>
 /// <remarks>
 /// Because <see cref="AsyncLocal{T}"/> only flows values DOWN from parent to children,
@@ -56,7 +56,7 @@ internal sealed class RequestConsentState
 
 /// <summary>
 /// Async-local context that enables <see cref="ConsentAwareMcpClientAIFunction"/>
-/// to signal a consent error back to <see cref="AgentFrameworkResponseHandler"/> through the
+/// to signal a consent error back to the protocol handler that runs the agent through the
 /// <see cref="FunctionInvokingChatClient"/> tool loop. Flows with the async ExecutionContext.
 /// </summary>
 internal static class McpConsentContext

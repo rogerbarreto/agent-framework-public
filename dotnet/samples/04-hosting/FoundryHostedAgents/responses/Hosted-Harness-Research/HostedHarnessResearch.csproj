@@ -30,7 +30,7 @@
 
   <ItemGroup Condition="'$(UseLocalFramework)' == 'true'">
     <ProjectReference Include="..\..\..\..\..\src\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="..\..\..\..\..\src\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\..\..\src\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
     <ProjectReference Include="..\..\..\..\..\src\Microsoft.Agents.AI.Harness\Microsoft.Agents.AI.Harness.csproj" />
   </ItemGroup>
 
@@ -40,7 +40,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.UnitTests" />
+    <InternalsVisibleTo Include="Microsoft.Agents.AI.Foundry.Hosting.Responses.UnitTests" />
   </ItemGroup>
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.Web" />

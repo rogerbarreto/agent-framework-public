@@ -1,7 +1,7 @@
 # Dockerfile for the ClawAgent.Hosted Foundry Hosted Agent, built from the agent-framework repo source.
 #
 # This project uses ProjectReference to local repo sources (ClawAgent, Microsoft.Agents.AI.Foundry,
-# Microsoft.Agents.AI.Foundry.Hosting, Microsoft.Agents.AI.LocalCodeAct) and to the repo's Central
+# Microsoft.Agents.AI.Foundry.Hosting.Responses, Microsoft.Agents.AI.LocalCodeAct) and to the repo's Central
 # Package Management, so a standard in-container `dotnet restore`/`publish` cannot resolve everything
 # from this folder alone. Instead, PRE-PUBLISH the app on your machine (inside the full repo, where the
 # references and package versions resolve) and COPY the output into the image:

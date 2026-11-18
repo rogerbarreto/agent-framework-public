@@ -59,7 +59,7 @@ public sealed class FeatureRegistryTests
             ["foundry.memory"] = "Microsoft.Agents.AI.Foundry",
             ["foundry.evals"] = "Microsoft.Agents.AI.Foundry",
             ["foundry.toolbox"] = "Microsoft.Agents.AI.Foundry.Hosting",
-            ["foundry_hosting"] = "Microsoft.Agents.AI.Foundry.Hosting",
+            ["foundry_hosting"] = "Microsoft.Agents.AI.Foundry.Hosting.Responses",
             ["openai"] = "Microsoft.Agents.AI.OpenAI",
             ["anthropic"] = "Microsoft.Agents.AI.Anthropic",
             ["copilotstudio"] = "Microsoft.Agents.AI.CopilotStudio",

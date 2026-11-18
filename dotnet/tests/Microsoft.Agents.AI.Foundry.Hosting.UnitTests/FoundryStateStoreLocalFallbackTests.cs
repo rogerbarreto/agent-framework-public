@@ -6,16 +6,11 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Agents.AI.Foundry.Hosting.TestUtilities;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 
 namespace Microsoft.Agents.AI.Foundry.Hosting.UnitTests;
-
-[CollectionDefinition(CollectionName, DisableParallelization = true)]
-public sealed class FoundryStateStoreLocalFallbackCollectionDefinition
-{
-    public const string CollectionName = "Foundry state-store local fallback";
-}
 
 [Collection(FoundryStateStoreLocalFallbackCollectionDefinition.CollectionName)]
 public sealed class FoundryStateStoreLocalFallbackTests

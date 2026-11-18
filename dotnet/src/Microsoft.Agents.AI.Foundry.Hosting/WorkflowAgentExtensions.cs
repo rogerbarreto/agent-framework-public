@@ -10,7 +10,7 @@ using Microsoft.Shared.Diagnostics;
 namespace Microsoft.Agents.AI.Foundry.Hosting;
 
 /// <summary>
-/// Extension methods for an <see cref="AIAgent"/> that runs a workflow, served by Foundry Responses hosting.
+/// Extension methods for an <see cref="AIAgent"/> that runs a workflow, served by Foundry hosting.
 /// </summary>
 /// <remarks>
 /// They extend <see cref="AIAgent"/> because that is the type <c>Workflow.AsAIAgent</c> returns; the workflow agent
@@ -38,7 +38,7 @@ public static class WorkflowAgentExtensions
 
     /// <summary>
     /// Returns a copy of a workflow agent that stores its checkpoints in Foundry, the same way Foundry
-    /// Responses hosting stores them for the agent it serves.
+    /// hosting stores them for the agent it serves.
     /// </summary>
     /// <remarks>
     /// <para>

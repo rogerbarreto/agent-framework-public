@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!--
-      Modern framework only: Microsoft.Agents.AI.Foundry.Hosting depends on ASP.NET Core and
+      Modern framework only: Microsoft.Agents.AI.Foundry.Hosting.Responses depends on ASP.NET Core and
       has no net472 target, so the default tests list cannot be used.
     -->
     <TargetFrameworks>$(TestTargetFrameworksCore)</TargetFrameworks>
@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry\Microsoft.Agents.AI.Foundry.csproj" />
-    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting\Microsoft.Agents.AI.Foundry.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Microsoft.Agents.AI.Foundry.Hosting.Responses\Microsoft.Agents.AI.Foundry.Hosting.Responses.csproj" />
     <ProjectReference Include="..\AgentConformance.IntegrationTests\AgentConformance.IntegrationTests.csproj" />
   </ItemGroup>
 
