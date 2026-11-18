@@ -1,3 +1,5 @@
 #nullable enable
 Microsoft.Agents.AI.Workflows.IExternalRequestEnvelopeWithContext
 Microsoft.Agents.AI.Workflows.IExternalRequestEnvelopeWithContext.GetRequestContext() -> System.Collections.Generic.IReadOnlyList<Microsoft.Extensions.AI.TextContent!>!
+const Microsoft.Agents.AI.Workflows.WorkflowAgentAdditionalProperties.ExecutorId = "executorId" -> string!
+Microsoft.Agents.AI.Workflows.WorkflowAgentAdditionalProperties

@@ -71,19 +71,34 @@ public sealed class RootExecutorTests
         state.Set("LaterValue", FormulaValue.New("later"), VariableScopeNames.Global, SensitivityLevel.Sensitive);
         state.Bind();
 
-        // Act
-        await resumed.RestoreCheckpointAsync(savedCheckpoints[0]);
+        // Restoring also restarts off-thread execution; hold the writer until the restored state is checked.
+        TaskCompletionSource<bool> executionGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        writer.ExecutionGate = executionGate.Task;
+        try
+        {
+            // Act
+            await resumed.RestoreCheckpointAsync(savedCheckpoints[0]);
 
-        // Assert
-        Assert.Equal("root-value", executor.RestoredValue);
-        Assert.Equal("root-value", reader.RestoredValue);
-        Assert.Equal("root-value", Assert.IsType<StringValue>(state.Get("TestValue", VariableScopeNames.Local)).Value);
-        Assert.Equal(SensitivityLevel.None, state.GetSensitivity("TestValue", VariableScopeNames.Local));
-        Assert.Equal("configured", Assert.IsType<StringValue>(state.Get("SETTING", VariableScopeNames.Environment)).Value);
-        Assert.Equal(SensitivityLevel.Sensitive, state.GetSensitivity("SETTING", VariableScopeNames.Environment));
-        Assert.IsType<BlankValue>(state.Get("LaterValue", VariableScopeNames.Global));
-        Assert.Equal(SensitivityLevel.None, state.GetSensitivity("LaterValue", VariableScopeNames.Global));
-        Assert.Equal(initialConversation, Assert.IsType<StringValue>(state.Get(SystemScope.Names.ConversationId, VariableScopeNames.System)).Value);
+            // Assert
+            Assert.Equal("root-value", executor.RestoredValue);
+            Assert.Equal("root-value", reader.RestoredValue);
+            Assert.Equal("root-value", Assert.IsType<StringValue>(state.Get("TestValue", VariableScopeNames.Local)).Value);
+            Assert.Equal(SensitivityLevel.None, state.GetSensitivity("TestValue", VariableScopeNames.Local));
+            Assert.Equal("configured", Assert.IsType<StringValue>(state.Get("SETTING", VariableScopeNames.Environment)).Value);
+            Assert.Equal(SensitivityLevel.Sensitive, state.GetSensitivity("SETTING", VariableScopeNames.Environment));
+            Assert.IsType<BlankValue>(state.Get("LaterValue", VariableScopeNames.Global));
+            Assert.Equal(SensitivityLevel.None, state.GetSensitivity("LaterValue", VariableScopeNames.Global));
+            Assert.Equal(initialConversation, Assert.IsType<StringValue>(state.Get(SystemScope.Names.ConversationId, VariableScopeNames.System)).Value);
+        }
+        finally
+        {
+            executionGate.SetResult(true);
+        }
+
+        await foreach (WorkflowEvent evt in resumed.WatchStreamAsync())
+        {
+            Assert.IsNotType<WorkflowErrorEvent>(evt);
+        }
     }
 
     [Theory]
@@ -444,11 +459,14 @@ public sealed class RootExecutorTests
     {
         public bool ChangeConversation { get; init; }
 
+        public Task ExecutionGate { get; set; } = Task.CompletedTask;
+
         protected override ValueTask OnCheckpointRestoredAsync(IWorkflowContext context, CancellationToken cancellationToken = default) =>
             skipBaseCheckpointRestore ? default : base.OnCheckpointRestoredAsync(context, cancellationToken);
 
         protected override async ValueTask<object?> ExecuteAsync(IWorkflowContext context, CancellationToken cancellationToken = default)
         {
+            await this.ExecutionGate;
             await context.QueueStateUpdateWithSensitivityAsync(
                 "TestValue", new EvaluationResult<string>("action-value", SensitivityLevel.Sensitive), VariableScopeNames.Local, cancellationToken);
             if (this.ChangeConversation)
