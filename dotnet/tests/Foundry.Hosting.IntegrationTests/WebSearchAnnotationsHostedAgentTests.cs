@@ -28,15 +28,15 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
     public async Task ResponsesApi_Streaming_EmitsUrlCitationAnnotationsAsync()
     {
         // Arrange
-        ResponsesClient responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        ResponsesClient responses = this._fixture.AgentResponsesClient;
         CreateResponseOptions options = CreateRequest();
         using CancellationTokenSource timeout = new(s_timeout);
         List<UriCitationMessageAnnotation> annotations = [];
         StreamingResponseCompletedUpdate? completed = null;
 
         // Act
-        await foreach (StreamingResponseUpdate update in responses
-            .CreateResponseStreamingAsync(options, timeout.Token)
+        await foreach (StreamingResponseUpdate update in (await responses
+            .CreateResponseStreamingAsync(options, timeout.Token))
             .WithCancellation(timeout.Token))
         {
             switch (update)
@@ -68,7 +68,7 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
     public async Task ResponsesApi_NonStreaming_ReturnsUrlCitationAnnotationsAsync()
     {
         // Arrange
-        ResponsesClient responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        ResponsesClient responses = this._fixture.AgentResponsesClient;
         CreateResponseOptions options = CreateRequest();
         using CancellationTokenSource timeout = new(s_timeout);
 

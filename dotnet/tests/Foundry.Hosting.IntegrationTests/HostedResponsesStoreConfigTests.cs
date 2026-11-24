@@ -34,7 +34,7 @@ public sealed class HostedResponsesStoreConfigTests(HostedResponsesStoreConfigFi
         // Assert
         Assert.False(string.IsNullOrWhiteSpace(response.Text));
         // Stored hosted-agent responses are readable only through the per-agent endpoint client.
-        var fetched = await this._fixture.AgentOpenAIClient.GetProjectResponsesClient().GetResponseAsync(response.ResponseId!);
+        var fetched = await this._fixture.AgentResponsesClient.GetResponseAsync(response.ResponseId!);
         Assert.NotNull(fetched.Value);
     }
 
@@ -59,7 +59,7 @@ public sealed class HostedResponsesStoreConfigTests(HostedResponsesStoreConfigFi
         // Attempting to fetch the response should fail because nothing was stored. Reads go through
         // the per-agent endpoint client (the project-level client returns 403 session_not_accessible).
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            this._fixture.AgentOpenAIClient.GetProjectResponsesClient().GetResponseAsync(responseId));
+            this._fixture.AgentResponsesClient.GetResponseAsync(responseId));
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class HostedResponsesStoreConfigTests(HostedResponsesStoreConfigFi
         // never persist their own response, so any number of store=false turns can reuse the same fork
         // without appending to it.
         var agent = this._fixture.Agent;
-        var perAgent = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        var perAgent = this._fixture.AgentResponsesClient;
 
         // Head turn: store=true (default). Establishes the fork with a fact and is retrievable.
         var head = await agent.RunAsync("Remember the number 73. Acknowledge briefly.");

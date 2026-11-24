@@ -34,7 +34,7 @@ AIAgent agent = new AIProjectClient(
     new Uri(endpoint),
     new DefaultAzureCredential())
     .GetProjectOpenAIClient()
-    .GetProjectResponsesClient()
+    .GetResponsesClient()
     .AsIChatClientWithStoredOutputDisabled(deploymentName)
     .AsAIAgent(new ChatClientAgentOptions
     {

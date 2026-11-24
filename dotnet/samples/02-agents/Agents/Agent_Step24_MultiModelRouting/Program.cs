@@ -30,7 +30,7 @@ var secondaryModel = Environment.GetEnvironmentVariable("FOUNDRY_MODEL_ALTERNATE
 // latency issues, unintended credential probing, and potential security risks from fallback mechanisms.
 var responsesClient = new AIProjectClient(new Uri(endpoint), new DefaultAzureCredential())
     .GetProjectOpenAIClient()
-    .GetProjectResponsesClient();
+    .GetResponsesClient();
 
 // <create_routing_client>
 // Each route is an ordinary IChatClient. Here both routes target the same project but a different

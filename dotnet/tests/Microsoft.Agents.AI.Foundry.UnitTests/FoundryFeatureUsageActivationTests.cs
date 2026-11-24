@@ -50,6 +50,40 @@ public sealed class FoundryFeatureUsageActivationTests : IDisposable
     }
 
     [Fact]
+    public async Task HostedEndpoint_ResponseClientsUseSameRouteAsync()
+    {
+        // Arrange
+        List<Uri?> requestUris = [];
+        using HttpHandlerAssert handler = new(request =>
+        {
+            requestUris.Add(request.RequestUri);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(TestDataUtil.GetOpenAIDefaultResponseJson(), Encoding.UTF8, "application/json"),
+            };
+        });
+        using HttpClient httpClient = CreateHttpClient(handler);
+        var options = new ProjectOpenAIClientOptions
+        {
+            AgentName = "test-agent",
+            Transport = new HttpClientPipelineTransport(httpClient),
+        };
+        var client = new ProjectOpenAIClient(
+            new Uri("https://test.services.ai.azure.com/api/projects/test"),
+            new FakeAuthenticationTokenProvider(),
+            options);
+
+        // Act
+        await client.GetProjectResponsesClient().CreateResponseAsync("model", "Hello");
+        await client.GetResponsesClient().CreateResponseAsync("model", "Hello");
+
+        // Assert
+        Assert.Equal(2, requestUris.Count);
+        Assert.Equal(requestUris[0], requestUris[1]);
+        Assert.Contains("/agents/test-agent/endpoint/protocols/openai/responses", requestUris[1]!.AbsolutePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FoundryChatClient_StreamingMarksAtEnumerationAsync()
     {
         // Arrange

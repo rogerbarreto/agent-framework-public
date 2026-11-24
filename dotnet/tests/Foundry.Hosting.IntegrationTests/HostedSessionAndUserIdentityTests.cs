@@ -84,7 +84,7 @@ public sealed class HostedSessionAndUserIdentityTests(UserIdentityHostedAgentFix
         AgentAdministrationClient admin = this.CreateAdminClient();
         ProjectAgentSession platformSession = await admin.CreateSessionAsync(
             this._fixture.AgentName,
-            new VersionRefIndicator(this._fixture.AgentVersion));
+            new VersionReferenceIndicator(this._fixture.AgentVersion));
 
         string hostedSessionId = platformSession.AgentSessionId;
         await WaitForSessionActiveAsync(admin, this._fixture.AgentName, hostedSessionId);

@@ -101,7 +101,7 @@ public static class FoundryAITool
     /// <param name="parameters">The browser automation configuration parameters.</param>
     /// <returns>An <see cref="AITool"/> for browser automation.</returns>
     public static AITool CreateBrowserAutomationTool(BrowserAutomationToolOptions parameters)
-        => new BrowserAutomationPreviewTool(parameters).AsAITool();
+        => new BrowserAutomationTool(parameters).AsAITool();
 
     /// <summary>
     /// Creates an <see cref="AITool"/> for structured output capture.

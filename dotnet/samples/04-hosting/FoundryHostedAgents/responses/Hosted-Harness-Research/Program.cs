@@ -38,8 +38,8 @@ IChatClient modelClient = new AIProjectClient(
         new DefaultAzureCredential(),
         new AIProjectClientOptions { RetryPolicy = new ClientRetryPolicy(3) })
     .GetProjectOpenAIClient()
-    .GetProjectResponsesClientForModel(deploymentName)
-    .AsIChatClient();
+    .GetResponsesClient()
+    .AsIChatClient(deploymentName);
 
 IChatClient chatClient = new StatelessWebSearchChatClient(modelClient);
 

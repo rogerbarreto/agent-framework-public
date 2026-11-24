@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Azure.AI.Extensions.OpenAI;
 using Azure.AI.Projects.Agents;
 using Microsoft.Extensions.AI;
 using OpenAI;
@@ -22,6 +23,21 @@ namespace Microsoft.Agents.AI.Foundry.UnitTests;
 
 public class FoundryAIToolTests
 {
+    [Fact]
+    public void CreateBrowserAutomationTool_SerializesAsGaBrowserAutomationTool()
+    {
+        // Arrange
+        var options = new BrowserAutomationToolOptions(new BrowserAutomationToolConnectionOptions("connection-id"));
+
+        // Act
+        AITool tool = FoundryAITool.CreateBrowserAutomationTool(options);
+
+        // Assert
+        var responseTool = Assert.IsType<BrowserAutomationTool>(tool.GetService(typeof(ResponseTool)));
+        using JsonDocument json = JsonDocument.Parse(ModelReaderWriter.Write(responseTool, ModelReaderWriterOptions.Json).ToString());
+        Assert.Equal("browser_automation", json.RootElement.GetProperty("type").GetString());
+    }
+
     [Fact]
     public void CreateComputerTool_Parameterless_SerializesAsGaComputerTool()
     {
