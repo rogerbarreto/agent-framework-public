@@ -33,6 +33,18 @@ public static class ProjectResponsesClientExtensions
     /// <exception cref="ArgumentNullException"><paramref name="responseClient"/> is <see langword="null"/>.</exception>
     [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
     public static IChatClient AsIChatClientWithStoredOutputDisabled(this ProjectResponsesClient responseClient, string? deploymentName = null, bool includeReasoningEncryptedContent = true)
+        => AsIChatClientWithStoredOutputDisabled((ResponsesClient)responseClient, deploymentName, includeReasoningEncryptedContent);
+
+    /// <summary>
+    /// Gets an <see cref="IChatClient"/> for a responses client that does not store responses for later retrieval.
+    /// </summary>
+    /// <param name="responseClient">The client.</param>
+    /// <param name="deploymentName">Optional deployment name (model) to use for requests.</param>
+    /// <param name="includeReasoningEncryptedContent">Whether to include encrypted reasoning content for stateless conversations.</param>
+    /// <returns>An <see cref="IChatClient"/> that does not store responses for later retrieval.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="responseClient"/> is <see langword="null"/>.</exception>
+    [Experimental(DiagnosticIds.Experiments.AgentsAIExperiments)]
+    public static IChatClient AsIChatClientWithStoredOutputDisabled(this ResponsesClient responseClient, string? deploymentName = null, bool includeReasoningEncryptedContent = true)
     {
         return Throw.IfNull(responseClient)
             .AsIChatClient(deploymentName)

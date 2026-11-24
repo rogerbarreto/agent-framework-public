@@ -136,7 +136,7 @@ static async Task UseStructuredOutputWithMiddlewareAsync(AIProjectClient aiProje
     Console.WriteLine("=== Structured Output with UseStructuredOutput Middleware ===");
 
     // Create chat client that will transform the agent text response into structured output.
-    IChatClient meaiChatClient = aiProjectClient.GetProjectOpenAIClient().GetProjectResponsesClientForModel(deploymentName).AsIChatClientWithStoredOutputDisabled(deploymentName);
+    IChatClient meaiChatClient = aiProjectClient.GetProjectOpenAIClient().GetResponsesClient().AsIChatClientWithStoredOutputDisabled(deploymentName);
 
     // Create the agent
     AIAgent agent = meaiChatClient.AsAIAgent(name: "HelpfulAssistant", instructions: "You are a helpful assistant.");

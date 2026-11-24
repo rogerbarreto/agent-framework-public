@@ -99,7 +99,7 @@ static async Task<string> CheckTravelAdvisory([Description("The city name.")] st
 // Create the agent — per-service-call persistence is enabled via RequirePerServiceCallChatHistoryPersistence.
 // The in-memory ChatHistoryProvider is used by default when the service does not require service stored chat
 // history, so for those cases, we can inspect the chat history via session.TryGetInMemoryChatHistory().
-var responsesClient = aiProjectClient.GetProjectOpenAIClient().GetProjectResponsesClientForModel(deploymentName);
+var responsesClient = aiProjectClient.GetProjectOpenAIClient().GetResponsesClient();
 IChatClient chatClient = string.Equals(store, "TRUE", StringComparison.OrdinalIgnoreCase) ?
     responsesClient.AsIChatClient(deploymentName) :
     responsesClient.AsIChatClientWithStoredOutputDisabled(deploymentName);

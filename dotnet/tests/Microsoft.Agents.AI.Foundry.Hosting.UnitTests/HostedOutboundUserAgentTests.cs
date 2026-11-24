@@ -106,10 +106,12 @@ public sealed class HostedOutboundUserAgentTests : IAsyncDisposable
         {
             Transport = new HttpClientPipelineTransport(outboundHttpClient),
         };
+#pragma warning disable AAIP002 // ProjectResponsesClient is experimental in the Foundry SDK
         var projectResponsesClient = new ProjectResponsesClient(
             new Uri(TestEndpoint),
             new FakeAuthenticationTokenProvider(),
             projectOptions);
+#pragma warning restore AAIP002
 
         IChatClient chatClient = projectResponsesClient.AsIChatClient(Deployment);
         AIAgent agent = new ChatClientAgent(chatClient);

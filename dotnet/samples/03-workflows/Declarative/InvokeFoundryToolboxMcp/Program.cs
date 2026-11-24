@@ -144,7 +144,7 @@ internal sealed class Program
 
         WebSearchToolboxTool webTool = new();
 
-        MCPToolboxTool mcpTool = new(serverLabel)
+        McpToolboxTool mcpTool = new(serverLabel)
         {
             ServerUri = new Uri("https://learn.microsoft.com/api/mcp"),
             ToolCallApprovalPolicy = new McpToolCallApprovalPolicy(DefaultMcpToolCallApprovalPolicy.NeverRequireApproval),
