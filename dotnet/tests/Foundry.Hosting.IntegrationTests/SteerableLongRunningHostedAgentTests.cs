@@ -30,7 +30,7 @@ public sealed class SteerableLongRunningHostedAgentTests(
         // Arrange
         string token = Guid.NewGuid().ToString("N");
         string conversationId = await this._fixture.CreateConversationAsync();
-        var responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        var responses = this._fixture.AgentResponsesClient;
 
         try
         {
@@ -93,9 +93,9 @@ public sealed class SteerableLongRunningHostedAgentTests(
         string? responseId = null;
         StringBuilder text = new();
 
-        await foreach (StreamingResponseUpdate update in responses
-            .CreateResponseStreamingAsync(options, timeoutSource.Token)
-            .WithCancellation(timeoutSource.Token))
+        await using AsyncStreamingResult<StreamingResponseUpdate> stream =
+            await responses.CreateResponseStreamingAsync(options, timeoutSource.Token);
+        await foreach (StreamingResponseUpdate update in stream.WithCancellation(timeoutSource.Token))
         {
             switch (update)
             {

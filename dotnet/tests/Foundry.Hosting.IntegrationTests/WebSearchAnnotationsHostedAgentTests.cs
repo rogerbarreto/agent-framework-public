@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.ClientModel;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -28,16 +29,16 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
     public async Task ResponsesApi_Streaming_EmitsUrlCitationAnnotationsAsync()
     {
         // Arrange
-        ResponsesClient responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        ResponsesClient responses = this._fixture.AgentResponsesClient;
         CreateResponseOptions options = CreateRequest();
         using CancellationTokenSource timeout = new(s_timeout);
         List<UriCitationMessageAnnotation> annotations = [];
         StreamingResponseCompletedUpdate? completed = null;
 
         // Act
-        await foreach (StreamingResponseUpdate update in responses
-            .CreateResponseStreamingAsync(options, timeout.Token)
-            .WithCancellation(timeout.Token))
+        await using AsyncStreamingResult<StreamingResponseUpdate> stream =
+            await responses.CreateResponseStreamingAsync(options, timeout.Token);
+        await foreach (StreamingResponseUpdate update in stream.WithCancellation(timeout.Token))
         {
             switch (update)
             {
@@ -68,7 +69,7 @@ public sealed class WebSearchAnnotationsHostedAgentTests(
     public async Task ResponsesApi_NonStreaming_ReturnsUrlCitationAnnotationsAsync()
     {
         // Arrange
-        ResponsesClient responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        ResponsesClient responses = this._fixture.AgentResponsesClient;
         CreateResponseOptions options = CreateRequest();
         using CancellationTokenSource timeout = new(s_timeout);
 

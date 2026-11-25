@@ -95,7 +95,7 @@ static async Task<string> CreateSampleToolboxAsync(string name, string endpoint,
     }
 
     // Create a fresh version with a single MCP tool.
-    MCPToolboxTool mcpTool = new("api-specs")
+    McpToolboxTool mcpTool = new("api-specs")
     {
         ServerUri = new Uri("https://gitmcp.io/Azure/azure-rest-api-specs"),
         ToolCallApprovalPolicy = new McpToolCallApprovalPolicy(DefaultMcpToolCallApprovalPolicy.NeverRequireApproval),

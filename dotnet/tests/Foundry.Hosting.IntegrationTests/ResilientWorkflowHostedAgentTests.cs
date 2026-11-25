@@ -34,7 +34,7 @@ public sealed class ResilientWorkflowHostedAgentTests(ResilientWorkflowHostedAge
         // Arrange
         string token = Guid.NewGuid().ToString("N");
         CreateResponseOptions options = CreateBackgroundRequest($"long:{token}");
-        var responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        var responses = this._fixture.AgentResponsesClient;
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         // Act
@@ -58,7 +58,7 @@ public sealed class ResilientWorkflowHostedAgentTests(ResilientWorkflowHostedAge
         // Arrange
         string token = Guid.NewGuid().ToString("N");
         CreateResponseOptions options = CreateBackgroundRequest($"crash:{token}");
-        var responses = this._fixture.AgentOpenAIClient.GetProjectResponsesClient();
+        var responses = this._fixture.AgentResponsesClient;
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         // Act

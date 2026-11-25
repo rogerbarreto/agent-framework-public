@@ -109,6 +109,9 @@ public abstract class HostedAgentFixture : IAsyncLifetime
     /// </summary>
     public ProjectOpenAIClient AgentOpenAIClient { get; private set; } = null!;
 
+    /// <summary>The responses client bound to this scenario's hosted agent endpoint.</summary>
+    public ResponsesClient AgentResponsesClient { get; private set; } = null!;
+
     /// <summary>
     /// Creates a server side conversation that tests can pass via <c>ChatOptions.ConversationId</c>
     /// to exercise multi turn flows backed by the Foundry conversations service.
@@ -180,7 +183,7 @@ public abstract class HostedAgentFixture : IAsyncLifetime
     public async Task<List<(string Role, string Text)>> ReadResponseInputMessagesAsync(string responseId)
     {
         List<(string Role, string Text)> messages = [];
-        await foreach (ResponseItem item in this.AgentOpenAIClient.GetProjectResponsesClient().GetResponseInputItemsAsync(responseId).ConfigureAwait(false))
+        await foreach (ResponseItem item in this.AgentResponsesClient.GetResponseInputItemsAsync(responseId).ConfigureAwait(false))
         {
             if (item is MessageResponseItem message)
             {
@@ -210,7 +213,7 @@ public abstract class HostedAgentFixture : IAsyncLifetime
     {
         try
         {
-            var response = await this.AgentOpenAIClient.GetProjectResponsesClient().GetResponseAsync(responseId).ConfigureAwait(false);
+            var response = await this.AgentResponsesClient.GetResponseAsync(responseId).ConfigureAwait(false);
             return response?.Value;
         }
         catch (ClientResultException ex) when (ex.Status is 404)
@@ -277,9 +280,9 @@ public abstract class HostedAgentFixture : IAsyncLifetime
         // header is also required on the invocation pipeline (not just the admin one) for hosted agents.
         var openAIOptions = new ProjectOpenAIClientOptions { AgentName = this.AgentName };
         openAIOptions.AddPolicy(new FoundryFeaturesPolicy(HostedAgentsFeatureValue), PipelinePosition.PerCall);
-        var openAIClient = new ProjectOpenAIClient(endpoint, credential, openAIOptions);
-        this.AgentOpenAIClient = openAIClient;
-        var responsesClient = openAIClient.GetProjectResponsesClient();
+        this.AgentOpenAIClient = new ProjectOpenAIClient(endpoint, credential, openAIOptions);
+        var responsesClient = this.AgentOpenAIClient.GetResponsesClient();
+        this.AgentResponsesClient = responsesClient;
 
         this.Agent = responsesClient.AsIChatClient().AsAIAgent(name: this.AgentName);
     }

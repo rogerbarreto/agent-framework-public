@@ -31,6 +31,27 @@ public sealed class ProjectResponsesClientExtensionsTests
         Assert.Equal("responseClient", exception.ParamName);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AsIChatClientWithStoredOutputDisabled_WithResponsesClient_ConfiguresOptions(bool includeReasoning)
+    {
+        // Arrange
+        ResponsesClient responseClient = new ProjectOpenAIClient(
+            new Uri("https://test.services.ai.azure.com/api/projects/test"),
+            new FakeAuthenticationTokenProvider()).GetResponsesClient();
+
+        // Act
+        var chatClient = responseClient.AsIChatClientWithStoredOutputDisabled(includeReasoningEncryptedContent: includeReasoning);
+
+        // Assert
+        Assert.Same(responseClient, chatClient.GetService<ResponsesClient>());
+        var options = GetCreateResponseOptionsFromPipeline(chatClient);
+        Assert.NotNull(options);
+        Assert.False(options.StoredOutputEnabled);
+        Assert.Equal(includeReasoning, options.IncludedProperties.Contains(IncludedResponseProperty.ReasoningEncryptedContent));
+    }
+
     /// <summary>
     /// Verify that AsIChatClientWithStoredOutputDisabled wraps the original ProjectResponsesClient,
     /// which remains accessible via the service chain.

@@ -30,7 +30,7 @@ ProjectsAgentRecord agentRecord = await adminClient.GetAgentAsync(agentName);
 string agentVersion = agentRecord.GetLatestVersion().Version;
 ProjectAgentSession hostedSession = await adminClient.CreateSessionAsync(
     agentName,
-    new VersionRefIndicator(agentVersion));
+    new VersionReferenceIndicator(agentVersion));
 string hostedSessionId = hostedSession.AgentSessionId;
 
 // Demonstration only: this console accepts arbitrary user IDs to make isolation visible.

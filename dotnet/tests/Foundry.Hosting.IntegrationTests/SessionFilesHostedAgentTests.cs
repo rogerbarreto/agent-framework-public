@@ -79,7 +79,7 @@ public sealed class SessionFilesHostedAgentTests(SessionFilesHostedAgentFixture 
         openAIOptions.AddPolicy(headerCapture, PipelinePosition.PerCall);
         var openAIClient = new ProjectOpenAIClient(endpoint, credential, openAIOptions);
         var conversations = openAIClient.GetProjectConversationsClient();
-        var responses = openAIClient.GetProjectResponsesClient();
+        var responses = openAIClient.GetResponsesClient();
 
         // Step 1 — create a conversation bound to the agent endpoint. Subsequent /responses calls
         // tagged with this conversation_id route to the same per-session container.

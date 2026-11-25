@@ -34,7 +34,7 @@ AIAgent agent = aiProjectClient.AsAIAgent(
 // This is generally fine but for this sample we want to explicitly request those in the response generation configuration.
 AIAgent agent = aiProjectClient
     .GetProjectOpenAIClient()
-    .GetProjectResponsesClient()
+    .GetResponsesClient()
     .AsIChatClient(deploymentName)
     .AsBuilder()
     .ConfigureOptions(x =>
