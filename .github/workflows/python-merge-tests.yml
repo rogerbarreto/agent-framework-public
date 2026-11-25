@@ -1,8 +1,7 @@
 name: Python - Merge - Tests
 #
-# NOTE: This workflow and python-integration-tests.yml share the same set of
-# parallel test jobs. Keep them in sync — when adding, removing, or modifying a
-# job here, apply the same change to python-integration-tests.yml.
+# python-integration-tests.yml uses a different job layout. Align its credential
+# isolation with this workflow before re-enabling the manual integration workflow.
 #
 
 on:
@@ -16,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   # Configure a constant location for the uv cache
@@ -34,10 +32,7 @@ jobs:
       pythonChanges: ${{ steps.filter.outputs.python }}
       coreChanged: ${{ steps.filter.outputs.core }}
       openaiChanged: ${{ steps.filter.outputs.openai }}
-      azureChanged: ${{ steps.filter.outputs.azure }}
       miscChanged: ${{ steps.filter.outputs.misc }}
-      foundryChanged: ${{ steps.filter.outputs.foundry }}
-      foundryHostingChanged: ${{ steps.filter.outputs.foundry_hosting }}
       cosmosChanged: ${{ steps.filter.outputs.cosmos }}
       duckdbChanged: ${{ steps.filter.outputs.duckdb }}
       qdrantChanged: ${{ steps.filter.outputs.qdrant }}
@@ -65,10 +60,6 @@ jobs:
               - 'python/packages/core/agent_framework/openai/**'
               - 'python/packages/openai/**'
               - 'python/samples/**/providers/openai/**'
-            azure:
-              - 'python/packages/openai/**'
-              - 'python/packages/core/agent_framework/azure/**'
-              - 'python/samples/**/providers/azure/**'
             misc:
               - 'python/packages/anthropic/**'
               - 'python/packages/hyperlight/**'
@@ -83,12 +74,6 @@ jobs:
               - '.github/actions/setup-local-mcp-server/**'
               - '.github/workflows/python-merge-tests.yml'
               - '.github/workflows/python-integration-tests.yml'
-            foundry:
-              - 'python/packages/foundry/**'
-              - 'python/samples/**/providers/foundry/**'
-              - 'python/samples/02-agents/embeddings/foundry_embeddings.py'
-            foundry_hosting:
-              - 'python/packages/foundry_hosting/**'
             cosmos:
               - 'python/packages/azure-cosmos/**'
             duckdb:
@@ -156,7 +141,7 @@ jobs:
     timeout-minutes: 15
     services:
       qdrant:
-        image: qdrant/qdrant:v1.16.2
+        image: qdrant/qdrant:v1.16.2@sha256:dab6de32f7b2cc599985a7c764db3e8b062f70508fb85ca074aa856f829bf335
         env:
           QDRANT__TELEMETRY_DISABLED: "true"
         ports:
@@ -346,59 +331,38 @@ jobs:
           path: ./python/pytest.xml
           if-no-files-found: ignore
 
-  # Azure OpenAI integration tests
-  python-tests-azure-openai:
-    name: Python Tests - Azure OpenAI Integration
+  python-tests-anthropic:
+    name: Python Integration Tests - Anthropic
     needs: paths-filter
     if: >
       github.event_name != 'pull_request' &&
       needs.paths-filter.outputs.pythonChanges == 'true' &&
       (github.event_name != 'merge_group' ||
-       needs.paths-filter.outputs.azureChanged == 'true' ||
+       needs.paths-filter.outputs.miscChanged == 'true' ||
        needs.paths-filter.outputs.coreChanged == 'true')
     runs-on: ubuntu-latest
     environment: integration
-    env:
-      AZURE_OPENAI_CHAT_COMPLETION_MODEL: ${{ vars.AZUREOPENAI__CHATDEPLOYMENTNAME }}
-      AZURE_OPENAI_CHAT_MODEL: ${{ vars.AZUREOPENAI__RESPONSESDEPLOYMENTNAME }}
-      AZURE_OPENAI_MODEL: ${{ vars.AZUREOPENAI__RESPONSESDEPLOYMENTNAME }}
-      AZURE_OPENAI_EMBEDDING_MODEL: ${{ vars.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME }}
-      AZURE_OPENAI_ENDPOINT: ${{ vars.AZUREOPENAI__ENDPOINT }}
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: python
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up python and install the project
-        id: python-setup
         uses: ./.github/actions/python-setup
         with:
           python-version: ${{ env.UV_PYTHON }}
           os: ${{ runner.os }}
-      - name: Azure CLI Login
-        if: github.event_name != 'pull_request'
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Test with pytest (Azure OpenAI integration)
+      - name: Test Anthropic integration
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_CHAT_MODEL: ${{ vars.ANTHROPIC_CHAT_MODEL_ID }}
         run: >
-          uv run pytest --import-mode=importlib
-          packages/openai/tests/openai/test_openai_chat_completion_client_azure.py
-          packages/openai/tests/openai/test_openai_chat_client_azure.py
-          packages/openai/tests/openai/test_openai_embedding_client_azure.py
-          -m integration
-          -n logical --dist worksteal
-          --timeout=120 --session-timeout=900 --timeout_method thread
-          --retries 2 --retry-delay 5
-          --junitxml=pytest.xml
-        working-directory: ./python
-      - name: Test Azure samples
-        timeout-minutes: 10
-        if: env.RUN_SAMPLES_TESTS == 'true'
-        run: uv run pytest tests/samples/ -m "azure"
-        working-directory: ./python
+          uv run pytest --import-mode=importlib packages/anthropic/tests -m integration
+          -n logical --dist worksteal --timeout=120 --session-timeout=900 --timeout_method thread
+          --retries 2 --retry-delay 30 --junitxml=pytest.xml
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@fdc7f18d9934e38aca411ca9557e6577bd25ca9c # v0.9.0
@@ -407,16 +371,64 @@ jobs:
           summary: true
           display-options: fEX
           fail-on-empty: false
-          title: Azure OpenAI integration test results
+          title: Anthropic integration test results
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-results-azure-openai
+          name: test-results-anthropic
           path: ./python/pytest.xml
           if-no-files-found: ignore
 
-  # Misc integration tests (Anthropic, Ollama, MCP)
+  python-tests-sql-server:
+    name: Python Integration Tests - SQL Server
+    needs: paths-filter
+    if: >
+      github.event_name != 'pull_request' &&
+      needs.paths-filter.outputs.pythonChanges == 'true' &&
+      (github.event_name != 'merge_group' ||
+       needs.paths-filter.outputs.miscChanged == 'true' ||
+       needs.paths-filter.outputs.coreChanged == 'true')
+    runs-on: ubuntu-latest
+    environment: integration
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up python and install the project
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: ${{ env.UV_PYTHON }}
+          os: ${{ runner.os }}
+      - name: Test SQL Server integration
+        env:
+          SQL_SERVER_TEST_CONNECTION_STRING: ${{ secrets.SQL_SERVER_TEST_CONNECTION_STRING }}
+        run: >
+          uv run pytest --import-mode=importlib packages/sql-server/tests/sql_server/test_integration.py -m integration
+          -n logical --dist worksteal --timeout=120 --session-timeout=900 --timeout_method thread
+          --retries 2 --retry-delay 30 --junitxml=pytest.xml
+      - name: Surface failing tests
+        if: always()
+        uses: pmeier/pytest-results-action@fdc7f18d9934e38aca411ca9557e6577bd25ca9c # v0.9.0
+        with:
+          path: ./python/pytest.xml
+          summary: true
+          display-options: fEX
+          fail-on-empty: false
+          title: SQL Server integration test results
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-sql-server
+          path: ./python/pytest.xml
+          if-no-files-found: ignore
+
+  # Local integration tests and providers without configured credentials.
   python-tests-misc-integration:
     name: Python Tests - Misc Integration
     needs: paths-filter
@@ -428,13 +440,15 @@ jobs:
        needs.paths-filter.outputs.coreChanged == 'true')
     runs-on: ubuntu-latest
     environment: integration
+    services:
+      ollama:
+        image: ollama/ollama:0.40.18@sha256:1cabd20e1762a7a8444bf4a7110b346d923cd77ab6c97c984434140638c913ec
+        ports:
+          - 11434:11434
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      ANTHROPIC_CHAT_MODEL: ${{ vars.ANTHROPIC_CHAT_MODEL_ID }}
       LOCAL_MCP_URL: ${{ vars.LOCAL_MCP__URL }}
       OLLAMA_MODEL: qwen2.5:1.5b
       OLLAMA_EMBEDDING_MODEL: nomic-embed-text
-      SQL_SERVER_TEST_CONNECTION_STRING: ${{ secrets.SQL_SERVER_TEST_CONNECTION_STRING }}
     defaults:
       run:
         working-directory: python
@@ -446,37 +460,35 @@ jobs:
         with:
           python-version: ${{ env.UV_PYTHON }}
           os: ${{ runner.os }}
-      - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | sh
-        working-directory: .
       - name: Cache Ollama models
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ollama/models
           key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
-      - name: Start Ollama and pull models
+      - name: Wait for Ollama and pull models
         run: |
-          # Stop any Ollama instance auto-started by the install script
-          pkill ollama || true
-          sleep 2
-          ollama serve &
+          set -euo pipefail
           for i in $(seq 1 30); do
             if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
               break
             fi
             sleep 1
           done
-          # Pull models with retry for transient 429 rate limits
+          curl --fail --silent http://localhost:11434/api/tags > /dev/null
+          mkdir -p ~/.ollama/models
+          docker exec "${{ job.services.ollama.id }}" mkdir -p /root/.ollama/models
+          docker cp ~/.ollama/models/. "${{ job.services.ollama.id }}:/root/.ollama/models/"
           for model in qwen2.5:1.5b nomic-embed-text; do
             pulled=false
             for attempt in 1 2 3; do
-              if ollama pull "$model"; then
+              if docker exec "${{ job.services.ollama.id }}" ollama pull "$model"; then
                 pulled=true
                 break
               fi
               echo "Retry $attempt for $model (waiting 15s)..."
               sleep 15
             done
+            docker cp "${{ job.services.ollama.id }}:/root/.ollama/models/." ~/.ollama/models/
             if [ "$pulled" != "true" ]; then
               echo "ERROR: Failed to pull $model after 3 attempts"
               exit 1
@@ -490,15 +502,13 @@ jobs:
           fallback_url: ${{ env.LOCAL_MCP_URL }}
       - name: Prefer local MCP URL when available
         run: echo "LOCAL_MCP_URL=${{ steps.local-mcp.outputs.effective_url }}" >> "$GITHUB_ENV"
-      - name: Test with pytest (Anthropic, Hyperlight, Mistral, Ollama, Oracle, SQL Server, MCP integration)
+      - name: Test local and unconfigured integrations
         run: >
           uv run pytest --import-mode=importlib
-          packages/anthropic/tests
           packages/hyperlight/tests
           packages/mistral/tests
           packages/ollama/tests
           packages/oracle/tests
-          packages/sql-server/tests/sql_server/test_integration.py
           packages/core/tests/core/test_mcp.py
           packages/hosting-mcp/tests
           -m integration
@@ -544,134 +554,6 @@ jobs:
           path: ./python/pytest.xml
           if-no-files-found: ignore
 
-  python-tests-foundry:
-    name: Python Integration Tests - Foundry
-    needs: paths-filter
-    if: >
-      github.event_name != 'pull_request' &&
-      needs.paths-filter.outputs.pythonChanges == 'true' &&
-      (github.event_name != 'merge_group' ||
-       needs.paths-filter.outputs.foundryChanged == 'true' ||
-       needs.paths-filter.outputs.coreChanged == 'true')
-    runs-on: ubuntu-latest
-    environment: integration
-    env:
-      FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-      FOUNDRY_MODEL: ${{ vars.FOUNDRY_MODEL }}
-      FOUNDRY_AGENT_NAME: ${{ vars.FOUNDRY_AGENT_NAME }}
-      FOUNDRY_AGENT_VERSION: ${{ vars.FOUNDRY_AGENT_VERSION }}
-      FOUNDRY_MODELS_ENDPOINT: ${{ vars.FOUNDRY_MODELS_ENDPOINT || '' }}
-      FOUNDRY_MODELS_API_KEY: ${{ secrets.FOUNDRY_MODELS_API_KEY || '' }}
-      FOUNDRY_EMBEDDING_MODEL: ${{ vars.FOUNDRY_EMBEDDING_MODEL || '' }}
-      FOUNDRY_IMAGE_EMBEDDING_MODEL: ${{ vars.FOUNDRY_IMAGE_EMBEDDING_MODEL || '' }}
-      LOCAL_MCP_URL: ${{ vars.LOCAL_MCP__URL }}
-    defaults:
-      run:
-        working-directory: python
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up python and install the project
-        id: python-setup
-        uses: ./.github/actions/python-setup
-        with:
-          python-version: ${{ env.UV_PYTHON }}
-          os: ${{ runner.os }}
-      - name: Azure CLI Login
-        if: github.event_name != 'pull_request'
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Test with pytest
-        timeout-minutes: 15
-        run: >
-          uv run pytest --import-mode=importlib
-          packages/foundry/tests
-          -m integration
-          -n logical --dist worksteal
-          --timeout=120 --session-timeout=900 --timeout_method thread
-          --retries 2 --retry-delay 5
-          --junitxml=pytest.xml
-        working-directory: ./python
-      - name: Surface failing tests
-        if: always()
-        uses: pmeier/pytest-results-action@fdc7f18d9934e38aca411ca9557e6577bd25ca9c # v0.9.0
-        with:
-          path: ./python/pytest.xml
-          summary: true
-          display-options: fEX
-          fail-on-empty: false
-          title: Test results
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: test-results-foundry
-          path: ./python/pytest.xml
-          if-no-files-found: ignore
-
-  # Foundry Hosting integration tests
-  python-tests-foundry-hosting:
-    name: Python Tests - Foundry Hosting Integration
-    needs: paths-filter
-    if: >
-      github.event_name != 'pull_request' &&
-      needs.paths-filter.outputs.pythonChanges == 'true' &&
-      (github.event_name != 'merge_group' ||
-       needs.paths-filter.outputs.foundryHostingChanged == 'true' ||
-       needs.paths-filter.outputs.coreChanged == 'true')
-    runs-on: ubuntu-latest
-    environment: integration
-    env:
-      FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-      FOUNDRY_MODEL: ${{ vars.FOUNDRY_MODEL }}
-    defaults:
-      run:
-        working-directory: python
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up python and install the project
-        id: python-setup
-        uses: ./.github/actions/python-setup
-        with:
-          python-version: ${{ env.UV_PYTHON }}
-          os: ${{ runner.os }}
-      - name: Azure CLI Login
-        if: github.event_name != 'pull_request'
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Test with pytest (Foundry Hosting integration)
-        timeout-minutes: 15
-        run: >
-          uv run pytest --import-mode=importlib
-          packages/foundry_hosting/tests
-          -m integration
-          -n logical --dist worksteal
-          --timeout=120 --session-timeout=900 --timeout_method thread
-          --retries 2 --retry-delay 5
-          --junitxml=pytest.xml
-        working-directory: ./python
-      - name: Surface failing tests
-        if: always()
-        uses: pmeier/pytest-results-action@fdc7f18d9934e38aca411ca9557e6577bd25ca9c # v0.9.0
-        with:
-          path: ./python/pytest.xml
-          summary: true
-          display-options: fEX
-          fail-on-empty: false
-          title: Foundry Hosting integration test results
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: test-results-foundry-hosting
-          path: ./python/pytest.xml
-          if-no-files-found: ignore
-
   # TODO: Add python-tests-lab
 
   # Azure Cosmos integration tests
@@ -688,7 +570,7 @@ jobs:
     environment: integration
     services:
       cosmosdb:
-        image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+        image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview@sha256:c274ac17c19a5f74dbadbc99f259bc49a8640a03f6789f54d7f76cbfc33ff6b6
         ports:
           - 8081:8081
     env:
@@ -874,7 +756,7 @@ jobs:
       contents: read
     services:
       redis:
-        image: redis:8.0.3
+        image: redis:8.0.3@sha256:be0a135f1955140436b9114da96dd22fbedb874469400b6ef458cc0d42155de0
         ports:
           - 6379:6379
         options: >-
@@ -918,10 +800,9 @@ jobs:
     needs:
       [
         python-tests-openai,
-        python-tests-azure-openai,
         python-tests-misc-integration,
-        python-tests-foundry,
-        python-tests-foundry-hosting,
+        python-tests-anthropic,
+        python-tests-sql-server,
         python-tests-cosmos,
         python-tests-qdrant,
         python-tests-mongodb,
@@ -984,10 +865,9 @@ jobs:
         python-tests-duckdb,
         python-tests-unit,
         python-tests-openai,
-        python-tests-azure-openai,
         python-tests-misc-integration,
-        python-tests-foundry,
-        python-tests-foundry-hosting,
+        python-tests-anthropic,
+        python-tests-sql-server,
         python-tests-cosmos,
         python-tests-qdrant,
         python-tests-mongodb,

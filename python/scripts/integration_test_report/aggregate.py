@@ -67,9 +67,8 @@ def _derive_provider(directory_name: str) -> str:
     known = {
         "openai": "OpenAI",
         "azure-openai": "Azure OpenAI",
-        "misc": "Misc (Anthropic, Ollama, MCP)",
+        "misc": "Misc (Hyperlight, Ollama, MCP)",
         "functions": "Functions",
-        "foundry": "Foundry",
         "cosmos": "Cosmos",
         "unit": "Unit",
     }
